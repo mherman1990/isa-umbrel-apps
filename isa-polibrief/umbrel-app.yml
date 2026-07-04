@@ -1,0 +1,39 @@
+manifestVersion: 1
+id: isa-polibrief
+category: automation
+name: polibrief
+version: "1.1.0"
+tagline: Twice-daily policy briefs for Iowa soybean priorities
+icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
+description: >-
+  polibrief watches the Federal Register, Congress.gov, seven state legislatures
+  (via LegiScan), EU law (EUR-Lex), and the Iowa Administrative Bulletin for
+  policy activity that matters to Iowa soybean farmers. Twice a day it filters
+  everything against a topic watchlist you control, uses Claude to triage
+  relevance and write a structured policy brief, and saves it here — with
+  optional delivery to a Microsoft Teams channel.
+
+
+  Edit your topics in watchlist.json and your API keys in .env, both found in
+  this app's data folder. Open the app to read briefs or run one on demand.
+developer: Iowa Soybean Association
+website: https://www.iasoybeans.com
+dependencies: []
+repo: https://github.com/mherman1990/isa-umbrel-apps
+support: https://github.com/mherman1990/isa-umbrel-apps/issues
+port: 8484
+gallery: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""
+releaseNotes: >-
+  Big update: two new sources (Regulations.gov dockets + federal litigation via
+  CourtListener); comment-deadline calendar you can subscribe to from Outlook;
+  item tracking with 📌 movement flagged in briefs; 👍/👎 feedback that teaches
+  the AI triage; weekly Friday synthesis memo; search page over your archive;
+  full topic management (add/delete/weights) and schedule/threshold settings in
+  the UI; per-topic activity sparklines; logs page; RSS feed; copy/email/Teams
+  share buttons; run failures shown on the page; nightly backups; optional
+  password protection; official ISA soybean icon.
+submitter: Matt
+submission: https://github.com/mherman1990/isa-umbrel-apps

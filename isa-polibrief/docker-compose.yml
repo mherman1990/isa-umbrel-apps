@@ -1,0 +1,25 @@
+# Umbrel app compose file. Umbrel's app_proxy makes the web UI available from the
+# dashboard tile (and via Tailscale at http://<pi-tailscale-name>:8484).
+#
+# BEFORE PUBLISHING: replace YOUR_DOCKERHUB_USERNAME below with your Docker Hub
+# username — Umbrel pulls the image from Docker Hub. Build & push from the repo root:
+#
+#   docker buildx build --platform linux/arm64 -f docker/Dockerfile \
+#     -t YOUR_DOCKERHUB_USERNAME/polibrief:1.0.0 --push .
+
+version: "3.7"
+
+services:
+  app_proxy:
+    environment:
+      APP_HOST: isa-polibrief_web_1
+      APP_PORT: 8484
+
+  web:
+    image: ghcr.io/mherman1990/polibrief:1.1.0
+    restart: on-failure
+    stop_grace_period: 30s
+    environment:
+      POLIBRIEF_DATA_DIR: /data
+    volumes:
+      - ${APP_DATA_DIR}/data:/data

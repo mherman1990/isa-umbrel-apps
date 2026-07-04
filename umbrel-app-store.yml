@@ -1,0 +1,7 @@
+# Umbrel Community App Store manifest.
+# This whole "umbrel-community-app-store" folder gets pushed to its own GitHub repo,
+# and that repo's URL is added in Umbrel under Settings → App Store → Community App Stores.
+# Full steps are in the main README under "Deploying to the Raspberry Pi (Umbrel)".
+
+id: isa # store id — must be the prefix of every app id in this store
+name: "ISA Apps"
