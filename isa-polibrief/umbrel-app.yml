@@ -1,21 +1,22 @@
 manifestVersion: 1
 id: isa-polibrief
 category: automation
-name: polibrief
-version: "1.1.0"
+name: The Bean Brief
+version: "1.2.0"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
-  polibrief watches the Federal Register, Congress.gov, seven state legislatures
-  (via LegiScan), EU law (EUR-Lex), and the Iowa Administrative Bulletin for
-  policy activity that matters to Iowa soybean farmers. Twice a day it filters
-  everything against a topic watchlist you control, uses Claude to triage
-  relevance and write a structured policy brief, and saves it here — with
-  optional delivery to a Microsoft Teams channel.
+  The Bean Brief watches the Federal Register, Congress.gov, Regulations.gov,
+  federal courts (CourtListener), seven state legislatures (via LegiScan), EU law
+  (EUR-Lex), and the Iowa Administrative Bulletin for policy activity that matters
+  to Iowa soybean farmers. Twice a day it filters everything against your Focus
+  Areas, uses Claude to triage relevance and write a structured policy brief, and
+  saves it here — with optional email delivery to a Teams channel or inbox.
 
 
-  Edit your topics in watchlist.json and your API keys in .env, both found in
-  this app's data folder. Open the app to read briefs or run one on demand.
+  Organize monitoring into Focus Areas (issue buckets of search terms) right in
+  the app, and open any stored item for an on-demand AI summary of the linked
+  rule and why it matters. Set your API keys in .env in this app's data folder.
 developer: Iowa Soybean Association
 website: https://www.iasoybeans.com
 dependencies: []
@@ -27,13 +28,12 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  Big update: two new sources (Regulations.gov dockets + federal litigation via
-  CourtListener); comment-deadline calendar you can subscribe to from Outlook;
-  item tracking with 📌 movement flagged in briefs; 👍/👎 feedback that teaches
-  the AI triage; weekly Friday synthesis memo; search page over your archive;
-  full topic management (add/delete/weights) and schedule/threshold settings in
-  the UI; per-topic activity sparklines; logs page; RSS feed; copy/email/Teams
-  share buttons; run failures shown on the page; nightly backups; optional
-  password protection; official ISA soybean icon.
+  Rebranded as "The Bean Brief" with the Iowa Soybean Association look and logo.
+  New Focus Area watchlist: organize monitoring into issue buckets whose terms
+  drive both what gets searched and how items are scored — no more per-source
+  query lists (existing watchlists migrate automatically). New per-item "AI
+  summary" button: a ≤500-word Claude summary of any linked rule and its
+  significance, cached until the item's comment deadline. Email delivery of
+  briefs; dedicated Watchlist and Sources pages; ISA color theme throughout.
 submitter: Matt
 submission: https://github.com/mherman1990/isa-umbrel-apps
