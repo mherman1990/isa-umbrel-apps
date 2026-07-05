@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-polibrief
 category: automation
 name: The Bean Brief
-version: "1.2.0"
+version: "1.3.0"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
@@ -28,12 +28,13 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  Rebranded as "The Bean Brief" with the Iowa Soybean Association look and logo.
-  New Focus Area watchlist: organize monitoring into issue buckets whose terms
-  drive both what gets searched and how items are scored — no more per-source
-  query lists (existing watchlists migrate automatically). New per-item "AI
-  summary" button: a ≤500-word Claude summary of any linked rule and its
-  significance, cached until the item's comment deadline. Email delivery of
-  briefs; dedicated Watchlist and Sources pages; ISA color theme throughout.
+  v2 foundation — a local political-intelligence layer built on the existing brief
+  pipeline. New Entity Registry tracks Iowa officials, candidates, and parties and how
+  each one publishes; state legislators and federal candidates import automatically
+  (OpenStates + FEC). New sources: entity press/news RSS feeds and an email-intake
+  channel that reads a dedicated collector inbox. New optional farmer-facing brief
+  render (plain and nonpartisan) alongside the internal edition. New Registry page with
+  channel-health monitoring, plus county/district geo resolution. Your existing
+  watchlist and briefs are unchanged; all new sources stay off until you add their keys.
 submitter: Matt
 submission: https://github.com/mherman1990/isa-umbrel-apps
