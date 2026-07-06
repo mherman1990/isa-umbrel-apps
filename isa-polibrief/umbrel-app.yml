@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-polibrief
 category: automation
 name: The Bean Brief
-version: "1.4.0"
+version: "1.4.1"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
@@ -28,13 +28,12 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  Four-tab portal + a new demand-side Markets pipeline. Everything is now organized by
-  information class: Items (regulatory/legal only — the clean flow), News (collector
-  newsletters + press, kept out of the policy brief), and a new Markets tab fed by free
-  USDA NASS (price/production/stocks), EIA (soybean-oil biofuel feedstock + diesel), CFTC
-  (fund positioning), and Open-Meteo (S. American weather) data. Added a news-source
-  registry with a narrow/broad relevance split. Market and news items are kept out of the
-  policy brief automatically. Add the free NASS_API_KEY and EIA_API_KEY in /data/.env to
-  light up the Markets tab; your existing watchlist and briefs are unchanged.
+  Workflow polish + more market data. "Items" is now "Laws, Rules & Decisions." 👍/👎 and
+  📌 track update in place so the list no longer jumps to the top while you triage. AI
+  summaries are permanent (re-opening returns the stored one; the 🧠 icon shows ✓ once
+  stored). All timestamps render in Central time. New USDA AMS adapter puts the Iowa
+  soybean cash price + basis on the Markets tab (free USDA_AMS_API_KEY). Ag-news RSS feeds
+  (CFTC, USDA, EPA, Farm Progress, Agri-Pulse, ASA, RFA, Growth Energy, Clean Fuels, Iowa
+  Soybean) now feed the News tab.
 submitter: Matt
 submission: https://github.com/mherman1990/isa-umbrel-apps
