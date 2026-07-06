@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-polibrief
 category: automation
 name: The Bean Brief
-version: "1.3.1"
+version: "1.4.0"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
@@ -28,13 +28,13 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  v2 foundation — a local political-intelligence layer built on the existing brief
-  pipeline. New Entity Registry tracks Iowa officials, candidates, and parties and how
-  each one publishes; state legislators and federal candidates import automatically
-  (OpenStates + FEC). New sources: entity press/news RSS feeds and an email-intake
-  channel that reads a dedicated collector inbox. New optional farmer-facing brief
-  render (plain and nonpartisan) alongside the internal edition. New Registry page with
-  channel-health monitoring, plus county/district geo resolution. Your existing
-  watchlist and briefs are unchanged; all new sources stay off until you add their keys.
+  Four-tab portal + a new demand-side Markets pipeline. Everything is now organized by
+  information class: Items (regulatory/legal only — the clean flow), News (collector
+  newsletters + press, kept out of the policy brief), and a new Markets tab fed by free
+  USDA NASS (price/production/stocks), EIA (soybean-oil biofuel feedstock + diesel), CFTC
+  (fund positioning), and Open-Meteo (S. American weather) data. Added a news-source
+  registry with a narrow/broad relevance split. Market and news items are kept out of the
+  policy brief automatically. Add the free NASS_API_KEY and EIA_API_KEY in /data/.env to
+  light up the Markets tab; your existing watchlist and briefs are unchanged.
 submitter: Matt
 submission: https://github.com/mherman1990/isa-umbrel-apps
