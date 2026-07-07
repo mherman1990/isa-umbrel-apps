@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-polibrief
 category: automation
 name: The Bean Brief
-version: "1.5.0"
+version: "1.6.0"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
@@ -28,13 +28,14 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  A Markets dashboard and a homepage "Ask" box. The Markets tab now charts real history —
-  biofuel feedstock market share (soybean oil vs. corn oil, canola, used cooking oil,
-  tallow…), soybean price (Iowa vs. U.S.), U.S. crush, and ending stocks — each with a CSV
-  download. USDA AMS adds the Iowa cash price + basis (free USDA_AMS_API_KEY). Search moved
-  to the homepage ("Ask the Bean Brief"). Plus more sources: ag-news RSS and LCFS/Iowa
-  agencies (CARB, Oregon, Washington, New Mexico, Iowa DNR). Also from 1.4.1: "Laws, Rules
-  & Decisions" rename, in-place 👍/👎/track (no jump-to-top), permanent AI summaries, and
-  Central-time timestamps.
+  Smarter answers, on-demand memos, and interactive charts. The homepage "Ask the Bean Brief"
+  box now answers across the market data too — so you can connect a policy change to the
+  numbers. New one-click memos: a Weekly memo, a Monthly review, and a plain-language,
+  nonpartisan Farmer update (all built from the same engine over a chosen window). The Markets
+  tab is now fully interactive — hover any chart to read the exact value and date, with proper
+  axes — and adds three new data feeds: soybean export inspections and net export sales (a
+  stand-in while the FAS export report is offline), Mississippi barge freight, plus U.S. crop
+  condition (% good/excellent) and a U.S. Corn Belt weather read. Seven charts in all, each
+  with a CSV download.
 submitter: Matt
 submission: https://github.com/mherman1990/isa-umbrel-apps
