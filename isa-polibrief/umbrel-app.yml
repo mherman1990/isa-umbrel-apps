@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-polibrief
 category: automation
 name: The Bean Brief
-version: "1.6.0"
+version: "1.7.0"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
@@ -28,14 +28,13 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  Smarter answers, on-demand memos, and interactive charts. The homepage "Ask the Bean Brief"
-  box now answers across the market data too — so you can connect a policy change to the
-  numbers. New one-click memos: a Weekly memo, a Monthly review, and a plain-language,
-  nonpartisan Farmer update (all built from the same engine over a chosen window). The Markets
-  tab is now fully interactive — hover any chart to read the exact value and date, with proper
-  axes — and adds three new data feeds: soybean export inspections and net export sales (a
-  stand-in while the FAS export report is offline), Mississippi barge freight, plus U.S. crop
-  condition (% good/excellent) and a U.S. Corn Belt weather read. Seven charts in all, each
-  with a CSV download.
+  Trend-aware answers and a new market-education brief. The "Ask the Bean Brief" box (and the
+  memos) now read each market series over its full history — year-over-year, where today's value
+  sits in its range, and whether it's seasonally normal — so you can ask "is this unusual for
+  July?" and get a real answer. New "Market-education brief" (🎓): a plain-language, nonpartisan
+  daily brief that explains what moved and WHY and teaches one market concept at a time, grounded
+  only in the data — it explains, it never gives trading advice. The Markets tab adds Iowa drought
+  coverage, corn price and the soybean:corn ratio, and Brazil's soybean crop — ten interactive
+  charts now, each with a CSV download — plus four more ag-news feeds (farmdoc daily and others).
 submitter: Matt
 submission: https://github.com/mherman1990/isa-umbrel-apps
