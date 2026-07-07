@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-polibrief
 category: automation
 name: The Bean Brief
-version: "1.4.1"
+version: "1.5.0"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
@@ -28,12 +28,13 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  Workflow polish + more market data. "Items" is now "Laws, Rules & Decisions." 👍/👎 and
-  📌 track update in place so the list no longer jumps to the top while you triage. AI
-  summaries are permanent (re-opening returns the stored one; the 🧠 icon shows ✓ once
-  stored). All timestamps render in Central time. New USDA AMS adapter puts the Iowa
-  soybean cash price + basis on the Markets tab (free USDA_AMS_API_KEY). Ag-news RSS feeds
-  (CFTC, USDA, EPA, Farm Progress, Agri-Pulse, ASA, RFA, Growth Energy, Clean Fuels, Iowa
-  Soybean) now feed the News tab.
+  A Markets dashboard and a homepage "Ask" box. The Markets tab now charts real history —
+  biofuel feedstock market share (soybean oil vs. corn oil, canola, used cooking oil,
+  tallow…), soybean price (Iowa vs. U.S.), U.S. crush, and ending stocks — each with a CSV
+  download. USDA AMS adds the Iowa cash price + basis (free USDA_AMS_API_KEY). Search moved
+  to the homepage ("Ask the Bean Brief"). Plus more sources: ag-news RSS and LCFS/Iowa
+  agencies (CARB, Oregon, Washington, New Mexico, Iowa DNR). Also from 1.4.1: "Laws, Rules
+  & Decisions" rename, in-place 👍/👎/track (no jump-to-top), permanent AI summaries, and
+  Central-time timestamps.
 submitter: Matt
 submission: https://github.com/mherman1990/isa-umbrel-apps
