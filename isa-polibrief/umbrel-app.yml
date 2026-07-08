@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-polibrief
 category: automation
 name: The Bean Brief
-version: "1.10.0"
+version: "1.11.0"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
@@ -28,12 +28,12 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  The twice-daily policy brief is now a single "Run policy brief now" button, and quiet days no
-  longer save blank "no news" briefs — the twice-daily refresh still keeps Markets, News, alerts,
-  and education cards current, it just stays silent when policy is quiet. Every report button now
-  explains what it does in a line. The farmer market-education cards move to the Markets tab, next
-  to the data they interpret. Under the hood, the Analyst Note now runs on Claude Opus 4.8 with
-  extended thinking for sharper "around the corner" analysis, and every other report moves to Claude
-  Sonnet 5 — a better model at the same cost. Informational and nonpartisan throughout.
+  A new crop-weather engine reads how recent rainfall and heat compare to two decades of normals
+  across the U.S. and South American soybean regions — weighted by where the beans grow and where
+  the crop is in its season — and turns that into a bull/bear weather signal and a plain-English
+  read in the reports and the Ask box, with two new weather-anomaly charts on the Markets tab. It
+  now reasons weather → supply → price, not just "it's dry." Groundwork also lands for USDA's WASDE
+  balance sheet (stocks-to-use) and a Barchart futures/basis feed, both ready to switch on.
+  Informational and nonpartisan throughout.
 submitter: Matt
 submission: https://github.com/mherman1990/isa-umbrel-apps
