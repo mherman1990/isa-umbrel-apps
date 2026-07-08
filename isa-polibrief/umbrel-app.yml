@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-polibrief
 category: automation
 name: The Bean Brief
-version: "1.8.0"
+version: "1.9.0"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
@@ -28,14 +28,15 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  Signals, tailored reports, and a live market read. The Markets tab now opens with a market
-  signals board — a bull/bear read at a glance across crop condition, drought, export pace, fund
-  positioning, crush demand, feedstock share and more — plus a "Coming up" panel of imminent USDA
-  reports. Charts default to the last six months with custom date ranges. Two new one-click
-  reports join the lineup: an Analyst Note that reads forward and around the corner, and a Market
-  Pulse — a short, time-sensitive read for farmers on what changed and what a marketer is weighing
-  (it informs, it never advises). The homepage gains a "What changed" alert feed for material
-  market moves, the News tab a daily distilled digest, and a data-health check flags any stale
-  feed. Informational and nonpartisan throughout.
+  A market signals board, tailored reports, and a new farmer education engine. The Markets tab
+  opens with a bull/bear signals board and a "Coming up" panel of imminent USDA reports; charts
+  default to the last six months with custom date ranges. Two one-click reports — an Analyst Note
+  that reads around the corner and a time-sensitive Market Pulse — join the lineup, and the
+  homepage gains market-education cards that turn seasonal and report-timing triggers into plain
+  guidance (it teaches, it never advises). New data: the U.S. dollar and rates (FRED), Brazil's
+  soybean production trend, corn price and the soybean:corn ratio, and CFTC fund positioning. The
+  News digest now reads full articles, not just headlines, and there's a "what changed" alert feed,
+  a data-freshness check, and a recoverable set-aside archive. Informational and nonpartisan
+  throughout.
 submitter: Matt
 submission: https://github.com/mherman1990/isa-umbrel-apps
