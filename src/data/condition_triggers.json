@@ -1,0 +1,238 @@
+{
+  "schema_version": "1.0",
+  "usage_note": "Each trigger is evaluated on `eval_cadence` against the listed `inputs`. `fire_when.expression` is a readable specification of the predicate — the engine implements the evaluation; the string documents intent. `priority` ranks condition triggers against each other for the headline slot (1 = highest). `suppress_if` lists trigger ids that, when active, should soften or skip this card. Every rendered card is one `card_type` and carries the standard education footer (see BEANBRIEF_MARKETING_CONTEXT.md §2). Date-only fields use MM-DD (year-agnostic, recurring).",
+  "date_format_note": "Fields like '05-10' mean May 10 of the current year. The engine substitutes the active crop year.",
+
+  "triggers": [
+    {
+      "id": "seasonal_window_open",
+      "name": "Spring/summer pricing window (Mother's Day to Father's Day)",
+      "category": "seasonal_pattern",
+      "eval_cadence": "daily",
+      "inputs": [
+        { "key": "today", "source": "system_clock" }
+      ],
+      "fire_when": {
+        "expression": "today BETWEEN '05-10' AND '06-21'",
+        "description": "Current date falls in the historically strong mid-May to mid-June soybean pricing window."
+      },
+      "card_type": "what_history_shows",
+      "priority": 3,
+      "history_note": "Practitioners often cite mid-May to mid-June as the strongest seasonal pricing window for corn and soybeans; on a ~10-year average, November soybean futures have tended to peak in late May and ease into summer. Not every year follows this path.",
+      "personalization": "If `breakeven_per_bu` is set, may add context comparing current new-crop futures to the entered breakeven — as information, never a recommendation.",
+      "suppress_if": ["harvest_strong_anomaly"],
+      "footer_required": true
+    },
+    {
+      "id": "july4_checkpoint",
+      "name": "Early-July pre-harvest checkpoint",
+      "category": "seasonal_pattern",
+      "eval_cadence": "daily",
+      "inputs": [
+        { "key": "today", "source": "system_clock" },
+        { "key": "pct_sold", "source": "client_local_optional" }
+      ],
+      "fire_when": {
+        "expression": "today BETWEEN '06-25' AND '07-07'",
+        "description": "Approaching the early-July checkpoint that extension educators associate with wrapping up pre-harvest marketing."
+      },
+      "card_type": "review_your_plan",
+      "priority": 3,
+      "history_note": "A widely taught extension heuristic holds that in roughly 9 of 10 years it has paid to have stored old-crop and pre-harvest new-crop marketing completed by early July. It's a checkpoint, not a deadline — a prompt to review your own plan and progress.",
+      "personalization": "If `pct_sold` is set, wording may reflect the farmer's own marked progress.",
+      "suppress_if": [],
+      "footer_required": true
+    },
+    {
+      "id": "february_not_the_high",
+      "name": "Insurance-rally guardrail",
+      "category": "seasonal_guardrail",
+      "eval_cadence": "daily",
+      "inputs": [
+        { "key": "today", "source": "system_clock" }
+      ],
+      "fire_when": {
+        "expression": "today BETWEEN '02-01' AND '02-28'",
+        "description": "During the crop-insurance spring price-discovery month, when a February price spike can create pressure to act."
+      },
+      "card_type": "what_history_shows",
+      "priority": 4,
+      "history_note": "Going back to 1994, February has been the calendar-year price high for new-crop November soybeans (or December corn) only once. A strong February rarely turns out to be the year's best pricing month — historically, spring and early summer more often are.",
+      "suppress_if": [],
+      "footer_required": true
+    },
+    {
+      "id": "february_break_watch",
+      "name": "South American harvest pressure ('February break')",
+      "category": "seasonal_pattern",
+      "eval_cadence": "weekly",
+      "inputs": [
+        { "key": "today", "source": "system_clock" }
+      ],
+      "fire_when": {
+        "expression": "today BETWEEN '02-01' AND '03-15'",
+        "description": "The stretch when the South American soybean harvest reaches the market and has historically pressured winter U.S. rallies."
+      },
+      "card_type": "what_history_shows",
+      "priority": 4,
+      "history_note": "The South American harvest begins in February and has historically capped U.S. winter rallies unless South America has a short crop. It's context for why winter strength can be hard to sustain.",
+      "suppress_if": [],
+      "footer_required": true
+    },
+    {
+      "id": "harvest_low_window",
+      "name": "Harvest-window basis & storage education",
+      "category": "seasonal_pattern",
+      "eval_cadence": "weekly",
+      "inputs": [
+        { "key": "today", "source": "system_clock" }
+      ],
+      "fire_when": {
+        "expression": "today BETWEEN '09-15' AND '11-15'",
+        "description": "The harvest window, when supply peaks and cash prices/basis are historically weakest."
+      },
+      "card_type": "what_history_shows",
+      "priority": 3,
+      "history_note": "Soybean cash prices and basis have historically been weakest near harvest, when supply is most abundant, and have tended to firm afterward — though harvest-strong years (2015, 2019, 2024) are the exception. Pair with basis/carry context and a reminder that storage carries real costs.",
+      "suppress_if": ["harvest_strong_anomaly"],
+      "footer_required": true
+    },
+    {
+      "id": "post_harvest_recovery_window",
+      "name": "Post-harvest recovery window",
+      "category": "seasonal_pattern",
+      "eval_cadence": "weekly",
+      "inputs": [
+        { "key": "today", "source": "system_clock" }
+      ],
+      "fire_when": {
+        "expression": "today BETWEEN '01-01' AND '03-15'",
+        "description": "The January-March stretch that has historically shown post-harvest price recovery."
+      },
+      "card_type": "what_history_shows",
+      "priority": 4,
+      "history_note": "In one multi-year data set, soybean cash prices exceeded the marketing-year average about 70% of the time in January through March. A common tendency, not a guarantee.",
+      "suppress_if": [],
+      "footer_required": true
+    },
+    {
+      "id": "cot_managed_money_extreme",
+      "name": "Managed-money positioning extreme / flip",
+      "category": "positioning",
+      "eval_cadence": "weekly_on_cot_release",
+      "inputs": [
+        { "key": "mm_net_soybeans", "source": "cftc_disaggregated_cot", "note": "Managed Money net position; released Fri 3:00 p.m. CT, data as of prior Tuesday." },
+        { "key": "mm_net_percentile_156w", "source": "computed", "note": "Percentile rank of net position over ~156 weeks." },
+        { "key": "mm_net_zscore_156w", "source": "computed" },
+        { "key": "mm_net_prev", "source": "computed", "note": "Prior week net, for flip and WoW change." }
+      ],
+      "fire_when": {
+        "expression": "mm_net_percentile_156w >= 90 OR mm_net_percentile_156w <= 10 OR sign(mm_net_soybeans) != sign(mm_net_prev)",
+        "description": "Managed-money net position is at a 3-year extreme (top/bottom decile) or has flipped between net long and net short."
+      },
+      "card_type": "what_history_shows",
+      "priority": 2,
+      "history_note": "Managed money tends to follow price trends while commercial hedgers fade rallies. A large short position that begins unwinding (short-covering) has historically coincided with pricing windows for unpriced producers. Positioning is context, not a signal — extremes can persist.",
+      "engine_note": "Reuse the ISA Market Intel COT dashboard computation. Present percentile/z-score, not raw contract counts, in the card.",
+      "suppress_if": [],
+      "footer_required": true
+    },
+    {
+      "id": "basis_carry_state",
+      "name": "Basis + carry store/deliver education (2x2)",
+      "category": "structure",
+      "eval_cadence": "daily",
+      "inputs": [
+        { "key": "local_basis", "source": "basis_feed", "note": "local cash minus nearby futures." },
+        { "key": "basis_5yr_avg", "source": "computed", "note": "5-year average basis for the current period." },
+        { "key": "carry_spread", "source": "futures_feed", "note": "deferred minus nearby futures (calendar spread)." },
+        { "key": "est_storage_cost", "source": "config_or_client_local", "note": "monthly storage cost estimate for comparison." }
+      ],
+      "fire_when": {
+        "expression": "(carry_spread >= est_storage_cost AND local_basis < basis_5yr_avg) OR (carry_spread <= 0 AND local_basis > basis_5yr_avg)",
+        "description": "The market is sending a clear store-later signal (large carry + weak basis) OR a clear deliver-now signal (flat/inverted carry + strong basis). Mixed states present both sides."
+      },
+      "card_type": "what_history_shows",
+      "priority": 2,
+      "history_note": "Two market signals inform store-vs-deliver decisions. A large carry (deferred months priced well above nearby) with a weak basis has historically indicated the market wants grain later; a flat or inverted carry with a strong basis has indicated the market wants grain now. Basis also tends to widen into harvest and narrow through the storage season. Storage has real costs — interest, shrink, and quality — to weigh against any carry.",
+      "engine_note": "When the predicate lands in a mixed state, render a balanced both-sides card rather than suppressing.",
+      "suppress_if": [],
+      "footer_required": true
+    },
+    {
+      "id": "harvest_strong_anomaly",
+      "name": "Harvest-strong year detector (seasonality guardrail)",
+      "category": "anomaly",
+      "eval_cadence": "weekly",
+      "inputs": [
+        { "key": "today", "source": "system_clock" },
+        { "key": "harvest_window_avg_price", "source": "computed", "note": "running avg new-crop price Sep-Nov." },
+        { "key": "trailing_year_avg_price", "source": "computed", "note": "avg price across the marketing year to date." },
+        { "key": "us_ending_stocks_trend", "source": "wasde_feed", "note": "tightening vs loosening balance sheet." }
+      ],
+      "fire_when": {
+        "expression": "today BETWEEN '09-01' AND '11-30' AND harvest_window_avg_price > trailing_year_avg_price AND us_ending_stocks_trend == 'tightening'",
+        "description": "The current year is tracking like a rare harvest-strong year (2015, 2019, 2024), where harvest prices held above the rest of the marketing year on tight stocks / weather / trade risk."
+      },
+      "card_type": "what_history_shows",
+      "priority": 1,
+      "history_note": "Most years, soybean prices are softer at harvest and firmer later. But in about 3 of the last 15 years (2015, 2019, 2024), harvest prices held stronger — driven by tight stocks, weather risk, or trade uncertainty. This year is showing some of those hallmarks, which is why the usual 'weak harvest, firmer later' pattern may not apply as cleanly.",
+      "engine_note": "PRIMARY GUARDRAIL. When active, suppress or soften bullish-seasonal cards (seasonal_window_open, harvest_low_window). Highest condition priority.",
+      "suppress_if": [],
+      "footer_required": true
+    },
+    {
+      "id": "china_demand_clock",
+      "name": "China seasonal sourcing clock",
+      "category": "demand_narrative",
+      "eval_cadence": "weekly",
+      "inputs": [
+        { "key": "today", "source": "system_clock" },
+        { "key": "us_soy_export_sales_china", "source": "usda_fas_export_sales", "note": "weekly China net sales / commitments." },
+        { "key": "china_commitments_vs_yearago", "source": "computed" }
+      ],
+      "fire_when": {
+        "expression": "today BETWEEN '08-01' AND '09-30'",
+        "description": "The annual window when China typically shifts from Brazilian beans back toward U.S. new crop; the market watches whether that demand shows up."
+      },
+      "card_type": "whats_happening",
+      "priority": 3,
+      "history_note": "China typically sources Brazilian soybeans from roughly February through July during South America's harvest, then often returns to U.S. new crop around August. Whether — and how fast — China shows up for U.S. beans in late summer is a recurring demand question that weekly export sales help answer.",
+      "engine_note": "Elevates the weekly export_sales background feed to a card during this window. Report what commitments show vs. a year ago; do not forecast Chinese buying.",
+      "suppress_if": [],
+      "footer_required": true
+    },
+    {
+      "id": "pre_report_positioning",
+      "name": "Pre-report fund positioning / elevated volatility",
+      "category": "positioning",
+      "eval_cadence": "daily",
+      "inputs": [
+        { "key": "today", "source": "system_clock" },
+        { "key": "next_very_high_report_date", "source": "calendar_events", "note": "nearest event with impact=very_high, esp. Acreage (Jun 30) and quarterly Grain Stocks." },
+        { "key": "implied_vol", "source": "options_feed", "note": "optional: new-crop implied volatility for context." }
+      ],
+      "fire_when": {
+        "expression": "days_until(next_very_high_report_date) BETWEEN 1 AND 5",
+        "description": "Within the 3-5 trading days ahead of a very-high-impact report, when funds often 'even up' and volatility rises."
+      },
+      "card_type": "whats_happening",
+      "priority": 2,
+      "history_note": "Ahead of the biggest scheduled reports — especially the end-of-June Acreage and quarterly Grain Stocks — funds often square positions ('evening up'), which can move prices independent of any news. For example, the week before June 30, 2026, funds liquidated billions of bushels of length across corn, soybeans, and wheat. Expect choppier trade into the report; this is about volatility, not direction.",
+      "suppress_if": [],
+      "footer_required": true
+    }
+  ],
+
+  "triage_reference": {
+    "note": "Ranking logic for the Haiku triage step when multiple triggers co-fire. See BEANBRIEF_MARKETING_CONTEXT.md §7.",
+    "headline_selection": "Lowest `priority` number wins the headline. Ties broken by: active calendar event with higher `impact` > anomaly guardrails > positioning > structure > seasonal_pattern.",
+    "secondary_limit": 2,
+    "hard_rules": [
+      "harvest_strong_anomaly, when active, suppresses or softens its listed seasonal cards.",
+      "One education footer per card — never stack.",
+      "Weekly background feeds (Crop Progress, Export Sales) are not standalone cards unless elevated by a condition trigger.",
+      "Never merge two cards of different card_type into one."
+    ]
+  }
+}

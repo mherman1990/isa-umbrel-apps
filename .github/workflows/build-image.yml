@@ -1,0 +1,57 @@
+# Builds the polibrief Docker image for the Raspberry Pi (ARM64) and publishes it to GitHub's
+# registry — so updating the Umbrel app never requires building on the Pi again.
+#
+# Source code AND the Umbrel store manifest now live in this ONE repo (isa-umbrel-apps): the app
+# code is at the root (src/, docker/, package.json…) and the store files are umbrel-app-store.yml +
+# isa-polibrief/. GITHUB_TOKEN is automatic; no secrets to configure.
+#
+# TO SHIP A NEW VERSION (one repo, one tag):
+#   1. Edit code + bump: package.json, CHANGELOG.md, isa-polibrief/umbrel-app.yml (version), and
+#      isa-polibrief/docker-compose.yml (image tag) — all to the new X.Y.Z.
+#   2. Commit, then `git tag vX.Y.Z && git push origin main && git push origin vX.Y.Z`.
+#      (Pushing the tag is what triggers this build — takes ~10 min.)
+#   3. Umbrel → refresh the community store → the app tile shows an Update button.
+#
+# The image is published as: ghcr.io/<owner>/polibrief:<version> (name is owner-based, not repo-based,
+# so it stays ghcr.io/mherman1990/polibrief even though this repo is isa-umbrel-apps).
+# First publish note: check the package's visibility is Public (github.com → Packages → polibrief).
+
+name: Build and publish Docker image
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: # also allows manual runs from the Actions tab
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Work out the version tag
+        id: version
+        run: echo "tag=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/arm64,linux/amd64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/polibrief:${{ steps.version.outputs.tag }}
+            ghcr.io/${{ github.repository_owner }}/polibrief:latest

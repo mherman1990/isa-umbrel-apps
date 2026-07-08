@@ -1,0 +1,30 @@
+{
+  "name": "polibrief",
+  "version": "1.12.0",
+  "description": "Scheduled policy-intelligence pipeline for the Iowa Soybean Association — polls government data APIs, filters against a topic watchlist, and produces Claude-generated policy briefs.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "run:am": "node src/index.js run --edition am",
+    "run:pm": "node src/index.js run --edition pm",
+    "dry-run": "node src/index.js run --dry-run",
+    "audit": "node src/index.js audit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.65.0",
+    "better-sqlite3": "^12.4.1",
+    "cheerio": "^1.1.2",
+    "commander": "^14.0.1",
+    "dotenv": "^17.2.3",
+    "fast-xml-parser": "^5.3.2",
+    "imapflow": "^1.4.6",
+    "mailparser": "^3.9.14",
+    "nodemailer": "^7.0.9"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true
+  }
+}

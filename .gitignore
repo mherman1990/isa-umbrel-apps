@@ -1,0 +1,15 @@
+# Secrets — never commit real API keys
+.env
+
+# Dependencies
+node_modules/
+
+# Runtime data
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+briefings/
+logs/
+polibrief-data/
+backups/

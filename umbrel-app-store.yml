@@ -1,7 +1,7 @@
-# Umbrel Community App Store manifest.
-# This whole "umbrel-community-app-store" folder gets pushed to its own GitHub repo,
-# and that repo's URL is added in Umbrel under Settings → App Store → Community App Stores.
-# Full steps are in the main README under "Deploying to the Raspberry Pi (Umbrel)".
+# Umbrel Community App Store manifest — must live at the repo ROOT (Umbrel can't read it from a
+# subfolder). Add this repo's URL in Umbrel under Settings → App Store → Community App Stores.
+# This single repo holds BOTH the app source (src/, docker/, the .github build Action) AND this
+# store manifest; Umbrel reads this file + the isa-polibrief/ app folder and ignores everything else.
 
 id: isa # store id — must be the prefix of every app id in this store
 name: "ISA Apps"

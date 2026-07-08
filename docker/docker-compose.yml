@@ -1,0 +1,24 @@
+# Standalone docker-compose (NOT the Umbrel one — that lives in umbrel-community-app-store/).
+# Use this if you just want to run polibrief in Docker on any machine:
+#
+#   cd polibrief
+#   docker compose -f docker/docker-compose.yml up -d --build
+#
+# Then open http://<host>:8484 (or the Tailscale name of the machine).
+# Your editable watchlist.json and .env appear in ./polibrief-data/ after first start.
+
+services:
+  polibrief:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      # Use the host's network (and DNS) during the build — Umbrel's internal
+      # DNS is not always reachable from inside build containers, which shows
+      # up as EAI_AGAIN errors when npm tries to download things.
+      network: host
+    container_name: polibrief
+    restart: unless-stopped
+    ports:
+      - "8484:8484"
+    volumes:
+      - ../polibrief-data:/data

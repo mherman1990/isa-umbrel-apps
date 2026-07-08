@@ -1,0 +1,436 @@
+{
+  "version": "1.0",
+  "_note": "polibrief v2 Entity Registry seed. Hand-curated known set; the bulk of state/local entities comes from the OpenStates/FEC/Socrata seeders (src/seed). Edit freely and re-run `registry-sync`; upserts are idempotent. counties: [\"*\"] = statewide footprint. newsletter_email channels: url_or_handle = a domain/signup for domain-attribution, org_id = the plus-address tag we subscribe the collector Gmail with (collector+<org_id>@). RSS/iCal/Mobilize URLs marked _verify are best-effort and should be confirmed on the Pi.",
+  "entities": [
+    {
+      "id": "us-sen-grassley",
+      "type": "officeholder",
+      "full_name": "Chuck Grassley",
+      "party": "R",
+      "office": "U.S. Senate",
+      "district": "IA",
+      "level": "federal",
+      "counties": ["*"],
+      "incumbent": 1,
+      "external_ids": { "bioguide": "G000386" },
+      "notes": "Senior U.S. Senator (IA). High ISA relevance: Judiciary, Finance, Ag.",
+      "channels": [
+        { "kind": "website", "url_or_handle": "https://www.grassley.senate.gov" },
+        { "kind": "press_page", "url_or_handle": "https://www.grassley.senate.gov/news/news-releases" },
+        { "kind": "rss", "url_or_handle": "https://www.grassley.senate.gov/rss/feeds/?type=press", "org_id": null },
+        { "kind": "newsletter_email", "url_or_handle": "grassley.senate.gov", "org_id": "grassley" },
+        { "kind": "x_handle", "url_or_handle": "@ChuckGrassley" }
+      ]
+    },
+    {
+      "id": "us-sen-ernst",
+      "type": "officeholder",
+      "full_name": "Joni Ernst",
+      "party": "R",
+      "office": "U.S. Senate",
+      "district": "IA",
+      "level": "federal",
+      "counties": ["*"],
+      "incumbent": 1,
+      "external_ids": { "bioguide": "E000295" },
+      "notes": "U.S. Senator (IA). Senate Ag Committee; biofuels/RFS voice.",
+      "channels": [
+        { "kind": "website", "url_or_handle": "https://www.ernst.senate.gov" },
+        { "kind": "press_page", "url_or_handle": "https://www.ernst.senate.gov/news/press-releases" },
+        { "kind": "rss", "url_or_handle": "https://www.ernst.senate.gov/public/?a=rss.feed", "org_id": null },
+        { "kind": "newsletter_email", "url_or_handle": "ernst.senate.gov", "org_id": "ernst" },
+        { "kind": "x_handle", "url_or_handle": "@SenJoniErnst" }
+      ]
+    },
+    {
+      "id": "us-rep-ia01",
+      "type": "officeholder",
+      "full_name": "Mariannette Miller-Meeks",
+      "party": "R",
+      "office": "U.S. House",
+      "district": "IA-01",
+      "level": "federal",
+      "incumbent": 1,
+      "notes": "IA-01. Verify current incumbent via FEC/Congress refresh.",
+      "channels": [
+        { "kind": "website", "url_or_handle": "https://millermeeks.house.gov" },
+        { "kind": "press_page", "url_or_handle": "https://millermeeks.house.gov/media/press-releases" },
+        { "kind": "newsletter_email", "url_or_handle": "millermeeks.house.gov", "org_id": "ia01" }
+      ]
+    },
+    {
+      "id": "us-rep-ia02",
+      "type": "officeholder",
+      "full_name": "Ashley Hinson",
+      "party": "R",
+      "office": "U.S. House",
+      "district": "IA-02",
+      "level": "federal",
+      "incumbent": 1,
+      "notes": "IA-02. Appropriations. Verify via refresh.",
+      "channels": [
+        { "kind": "website", "url_or_handle": "https://hinson.house.gov" },
+        { "kind": "press_page", "url_or_handle": "https://hinson.house.gov/media/press-releases" },
+        { "kind": "newsletter_email", "url_or_handle": "hinson.house.gov", "org_id": "ia02" }
+      ]
+    },
+    {
+      "id": "us-rep-ia03",
+      "type": "officeholder",
+      "full_name": "Zach Nunn",
+      "party": "R",
+      "office": "U.S. House",
+      "district": "IA-03",
+      "level": "federal",
+      "incumbent": 1,
+      "notes": "IA-03. Verify via refresh.",
+      "channels": [
+        { "kind": "website", "url_or_handle": "https://nunn.house.gov" },
+        { "kind": "press_page", "url_or_handle": "https://nunn.house.gov/media/press-releases" },
+        { "kind": "newsletter_email", "url_or_handle": "nunn.house.gov", "org_id": "ia03" }
+      ]
+    },
+    {
+      "id": "us-rep-ia04",
+      "type": "officeholder",
+      "full_name": "Randy Feenstra",
+      "party": "R",
+      "office": "U.S. House",
+      "district": "IA-04",
+      "level": "federal",
+      "incumbent": 1,
+      "notes": "IA-04 (heavily ag). Verify via refresh — Feenstra has signaled statewide ambitions.",
+      "channels": [
+        { "kind": "website", "url_or_handle": "https://feenstra.house.gov" },
+        { "kind": "press_page", "url_or_handle": "https://feenstra.house.gov/media/press-releases" },
+        { "kind": "newsletter_email", "url_or_handle": "feenstra.house.gov", "org_id": "ia04" }
+      ]
+    },
+    {
+      "id": "ia-gov-reynolds",
+      "type": "officeholder",
+      "full_name": "Kim Reynolds",
+      "party": "R",
+      "office": "Governor",
+      "level": "state",
+      "counties": ["*"],
+      "incumbent": 1,
+      "channels": [
+        { "kind": "website", "url_or_handle": "https://governor.iowa.gov" },
+        { "kind": "press_page", "url_or_handle": "https://governor.iowa.gov/press-releases" },
+        { "kind": "newsletter_email", "url_or_handle": "governor.iowa.gov", "org_id": "iagov" }
+      ]
+    },
+    {
+      "id": "ia-agri-naig",
+      "type": "officeholder",
+      "full_name": "Mike Naig",
+      "party": "R",
+      "office": "Iowa Secretary of Agriculture",
+      "level": "state",
+      "counties": ["*"],
+      "incumbent": 1,
+      "notes": "Highest direct ISA relevance of the statewide execs (IDALS).",
+      "channels": [
+        { "kind": "website", "url_or_handle": "https://iowaagriculture.gov" },
+        { "kind": "press_page", "url_or_handle": "https://iowaagriculture.gov/news" },
+        { "kind": "newsletter_email", "url_or_handle": "iowaagriculture.gov", "org_id": "idals" }
+      ]
+    },
+    {
+      "id": "ia-ag-bird",
+      "type": "officeholder",
+      "full_name": "Brenna Bird",
+      "party": "R",
+      "office": "Iowa Attorney General",
+      "level": "state",
+      "counties": ["*"],
+      "incumbent": 1,
+      "channels": [
+        { "kind": "website", "url_or_handle": "https://www.iowaattorneygeneral.gov" },
+        { "kind": "newsletter_email", "url_or_handle": "iowaattorneygeneral.gov", "org_id": "iaag" }
+      ]
+    },
+    {
+      "id": "ia-sos-pate",
+      "type": "officeholder",
+      "full_name": "Paul Pate",
+      "party": "R",
+      "office": "Iowa Secretary of State",
+      "level": "state",
+      "counties": ["*"],
+      "incumbent": 1,
+      "channels": [
+        { "kind": "website", "url_or_handle": "https://sos.iowa.gov" },
+        { "kind": "newsletter_email", "url_or_handle": "sos.iowa.gov", "org_id": "iasos" }
+      ]
+    },
+    {
+      "id": "ia-auditor-sand",
+      "type": "officeholder",
+      "full_name": "Rob Sand",
+      "party": "D",
+      "office": "Iowa State Auditor",
+      "level": "state",
+      "counties": ["*"],
+      "incumbent": 1,
+      "notes": "Only Dem in statewide office. Has signaled a gubernatorial run — verify office via refresh.",
+      "channels": [
+        { "kind": "website", "url_or_handle": "https://auditor.iowa.gov" },
+        { "kind": "newsletter_email", "url_or_handle": "auditor.iowa.gov", "org_id": "iaauditor" }
+      ]
+    },
+    {
+      "id": "party-iowa-gop",
+      "type": "party_org",
+      "full_name": "Republican Party of Iowa",
+      "party": "R",
+      "office": "State Party",
+      "level": "state",
+      "counties": ["*"],
+      "channels": [
+        { "kind": "website", "url_or_handle": "https://www.iowagop.org" },
+        { "kind": "ical", "url_or_handle": "https://www.iowagop.org/events/?ical=1", "org_id": null },
+        { "kind": "newsletter_email", "url_or_handle": "iowagop.org", "org_id": "iowagop" },
+        { "kind": "x_handle", "url_or_handle": "@IowaGOP" }
+      ]
+    },
+    {
+      "id": "party-iowa-dems",
+      "type": "party_org",
+      "full_name": "Iowa Democratic Party",
+      "party": "D",
+      "office": "State Party",
+      "level": "state",
+      "counties": ["*"],
+      "channels": [
+        { "kind": "website", "url_or_handle": "https://iowademocrats.org" },
+        { "kind": "mobilize", "url_or_handle": "https://www.mobilize.us/iowademocrats/", "org_id": "_verify_mobilize_org_id" },
+        { "kind": "newsletter_email", "url_or_handle": "iowademocrats.org", "org_id": "iadems" },
+        { "kind": "x_handle", "url_or_handle": "@iowademocrats" }
+      ]
+    },
+    {
+      "id": "county-story-gop",
+      "type": "party_org",
+      "full_name": "Story County Republicans",
+      "party": "R",
+      "office": "County Central Committee",
+      "level": "county",
+      "counties": ["Story"],
+      "notes": "SCAFFOLD — verify URL / .ics / signup. Example of the 99x2 county-party layer.",
+      "channels": [
+        { "kind": "website", "url_or_handle": "https://storycountygop.com", "active": false },
+        { "kind": "newsletter_email", "url_or_handle": "storycountygop.com", "org_id": "story-gop" }
+      ]
+    },
+    {
+      "id": "county-polk-dems",
+      "type": "party_org",
+      "full_name": "Polk County Democrats",
+      "party": "D",
+      "office": "County Central Committee",
+      "level": "county",
+      "counties": ["Polk"],
+      "notes": "SCAFFOLD — verify URL / Mobilize org / signup.",
+      "channels": [
+        { "kind": "website", "url_or_handle": "https://www.polkdems.org", "active": false },
+        { "kind": "newsletter_email", "url_or_handle": "polkdems.org", "org_id": "polk-dems" }
+      ]
+    },
+
+    {
+      "id": "news-farmdoc-daily",
+      "type": "news_broad",
+      "full_name": "farmdoc daily (U of Illinois)",
+      "level": "national",
+      "notes": "Broad ag economics/markets → relevance-filtered (no entity boost). FREE, subscribed as beanbrief+farmdoc@. Signup https://farmdocdaily.illinois.edu/subscribe (MailerLite double opt-in — confirm link is opaque /tj/cl/, click manually).",
+      "channels": [{ "kind": "newsletter_email", "url_or_handle": "farmdoc.illinois.edu", "org_id": "farmdoc" }]
+    },
+    {
+      "id": "news-punchbowl",
+      "type": "news_broad",
+      "full_name": "Punchbowl News (free AM)",
+      "level": "national",
+      "notes": "DC/Congress tick-tock → relevance-filtered. FREE, subscribed as beanbrief+punchbowl@ (single opt-in, active).",
+      "channels": [{ "kind": "newsletter_email", "url_or_handle": "punchbowl.news", "org_id": "punchbowl" }]
+    },
+    {
+      "id": "news-politico-weekly-ag",
+      "type": "news_broad",
+      "full_name": "POLITICO Weekly Agriculture",
+      "level": "national",
+      "notes": "Free POLITICO ag newsletter → relevance-filtered. beanbrief+politicoweeklyag@. Shares domain with Morning Energy — plus-tag disambiguates. Confirm link 403s to fetch → click manually in browser.",
+      "channels": [{ "kind": "newsletter_email", "url_or_handle": "politico.com", "org_id": "politicoweeklyag" }]
+    },
+    {
+      "id": "news-politico-morning-energy",
+      "type": "news_broad",
+      "full_name": "POLITICO Morning Energy",
+      "level": "national",
+      "notes": "Free POLITICO energy newsletter → relevance-filtered. beanbrief+politicomorningenergy@. Confirm link 403s to fetch → click manually in browser.",
+      "channels": [{ "kind": "newsletter_email", "url_or_handle": "email.politico.com", "org_id": "politicomorningenergy" }]
+    },
+    {
+      "id": "news-brownfield",
+      "type": "news_broad",
+      "full_name": "Brownfield Ag News",
+      "level": "national",
+      "notes": "Broad farm broadcast news → relevance-filtered. FREE, subscribed as beanbrief+brownfield@.",
+      "channels": [{ "kind": "newsletter_email", "url_or_handle": "brownfieldagnews.com", "org_id": "brownfield" }]
+    },
+    {
+      "id": "news-agri-pulse",
+      "type": "news_broad",
+      "full_name": "Agri-Pulse",
+      "level": "national",
+      "notes": "Ag/food/energy policy → relevance-filtered. Forwarded (redirect) to beanbrief+agripulse@ from Matt's Outlook.",
+      "channels": [{ "kind": "newsletter_email", "url_or_handle": "agri-pulse.com", "org_id": "agripulse" }]
+    },
+    {
+      "id": "news-rfa",
+      "type": "news_source",
+      "full_name": "Renewable Fuels Association",
+      "level": "national",
+      "notes": "Biofuels advocacy — narrow/on-topic → KEEP entity boost. FREE, subscribed as beanbrief+rfa@ (single opt-in, active).",
+      "channels": [{ "kind": "newsletter_email", "url_or_handle": "ethanolrfa.org", "org_id": "rfa" }]
+    },
+    {
+      "id": "news-growth-energy",
+      "type": "news_source",
+      "full_name": "Growth Energy",
+      "level": "national",
+      "notes": "Biofuels advocacy — narrow → KEEP boost. FREE, subscribed as beanbrief+growthenergy@.",
+      "channels": [{ "kind": "newsletter_email", "url_or_handle": "growthenergy.org", "org_id": "growthenergy" }]
+    },
+    {
+      "id": "news-carney-appleby",
+      "type": "news_source",
+      "full_name": "Carney Appleby (Doug Struyk — IA lobbying)",
+      "level": "state",
+      "counties": ["*"],
+      "notes": "Iowa statehouse lobbying updates — narrow/high-signal → KEEP boost. Forwarded (redirect) to beanbrief+carney@.",
+      "channels": [{ "kind": "newsletter_email", "url_or_handle": "carneyappleby.com", "org_id": "carney" }]
+    },
+    {
+      "id": "news-torrey",
+      "type": "news_source",
+      "full_name": "Torrey Advisory Group",
+      "level": "national",
+      "notes": "DC food/ag/trade advisory — narrow/high-signal → KEEP boost. Forwarded (redirect) to beanbrief+torrey@. Sender domain (torreyadvisory.com?) auto-confirms from the first arrival via `subscribe.mjs inbox`.",
+      "channels": [{ "kind": "newsletter_email", "url_or_handle": "torreyadvisory.com", "org_id": "torrey" }]
+    },
+
+    {
+      "id": "feed-cftc", "type": "news_source", "full_name": "CFTC (press releases)", "level": "national",
+      "notes": "Gov RSS → News tab. Verified live.",
+      "channels": [{ "kind": "rss", "url_or_handle": "https://www.cftc.gov/RSS/RSSGP/rssgp.xml" }]
+    },
+    {
+      "id": "feed-usda", "type": "news_source", "full_name": "USDA (press releases)", "level": "national",
+      "notes": "Gov RSS → News tab. Verify on Pi (Cloudflare-fronted).",
+      "channels": [{ "kind": "rss", "url_or_handle": "https://www.usda.gov/media/press-releases/rss.xml" }]
+    },
+    {
+      "id": "feed-epa", "type": "news_source", "full_name": "EPA (news releases)", "level": "national",
+      "notes": "Gov RSS → News tab (biofuels/pesticides). Verify on Pi.",
+      "channels": [{ "kind": "rss", "url_or_handle": "https://www.epa.gov/newsreleases/search/rss" }]
+    },
+    {
+      "id": "feed-farmprogress", "type": "news_source", "full_name": "Farm Progress", "level": "national",
+      "notes": "Ag news RSS → News tab. Verified live.",
+      "channels": [{ "kind": "rss", "url_or_handle": "https://www.farmprogress.com/rss.xml" }]
+    },
+    {
+      "id": "feed-agripulse", "type": "news_source", "full_name": "Agri-Pulse (headlines)", "level": "national",
+      "notes": "Ag policy news RSS → News tab. Verified live.",
+      "channels": [{ "kind": "rss", "url_or_handle": "https://www.agri-pulse.com/rss/1-agriculture-news" }]
+    },
+    {
+      "id": "feed-asa", "type": "news_source", "full_name": "American Soybean Assn (news)", "level": "national",
+      "notes": "Advocacy RSS → News tab. WordPress /feed/, verify on Pi.",
+      "channels": [{ "kind": "rss", "url_or_handle": "https://soygrowers.com/feed/" }]
+    },
+    {
+      "id": "feed-rfa", "type": "news_source", "full_name": "Renewable Fuels Assn (news)", "level": "national",
+      "notes": "Biofuels advocacy RSS → News tab. Verify on Pi.",
+      "channels": [{ "kind": "rss", "url_or_handle": "https://ethanolrfa.org/feed/" }]
+    },
+    {
+      "id": "feed-growth", "type": "news_source", "full_name": "Growth Energy (news)", "level": "national",
+      "notes": "Biofuels advocacy RSS → News tab. Verify on Pi.",
+      "channels": [{ "kind": "rss", "url_or_handle": "https://growthenergy.org/feed/" }]
+    },
+    {
+      "id": "feed-cleanfuels", "type": "news_source", "full_name": "Clean Fuels Alliance (news)", "level": "national",
+      "notes": "Biodiesel/renewable-diesel advocacy RSS → News tab. Verify on Pi.",
+      "channels": [{ "kind": "rss", "url_or_handle": "https://cleanfuels.org/feed/" }]
+    },
+    {
+      "id": "feed-iasoybean", "type": "news_source", "full_name": "Iowa Soybean Association (news)", "level": "state", "counties": ["*"],
+      "notes": "ISA's own news RSS → News tab. Verify on Pi.",
+      "channels": [{ "kind": "rss", "url_or_handle": "https://www.iasoybeans.com/feed" }]
+    },
+    {
+      "id": "feed-farmdocdaily", "type": "news_source", "full_name": "farmdoc daily (U. of Illinois)", "level": "national",
+      "notes": "Top ag-economics analysis (marketing, policy, crop budgets) — one of Matt's high-signal sources. Verified live 2026-07-06 (10 items).",
+      "channels": [{ "kind": "rss", "url_or_handle": "https://farmdocdaily.illinois.edu/feed" }]
+    },
+    {
+      "id": "feed-farmpolicynews", "type": "news_source", "full_name": "Farm Policy News (U. of Illinois)", "level": "national",
+      "notes": "Farm bill / ag-policy news roundup. Verified live 2026-07-06 (10 items).",
+      "channels": [{ "kind": "rss", "url_or_handle": "https://farmpolicynews.illinois.edu/feed/" }]
+    },
+    {
+      "id": "feed-notillfarmer", "type": "news_source", "full_name": "No-Till Farmer", "level": "national",
+      "notes": "Conservation-tillage / practice news (ties to 45Z regenerative feedstock rules). Verified live 2026-07-06 (30 items).",
+      "channels": [{ "kind": "rss", "url_or_handle": "https://www.no-tillfarmer.com/rss/articles" }]
+    },
+    {
+      "id": "feed-feedstuffs", "type": "news_source", "full_name": "Feedstuffs", "level": "national",
+      "notes": "Livestock/feed + grain-market news (soybean-meal demand). Verified live 2026-07-06 (50 items).",
+      "channels": [{ "kind": "rss", "url_or_handle": "https://www.feedstuffs.com/rss.xml" }]
+    },
+
+    {
+      "id": "gov-carb", "type": "agency", "full_name": "California Air Resources Board (LCFS)", "level": "state", "counties": ["*"],
+      "notes": "CA Low Carbon Fuel Standard — credit market + amendments drive biofuel/soy-oil demand. RSS unreliable → subscribe beanbrief@ to CARB LCFS listserv (email-intake).",
+      "channels": [
+        { "kind": "website", "url_or_handle": "https://ww2.arb.ca.gov/our-work/programs/low-carbon-fuel-standard" },
+        { "kind": "newsletter_email", "url_or_handle": "arb.ca.gov", "org_id": "carb" }
+      ]
+    },
+    {
+      "id": "gov-or-deq", "type": "agency", "full_name": "Oregon DEQ (Clean Fuels Program)", "level": "state", "counties": ["*"],
+      "notes": "OR Clean Fuels Program (LCFS-type). Subscribe beanbrief@ to the program listserv.",
+      "channels": [
+        { "kind": "website", "url_or_handle": "https://www.oregon.gov/deq/ghgp/cfp/pages/default.aspx" },
+        { "kind": "newsletter_email", "url_or_handle": "oregon.gov", "org_id": "ordeq" }
+      ]
+    },
+    {
+      "id": "gov-wa-ecology", "type": "agency", "full_name": "WA Dept of Ecology (Clean Fuel Standard)", "level": "state", "counties": ["*"],
+      "notes": "WA Clean Fuel Standard (LCFS-type). Subscribe beanbrief@ to the program updates.",
+      "channels": [
+        { "kind": "website", "url_or_handle": "https://ecology.wa.gov/air-climate/reducing-greenhouse-gas-emissions/clean-fuel-standard" },
+        { "kind": "newsletter_email", "url_or_handle": "ecology.wa.gov", "org_id": "waecology" }
+      ]
+    },
+    {
+      "id": "gov-nm-env", "type": "agency", "full_name": "New Mexico Environment Dept", "level": "state", "counties": ["*"],
+      "notes": "NM clean-fuel/LCFS activity. Has a live RSS feed (verified).",
+      "channels": [
+        { "kind": "rss", "url_or_handle": "https://www.env.nm.gov/feed/" },
+        { "kind": "newsletter_email", "url_or_handle": "env.nm.gov", "org_id": "nmenv" }
+      ]
+    },
+    {
+      "id": "gov-ia-dnr", "type": "agency", "full_name": "Iowa DNR", "level": "state", "counties": ["*"],
+      "notes": "Iowa water quality / nutrient / CAFO / environment. RSS unreliable → subscribe beanbrief@ to DNR GovDelivery.",
+      "channels": [
+        { "kind": "website", "url_or_handle": "https://www.iowadnr.gov" },
+        { "kind": "newsletter_email", "url_or_handle": "iowadnr.gov", "org_id": "iadnr" }
+      ]
+    }
+  ]
+}

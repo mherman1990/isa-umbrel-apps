@@ -1,0 +1,13 @@
+# polibrief — twice daily, America/Chicago.
+#
+# ⚠️ TIMEZONE CHECK: cron uses the Pi's system clock. Run `timedatectl` on the Pi:
+#   - If it says America/Chicago, use the lines below as-is.
+#   - If it says UTC (common on umbrelOS), 06:30 Central = 11:30 UTC in winter (CST)
+#     or 12:30 UTC in summer (CDT). Either change the Pi's timezone
+#     (sudo timedatectl set-timezone America/Chicago) — easiest — or adjust the hours.
+#
+# The node path below assumes nvm installed Node 20 (as scripts/install-pi.sh does).
+# Run `which node` on the Pi and substitute if yours differs.
+
+30 6  * * * cd /home/umbrel/polibrief && /home/umbrel/.nvm/versions/node/v20*/bin/node src/index.js run --edition am >> logs/cron.log 2>&1
+30 16 * * * cd /home/umbrel/polibrief && /home/umbrel/.nvm/versions/node/v20*/bin/node src/index.js run --edition pm >> logs/cron.log 2>&1

@@ -1,0 +1,320 @@
+{
+  "version": "2.0",
+  "briefEditions": {
+    "am": "06:30",
+    "pm": "16:30",
+    "weekly": "Fri 17:00",
+    "timezone": "America/Chicago"
+  },
+  "sources": {
+    "federal_register": {
+      "enabled": true,
+      "maxItemsPerRun": 40,
+      "agencies": [
+        "environmental-protection-agency",
+        "agriculture-department",
+        "commodity-credit-corporation",
+        "farm-service-agency",
+        "natural-resources-conservation-service",
+        "rural-business-cooperative-service",
+        "treasury-department",
+        "internal-revenue-service",
+        "commodity-futures-trading-commission",
+        "trade-representative-office-of-united-states"
+      ]
+    },
+    "congress_gov": {
+      "enabled": true,
+      "maxItemsPerRun": 30
+    },
+    "legiscan": {
+      "enabled": true,
+      "maxItemsPerRun": 40,
+      "states": [
+        "IA",
+        "IL",
+        "MN",
+        "NE",
+        "IN",
+        "MO",
+        "WI"
+      ]
+    },
+    "eurlex_oj": {
+      "enabled": true,
+      "maxItemsPerRun": 25
+    },
+    "iowa_admin_rules": {
+      "enabled": true,
+      "maxItemsPerRun": 15
+    },
+    "regulations_gov": {
+      "enabled": true,
+      "maxItemsPerRun": 20
+    },
+    "courtlistener": {
+      "enabled": true,
+      "maxItemsPerRun": 10
+    },
+    "rss": {
+      "enabled": true,
+      "maxItemsPerRun": 60
+    },
+    "email_intake": {
+      "enabled": false,
+      "maxItemsPerRun": 100,
+      "mailbox": "INBOX",
+      "_note": "Enable after setting EMAIL_INTAKE_PASS to a Gmail App Password (2FA required)."
+    },
+    "usda_nass": {
+      "enabled": true,
+      "maxItemsPerRun": 10,
+      "_note": "Markets tab — USDA NASS soybean supply/price. Free key NASS_API_KEY."
+    },
+    "eia": {
+      "enabled": true,
+      "maxItemsPerRun": 10,
+      "_note": "Markets tab — EIA biofuel feedstock (soy oil → biodiesel/renewable diesel) + diesel. Free key EIA_API_KEY."
+    },
+    "cftc": {
+      "enabled": true,
+      "maxItemsPerRun": 5,
+      "_note": "Markets tab — CFTC managed-money fund positioning (CBOT soybeans). No key."
+    },
+    "open_meteo": {
+      "enabled": true,
+      "maxItemsPerRun": 5,
+      "_note": "Markets tab — Open-Meteo S. American soybean-region weather stress. No key."
+    },
+    "usda_ams": {
+      "enabled": true,
+      "maxItemsPerRun": 5,
+      "_note": "Markets tab — USDA AMS Iowa cash soybean price + basis (report 2850). Free key USDA_AMS_API_KEY."
+    },
+    "agtransport": {
+      "enabled": true,
+      "maxItemsPerRun": 10,
+      "_note": "Markets tab — USDA Ag Transport (Socrata, no key): soybean export inspections + net export sales (FAS stand-in) + Mississippi barge freight."
+    },
+    "drought_monitor": {
+      "enabled": true,
+      "maxItemsPerRun": 5,
+      "_note": "Markets tab — U.S. Drought Monitor (no key): Iowa % area in drought (D1+) and abnormally dry+ (D0+)."
+    },
+    "ibge_brazil": {
+      "enabled": true,
+      "maxItemsPerRun": 3,
+      "_note": "Markets — IBGE SIDRA (no key): Brazil soybean production + area (LSPA 1618 current-crop + PAM 1612 long trend)."
+    },
+    "fred": {
+      "enabled": true,
+      "maxItemsPerRun": 3,
+      "_note": "Markets — FRED macro (free FRED_API_KEY): U.S. broad dollar index + 10-year Treasury yield."
+    },
+    "wasde": {
+      "enabled": true,
+      "maxItemsPerRun": 3,
+      "_note": "Markets — USDA WASDE balance sheet (no key). U.S. soybean ending stocks + stocks-to-use (soy_balance / soy_balance_stu charts) + a level-based stocks-to-use signal; world ending stocks (MMT) ride in the item summary."
+    },
+    "barchart": {
+      "enabled": false,
+      "maxItemsPerRun": 5,
+      "_note": "Markets — Barchart OnDemand (needs BARCHART_API_KEY). SCAFFOLD: no-ops without a key. Enable + confirm response fields once the key lands."
+    }
+  },
+  "focusAreas": [
+    {
+      "id": "biofuels-infrastructure",
+      "label": "Biofuels & Infrastructure",
+      "weight": 10,
+      "enabled": true,
+      "terms": [
+        "renewable fuel standard",
+        "RFS",
+        "renewable volume obligation",
+        "RVO",
+        "small refinery exemption",
+        "RIN",
+        "45Z",
+        "clean fuel production credit",
+        "GREET",
+        "carbon intensity",
+        "biodiesel",
+        "renewable diesel",
+        "sustainable aviation fuel",
+        "SAF",
+        "soybean oil",
+        "biofuel",
+        "blenders tax credit",
+        "feedstock"
+      ]
+    },
+    {
+      "id": "trade-intl-affairs",
+      "label": "Trade Policy & International Affairs",
+      "weight": 9,
+      "enabled": true,
+      "terms": [
+        "tariff",
+        "soybean export",
+        "USTR",
+        "section 301",
+        "China trade",
+        "trade agreement",
+        "market access",
+        "EUDR",
+        "deforestation regulation",
+        "retaliatory tariff",
+        "phytosanitary",
+        "WTO"
+      ]
+    },
+    {
+      "id": "farm-bill-policy",
+      "label": "Farm Bill & Farm Policy",
+      "weight": 9,
+      "enabled": true,
+      "terms": [
+        "farm bill",
+        "commodity title",
+        "crop insurance",
+        "ARC",
+        "PLC",
+        "reference price",
+        "baseline",
+        "reauthorization",
+        "marketing loan",
+        "base acres"
+      ]
+    },
+    {
+      "id": "usda-fpac",
+      "label": "USDA FPAC Programs (NRCS / RMA / RD / FSA)",
+      "weight": 9,
+      "enabled": true,
+      "terms": [
+        "NRCS",
+        "EQIP",
+        "CSP",
+        "conservation stewardship",
+        "ACEP",
+        "conservation reserve program",
+        "CRP",
+        "RMA",
+        "Federal Crop Insurance",
+        "Risk Management Agency",
+        "Rural Development",
+        "REAP",
+        "farm loan",
+        "FSA",
+        "Farm Service Agency",
+        "conservation compliance",
+        "sodsaver"
+      ]
+    },
+    {
+      "id": "crop-protection",
+      "label": "Crop Protection / Freedom to Operate",
+      "weight": 8,
+      "enabled": true,
+      "terms": [
+        "FIFRA",
+        "pesticide",
+        "glyphosate",
+        "dicamba",
+        "atrazine",
+        "registration review",
+        "pesticide label",
+        "preemption",
+        "failure to warn",
+        "herbicide",
+        "endangered species pesticide"
+      ]
+    },
+    {
+      "id": "iowa-water-land",
+      "label": "Iowa Water, Land & Pipelines",
+      "weight": 8,
+      "enabled": true,
+      "terms": [
+        "nutrient reduction",
+        "water quality",
+        "waters of the United States",
+        "WOTUS",
+        "eminent domain",
+        "carbon pipeline",
+        "CO2 pipeline",
+        "cover crop",
+        "drainage",
+        "nitrate",
+        "buffer strip"
+      ]
+    },
+    {
+      "id": "carbon-ecosystem-markets",
+      "label": "Carbon & Ecosystem Markets",
+      "weight": 7,
+      "enabled": true,
+      "terms": [
+        "carbon market",
+        "carbon credit",
+        "ecosystem services",
+        "climate-smart commodities",
+        "voluntary carbon",
+        "carbon offset",
+        "Scope 3",
+        "measurement reporting verification",
+        "low-carbon"
+      ]
+    },
+    {
+      "id": "ag-data-repair",
+      "label": "Ag Data & Right to Repair",
+      "weight": 6,
+      "enabled": true,
+      "terms": [
+        "right to repair",
+        "equipment repair",
+        "embedded software",
+        "agricultural data",
+        "data privacy",
+        "precision agriculture data",
+        "interoperability"
+      ]
+    },
+    {
+      "id": "diet-demand",
+      "label": "Diet & Demand (MAHA / Seed Oils)",
+      "weight": 6,
+      "enabled": true,
+      "terms": [
+        "seed oil",
+        "MAHA",
+        "dietary guidelines",
+        "ultra-processed",
+        "food dye",
+        "saturated fat",
+        "GRAS",
+        "nutrition policy"
+      ],
+      "appliesTo": [
+        "federal_register",
+        "congress_gov",
+        "legiscan",
+        "iowa_admin_rules",
+        "regulations_gov",
+        "courtlistener",
+        "eurlex_oj"
+      ]
+    }
+  ],
+  "output": {
+    "minLocalScoreForTriage": 5,
+    "maxItemsToTriage": 80,
+    "maxItemsInBrief": 25,
+    "teams": false,
+    "email": true,
+    "farmerBrief": true,
+    "entitySourceBoost": 6
+  }
+}

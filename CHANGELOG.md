@@ -1,0 +1,243 @@
+# Changelog
+
+## 1.12.0 — WASDE stocks-to-use, storylines, figure drill-down, source-value ledger
+
+### Added
+- **USDA WASDE balance sheet is live.** The soybean cell-extraction is finished (the report is
+  SSRS-matrix XML — soybeans are the acreage / $-per-bushel matrix in the combined "Soybeans and
+  Products" table, distinguished from meal and oil positionally). Adds a **U.S. soybean
+  stocks-to-use** scorer to the Markets signal board — level-based, so it reads from a single
+  release (below ~8% tight/supportive, above ~15% ample/bearish) — plus two charts (U.S. ending
+  stocks in mln bu, stocks-to-use %). World ending stocks (MMT) ride in the WASDE item summary.
+- **Storylines** — the monitor now auto-clusters recent items into the handful of ongoing named
+  threads the news is really about (45Z, renewable diesel, China trade, EUDR…), each with a "what
+  changed & why it matters" summary and a dated timeline that links out to sources. A 🧵 panel on
+  the homepage, a Refresh button, and a `storylines` CLI command; threads persist and accumulate
+  across runs.
+- **Figure drill-down** — when an answer, brief, or education card names a market series ("U.S.
+  soybean crush", "stocks-to-use"…), that name now links straight to its chart on the Markets tab.
+
+### Changed
+- **The Sources page is now a value ledger, framed by class.** Official (AI-triaged) sources show
+  their relevance pass-rate; News and Markets sources — which aren't triaged — show "coverage feed"
+  instead of a misleading 0% that made them look like noise. Fetched counts show last-7-days and
+  all-time.
+
+### Fixed
+- **Token-budget reliability on Sonnet 5.** Sonnet 5 runs adaptive thinking by default, and thinking
+  counts against a call's token budget — on tight budgets it could consume the whole allowance and
+  return truncated or empty output. Thinking is now disabled where it adds nothing (storylines, item
+  summaries), and the Ask box, Market Pulse, Market-education brief, and farmer cards were given
+  token headroom.
+
+## 1.11.0 — Crop-weather engine; WASDE & Barchart groundwork
+
+### Added
+- **Crop-weather engine** — an anomaly-vs-normal weather layer that reasons weather → supply →
+  price. The Open-Meteo adapter now computes recent 30-day precipitation and heat as **percentiles
+  against ~20 years of ERA5 history** for the U.S. soybean belt and the South American crop
+  (production-weighted; free, no key — no PRISM needed). A new `weather.js` engine turns those into
+  **phenology-weighted signal-board scorers** — stress in a yield-sensitive window (e.g. U.S.
+  pod-fill) supports price; a benign crop weighs on it, and off-season regions drop off the board —
+  plus a weather read injected into the Analyst Note, Market Pulse, and Ask box. Two new Markets
+  charts (U.S. and S. America weather anomaly).
+
+### Groundwork (ships disabled; ready to switch on)
+- **USDA WASDE balance sheet** adapter — the machine-readable feed (`esmis.nal.usda.gov`), the
+  release backfill, and the adapter are in place; the soybean cell-extraction (soybeans vs. meal/oil
+  in the combined U.S. table) needs finishing, so it ships **disabled**. Adds U.S. stocks-to-use +
+  world stocks + a stocks-to-use signal once enabled.
+- **Barchart** adapter — futures / forward-curve / local-basis scaffold. No-ops without
+  `BARCHART_API_KEY`; a config-flip and one live test once the key lands.
+
+### Changed
+- The market-series refresh now skips **disabled** sources — no wasted fetches.
+
+## 1.10.0 — One daily brief, market education on the Markets tab, smarter report models
+
+### Changed
+- **The twice-daily AM/PM policy briefs are now a single "Run policy brief now"** on the homepage,
+  and a quiet scan no longer saves a blank "no news" brief. The twice-daily run still refreshes
+  Markets, News, alerts, and education cards on schedule — it just stays silent on days with no
+  policy movement instead of cluttering Saved briefs. Each report button now carries a one-line
+  description of what it does.
+- **Farmer market-education cards moved from the homepage to the Markets tab** (renamed "For
+  farmers: what to watch"), sitting alongside the market data they interpret. The homepage now leads
+  with the Ask box and the reports.
+
+### Models
+- **The Analyst Note now runs on Claude Opus 4.8 with adaptive thinking** — the deep, forward-looking
+  report gets the strongest reasoning model for its "around the corner" analysis. Override with
+  `ANALYST_MODEL` in `.env`.
+- **The base model moves to Claude Sonnet 5** (`BRIEF_MODEL`) — a better model at the same price for
+  the daily brief, the weekly/monthly/farmer/education memos, Market Pulse, the education cards, and
+  the Ask box.
+
+## 1.9.0 — Signals, four reports, the trigger card engine, macro data & more
+
+### Added
+- **Marketing trigger card engine** — evaluates seasonal, positioning, and report-timing triggers
+  and writes farmer **market-education cards** ("what's happening / what history shows / review your
+  plan") on the homepage. Strictly education, never advice — a hard banned-phrasing filter, the
+  standard footer, and the RP-HPO framing are built in.
+- **FRED macro** — U.S. broad dollar index + 10-year Treasury yield, with a dollar signal (a strong
+  dollar caps export competitiveness). **Brazil production trend** (IBGE PAM, the multi-decade rise).
+- **Deeper News digest** — now reads email bodies and fetches the linked article's text, distilling
+  from real content, not just headlines.
+- **Set-aside archive** for the Laws/Rules/Decisions feed (recoverable), an **optional note** on 👎
+  that teaches the AI triage, and the **Settings panel moved onto the Logs page**.
+- The report calendar now uses the authoritative 2026 USDA dates with impact levels.
+
+### Also in this release (from the 1.8.0 work)
+- **Market signals board**, **Analyst Note** + **Market Pulse** reports, **interactive chart date
+  ranges** (6-month default), **release-calendar awareness**, a **"what changed" alert feed**, a
+  **freshness monitor**, and corn price + the soybean:corn ratio + CFTC positioning series.
+
+## 1.7.0 — Trend-aware answers · market-education brief · more market data
+
+### Added
+- **Deeper trend retrieval** — the Ask box and memos now see each market series over its *full*
+  history: year-over-year, the historical range with the latest value's percentile, and a seasonal
+  read (vs. the same month across years). So it can answer "is this seasonally normal / how does it
+  compare to years past," not just report the latest number.
+- **Market-education brief** (🎓 on the homepage / `memo education`) — a plain-language, strictly
+  nonpartisan "teach, don't tell" daily brief for farmers: what moved and *why*, a rotating teaching
+  concept, and what to watch — grounded only in the data, with every figure cited by source + date.
+  Backed by a new **curriculum + glossary** knowledge base (`seed-curriculum`).
+- **New market data (Markets tab):**
+  - **U.S. Drought Monitor** — Iowa area in drought (D1+) and abnormally dry+ (D0+), weekly.
+  - **Corn price** (Iowa vs. U.S.) and the **soybean:corn price ratio** — the relative-value / acreage read.
+  - **Brazil soybean production + area** (IBGE) — the competitor-supply signal (queryable).
+- **More ag-news feeds** on the News tab: farmdoc daily, Farm Policy News, No-Till Farmer, Feedstuffs.
+
+### Changed
+- Ten interactive charts on the Markets tab now, each with hover value + date and a CSV download.
+
+## 1.6.0 — Master query engine · on-demand memos · interactive charts · more market data
+
+### Added
+- **Ask across everything** — the homepage "Ask the Bean Brief" box now retrieves across all
+  streams in one call: Laws/Rules/Decisions + News items, the **market timeseries** (price,
+  crush, stocks, feedstock share, basis, fund positioning, exports, barge freight, weather),
+  tracked items, comment deadlines, and recent briefs — so answers can connect a policy or
+  trade development to the market numbers, with citations.
+- **On-demand memos (memo mode)** — the same engine, scoped to a window and told to write a
+  report: **Weekly memo**, **Monthly review**, and a plain-language, strictly nonpartisan
+  **Farmer update**. Buttons on the homepage; `memo <weekly|monthly|farmer>` on the CLI.
+- **Interactive Markets charts** — charts are now rendered with uPlot: **hover to read the
+  exact value + date**, with real axes and gridlines. Seven charts, each with a CSV download.
+- **New market data (Markets tab):**
+  - **Soybean export inspections** + **net export sales** (USDA Ag Transport / Socrata) — a
+    live stand-in for the FAS Export Sales report while its API is offline.
+  - **Mississippi barge freight** ($/ton) — a driver of the Gulf export basis.
+  - **U.S. soybean crop condition** (% good/excellent, Iowa vs. U.S.) — the in-season signal.
+  - **U.S. Corn Belt weather** — a domestic crop-stress read alongside South America.
+
+### Changed
+- The **twice-daily farmer twin is retired** — the farmer update is now the on-demand `farmer`
+  memo preset (generated when asked, over a chosen window), so scheduled runs never pay for it.
+- The weekly memo now spans markets + news + items, not just the week's briefs.
+
+## 1.5.0 — Markets dashboard (charts + CSV) · homepage search · more sources
+
+### Added
+- **Markets charts** — a timeseries layer feeds inline charts on the Markets tab, each with a **CSV download**:
+  - **Biofuel feedstock market share** — every lipid feedstock in U.S. biodiesel + renewable diesel (soybean
+    oil vs. corn oil, canola, used cooking oil, tallow, animal fats…), so you can watch soy's share vs. the competition.
+  - **Soybean price received** (Iowa vs. U.S.), **U.S. crush**, **U.S. ending stocks**.
+  - `market-refresh` CLI; series refresh automatically on each run.
+- **USDA AMS basis** on the Markets tab (Iowa cash soybean price + basis).
+- **More sources** in the registry — ag-news RSS (CFTC, USDA, EPA, Farm Progress, Agri-Pulse, ASA, RFA,
+  Growth Energy, Clean Fuels, Iowa Soybean) and LCFS/Iowa agencies (CARB, Oregon DEQ, WA Ecology,
+  NM Environment, Iowa DNR).
+
+### Changed
+- **Search moved to the homepage** ("Ask the Bean Brief") — the separate Search page is gone; ask questions
+  right from Home. Answers still draw on stored items + briefs.
+
+## 1.4.1 — LRD rename · in-place triage · AMS basis · RSS feeds
+
+### Added
+- **AMS basis adapter** (`usda_ams`) — Iowa state-average soybean cash price + **basis** on the Markets tab
+  (your "basis vs. the board at a glance"). Free key `USDA_AMS_API_KEY`.
+- **Ag-news RSS feeds** wired into the News pipeline: CFTC, USDA, EPA, Farm Progress, Agri-Pulse, ASA, RFA,
+  Growth Energy, Clean Fuels, Iowa Soybean.
+
+### Changed
+- **Items → "Laws, Rules & Decisions."**
+- **👍/👎 and 📌 track update in place** (AJAX) — the list no longer jumps to the top, so you can scroll
+  and triage continuously.
+- **AI summaries are permanent** — re-opening a panel returns the stored summary (no new AI call), and the
+  🧠 icon shows **✓ stored** once one exists (doubles as a "reviewed" marker). Survives version updates.
+- **All timestamps render in Central time.**
+
+## 1.4.0 — Markets tab + demand pipeline · News/Items split
+
+Big feature release. The portal is now organized into four tabs by *information class*,
+and a new demand-side data pipeline feeds a Markets tab.
+
+### Added
+- **Four-tab portal.** A per-source class (official / news / markets) routes each item:
+  - **Items** — regulatory/legal only (Federal Register, bills, dockets, court, admin rules): the clean flow.
+  - **News** — collector newsletters + legislator press (kept out of the policy brief).
+  - **Markets** — demand-side data (below).
+- **Markets / demand pipeline — 4 new free sources:** `usda_nass` (Iowa price, US production/stocks),
+  `eia` (soybean-oil → biodiesel/renewable-diesel feedstock + diesel price), `cftc` (managed-money
+  fund positioning), `open_meteo` (S. American soybean-region weather stress).
+- **News-source registry** — farmdoc, Punchbowl, POLITICO, RFA, Growth Energy, Brownfield,
+  Agri-Pulse, Carney Appleby, Torrey — with a narrow/broad boost split so broad publishers
+  surface on relevance rather than automatically.
+- `scripts/subscribe.mjs inbox` — see what's landing in the collector, by tag.
+
+### Changed
+- **News + Markets items never enter the policy brief** — partitioned by class right after
+  collection, so a market item that matches a policy keyword ("soybean oil → biodiesel") no
+  longer leaks into the brief.
+
+### Keys (all free; add to `/data/.env`)
+- `NASS_API_KEY`, `EIA_API_KEY` light up NASS/EIA now; `USDA_AMS_API_KEY` (basis) and `FAS_API_KEY`
+  (export sales) enable those when added. CFTC + Open-Meteo need none.
+
+## 1.3.1 — packaging fix
+
+- **Fix:** include `registry.json` (and `scripts/`) in the Docker image — they were
+  missing from the Dockerfile `COPY`, so on the Pi the registry seed file never reached
+  `/data` and the registry synced empty. No code changes.
+
+## 1.3.0 — v2 foundation (Entity Registry · entity collection · two-render brief)
+
+Additive extension of the v1 pipeline — the existing collect → score → triage →
+brief → deliver flow is unchanged, and every new source/render is gated so the
+running app is never broken. See `docs/V2.md` for architecture and go-live steps.
+
+### Added
+- **Entity Registry** — `entity`/`channel` tables (`src/store.js`), `src/registry.js`,
+  and a hand-seeded `registry.json` (IA federal delegation, statewide execs, state +
+  county parties). Deterministic attribution by plus-tag / domain / handle / external id.
+- **Geo resolution** — `src/geo.js` resolves an address or venue to county + legislative
+  districts via the free U.S. Census Geocoder (memoized in `geo_cache`).
+- **Entity-driven collection** — `collect.js` hands registry channels to adapters:
+  - `rss` — entity press/news feeds (RSS 2.0 + Atom).
+  - `email_intake` — reads a dedicated collector inbox over IMAP and attributes each
+    message to an entity. Disabled until a Gmail App Password is set.
+- **Registry seeders** — `registry-seed openstates|fec|socrata` and `registry-refresh`.
+  OpenStates (state legislators) and FEC (federal candidates) are live; Socrata/IECDB
+  is compliance-gated (Iowa Code § 68B.32A(7)).
+- **Two-render brief** — an optional farmer-facing, strictly nonpartisan render
+  (`output.farmerBrief`), sent to `FARMER_BRIEF_TO` or saved/web like any brief.
+- **Registry web page** (`/registry`) with channel-health monitoring; new CLI commands
+  `registry-sync` / `registry-seed` / `registry-refresh` / `registry-health`.
+- **Collector tooling** — `docs/collector-gmail.md` runbook + `scripts/subscribe.mjs`
+  (subscribe worksheet + double-opt-in confirmation-link clicker).
+
+### Changed
+- Scoring boosts registry-sourced items; triage records `entityId` / `type` / `geo`.
+- `seen_items` gains `entity_id` / `item_type` / `geo` columns (auto-migrated).
+
+### Dependencies
+- Added `imapflow` and `mailparser` (email-intake; lazy-loaded so they never affect
+  the rest of the app until email-intake runs).
+
+## 1.2.0
+Rebrand to "The Bean Brief"; ISA theme + logo; Focus Area watchlist engine; per-item
+AI summaries; split Sources/Watchlist pages; email delivery.
