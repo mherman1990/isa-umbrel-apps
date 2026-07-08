@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-polibrief
 category: automation
 name: The Bean Brief
-version: "1.9.0"
+version: "1.10.0"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
@@ -28,15 +28,12 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  A market signals board, tailored reports, and a new farmer education engine. The Markets tab
-  opens with a bull/bear signals board and a "Coming up" panel of imminent USDA reports; charts
-  default to the last six months with custom date ranges. Two one-click reports — an Analyst Note
-  that reads around the corner and a time-sensitive Market Pulse — join the lineup, and the
-  homepage gains market-education cards that turn seasonal and report-timing triggers into plain
-  guidance (it teaches, it never advises). New data: the U.S. dollar and rates (FRED), Brazil's
-  soybean production trend, corn price and the soybean:corn ratio, and CFTC fund positioning. The
-  News digest now reads full articles, not just headlines, and there's a "what changed" alert feed,
-  a data-freshness check, and a recoverable set-aside archive. Informational and nonpartisan
-  throughout.
+  The twice-daily policy brief is now a single "Run policy brief now" button, and quiet days no
+  longer save blank "no news" briefs — the twice-daily refresh still keeps Markets, News, alerts,
+  and education cards current, it just stays silent when policy is quiet. Every report button now
+  explains what it does in a line. The farmer market-education cards move to the Markets tab, next
+  to the data they interpret. Under the hood, the Analyst Note now runs on Claude Opus 4.8 with
+  extended thinking for sharper "around the corner" analysis, and every other report moves to Claude
+  Sonnet 5 — a better model at the same cost. Informational and nonpartisan throughout.
 submitter: Matt
 submission: https://github.com/mherman1990/isa-umbrel-apps
