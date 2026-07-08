@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-polibrief
 category: automation
 name: The Bean Brief
-version: "1.7.0"
+version: "1.8.0"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
@@ -28,13 +28,14 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  Trend-aware answers and a new market-education brief. The "Ask the Bean Brief" box (and the
-  memos) now read each market series over its full history — year-over-year, where today's value
-  sits in its range, and whether it's seasonally normal — so you can ask "is this unusual for
-  July?" and get a real answer. New "Market-education brief" (🎓): a plain-language, nonpartisan
-  daily brief that explains what moved and WHY and teaches one market concept at a time, grounded
-  only in the data — it explains, it never gives trading advice. The Markets tab adds Iowa drought
-  coverage, corn price and the soybean:corn ratio, and Brazil's soybean crop — ten interactive
-  charts now, each with a CSV download — plus four more ag-news feeds (farmdoc daily and others).
+  Signals, tailored reports, and a live market read. The Markets tab now opens with a market
+  signals board — a bull/bear read at a glance across crop condition, drought, export pace, fund
+  positioning, crush demand, feedstock share and more — plus a "Coming up" panel of imminent USDA
+  reports. Charts default to the last six months with custom date ranges. Two new one-click
+  reports join the lineup: an Analyst Note that reads forward and around the corner, and a Market
+  Pulse — a short, time-sensitive read for farmers on what changed and what a marketer is weighing
+  (it informs, it never advises). The homepage gains a "What changed" alert feed for material
+  market moves, the News tab a daily distilled digest, and a data-health check flags any stale
+  feed. Informational and nonpartisan throughout.
 submitter: Matt
 submission: https://github.com/mherman1990/isa-umbrel-apps
