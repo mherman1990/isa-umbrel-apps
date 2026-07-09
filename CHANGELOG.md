@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.14.0 — News tidy-up, marketer-focused signal board, review fixes
+
+### Changed
+- **News tab.** The 🧵 Storylines panel now defaults collapsed and moves off the homepage to the
+  News tab, under the daily digest. "What's flowing in" is now a real inbox — the 20 most-recent
+  items, with the rest under a collapsed "Older mail (N)", and every item expands to read its stored
+  body inline (emails have no external link, so the body *is* the message; RSS items also get an
+  "Open original" link). The collector now stores a larger email body slice (1000→4000 chars) so the
+  inline read shows the real content, not a stub.
+- **Signal board trimmed to a grain-marketer's read.** Soy-Oil Biofuel Share and the U.S. Dollar are
+  pulled off the farmer-facing board — they're structural / macro-policy reads, not signals a marketer
+  leads with. Their series still show on the Markets charts and still reach the Analyst/Pulse memos via
+  the market-data block, so nothing is lost. Added a **Soy:Corn Ratio** card (the acreage-battle read;
+  directional only in the Dec–Apr planting-decision window, context otherwise). Board goes 11→10 cards.
+
+### Fixed
+- **/run feedback** (reviewer finding). A run that fast-fails — e.g. a memo with no `ANTHROPIC_API_KEY`
+  — no longer flashes "run started" over the failure: the handler waits a short grace window and
+  redirects silently so only the red failure banner shows; a "run already in progress" bounce shows its
+  own notice; a genuinely long run still gets the optimistic "run started". A prior failure's red banner
+  is now cleared when a new run *starts*, not only on success.
+- **Scheduler robustness** (reviewer finding). A hand-edited bad `briefEditions.timezone` (an invalid
+  IANA zone throws `RangeError`) or a non-string `weekly` now degrades to a logged, skipped tick instead
+  of an unhandled rejection that crash-looped the container (the `setInterval` tick also gets a `.catch`
+  backstop). And a scheduled edition that bounces because a manual run is in flight now stays eligible
+  for a later tick instead of being marked done and silently dropped.
+
 ## 1.13.0 — performance hardening
 
 Under-the-hood speed and scalability work. No change to features, outputs, or how the app is used;

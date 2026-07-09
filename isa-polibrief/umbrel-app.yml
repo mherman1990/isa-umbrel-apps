@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-polibrief
 category: automation
 name: The Bean Brief
-version: "1.13.0"
+version: "1.14.0"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
@@ -28,10 +28,13 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  A behind-the-scenes speed and reliability release. The twice-daily refresh now runs several times
-  faster: it no longer re-downloads two decades of weather history on every run, fetches its data
-  sources side by side instead of one after another, and reuses work already done within a run.
-  Nothing changes in how you use the app or what the briefs, signals, and charts show — just update,
-  no setup or new keys needed. Informational and nonpartisan throughout.
+  Tidier News and a sharper Markets board. The News tab now leads with the daily digest and the
+  Storylines threads, and "What's flowing in" shows your 20 latest items with the rest a click away —
+  and you can open any headline to read the full message right there. The Markets signal board is
+  trimmed to the reads a grain marketer actually watches (added a Soy:Corn ratio; the biofuel-
+  feedstock-share and dollar cards move to the charts/analysis, where they fit better). Plus two
+  reliability fixes: run buttons now report a real failure instead of a false "started", and a
+  mistyped time zone can no longer restart-loop the app. Just update — no setup or new keys.
+  Informational and nonpartisan throughout.
 submitter: Matt
 submission: https://github.com/mherman1990/isa-umbrel-apps
