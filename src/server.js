@@ -306,14 +306,18 @@ const SAFE_BRIEF_NAME = /^\d{4}-\d{2}-\d{2}-(am|pm|weekly|monthly|farmer|educati
 // ---------- run management ----------
 let runInProgress = false;
 let lastRunProblem = null; // { when, message }
+const RUN_BUSY_MESSAGE = "A run is already in progress — give it a minute.";
+const RUN_STILL_GOING = Symbol("run-still-going"); // race sentinel: the run outlived the grace window
 
+// Returns null on success, RUN_BUSY_MESSAGE if a run was already in progress (nothing started),
+// or a failure string if this run started and then failed. Never throws.
 async function triggerRun(edition) {
-  if (runInProgress) return "A run is already in progress — give it a minute.";
+  if (runInProgress) return RUN_BUSY_MESSAGE; // bounce — a run that never starts must NOT clear the banner
   runInProgress = true;
+  lastRunProblem = null; // a genuinely-starting run retires any prior failure banner (not just on success)
   try {
     if (["weekly", "monthly", "farmer", "education", "analyst", "pulse"].includes(edition)) await runMemo(edition, process.env);
     else await runPipeline({ edition, env: process.env });
-    lastRunProblem = null;
     return null;
   } catch (err) {
     console.error(`❌ ${edition} run failed: ${err.message}`);
@@ -1549,10 +1553,20 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
           const hh = Number(new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", hour12: false }).format(new Date()));
           edition = hh >= 12 ? "pm" : "am";
         }
-        triggerRun(edition).then((problem) => {
-          if (problem) console.log(`⚠️  ${problem}`);
-        });
-        redirect(res, `/?notice=${encodeURIComponent(`${edition.toUpperCase()} run started — refresh in a minute or two. Problems will appear in a red banner here.`)}`);
+        // Give a fast-failing (or bouncing) run a short grace window to report itself, so we never
+        // flash "run started" over a run that already failed or never started. A genuinely long run
+        // loses the race and gets the optimistic notice; the run keeps going regardless of the redirect.
+        const runP = triggerRun(edition)
+          .then((problem) => { if (problem) console.log(`⚠️  ${problem}`); return problem; })
+          .catch((err) => { console.error(err); return `${edition.toUpperCase()} run error: ${err.message}`; });
+        const outcome = await Promise.race([runP, new Promise((r) => setTimeout(() => r(RUN_STILL_GOING), 400))]);
+        if (outcome === RUN_STILL_GOING) {
+          redirect(res, `/?notice=${encodeURIComponent(`${edition.toUpperCase()} run started — refresh in a minute or two. Problems will appear in a red banner here.`)}`);
+        } else if (outcome === RUN_BUSY_MESSAGE) {
+          redirect(res, `/?notice=${encodeURIComponent(outcome)}`); // explicit "already in progress" bounce
+        } else {
+          redirect(res, "/"); // fast finish or fast failure — the home page (incl. any red banner) reflects it
+        }
         return;
       }
 
@@ -1880,49 +1894,60 @@ function startScheduler() {
     } catch {
       return; // bad watchlist edits shouldn't crash the server; run/CLI will report it
     }
-    const editions = watchlist.briefEditions ?? {};
-    const timezone = editions.timezone ?? "America/Chicago";
-    const now = new Date();
-    const dateLabel = new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(now);
-    const hhmm = new Intl.DateTimeFormat("en-GB", { timeZone: timezone, hour: "2-digit", minute: "2-digit", hour12: false }).format(now);
-    const weekday = new Intl.DateTimeFormat("en-US", { timeZone: timezone, weekday: "short" }).format(now); // "Fri"
+    // The whole tick is guarded: watchlist.json invites hand-editing, and a bad briefEditions
+    // value (e.g. an invalid IANA timezone → Intl throws RangeError) must degrade to a logged,
+    // skipped tick — never an unhandled rejection that would crash-loop the container.
+    try {
+      const editions = watchlist.briefEditions ?? {};
+      const timezone = editions.timezone ?? "America/Chicago";
+      const now = new Date();
+      const dateLabel = new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(now);
+      const hhmm = new Intl.DateTimeFormat("en-GB", { timeZone: timezone, hour: "2-digit", minute: "2-digit", hour12: false }).format(now);
+      const weekday = new Intl.DateTimeFormat("en-US", { timeZone: timezone, weekday: "short" }).format(now); // "Fri"
 
-    for (const edition of ["am", "pm"]) {
-      const key = `${dateLabel}-${edition}`;
-      if (editions[edition] && hhmm >= editions[edition] && !ran.has(key)) {
-        ran.add(key);
-        console.log(`\n⏰ Scheduled ${edition.toUpperCase()} edition (${editions[edition]} ${timezone})`);
-        const problem = await triggerRun(edition);
-        if (problem) console.log(`⚠️  ${problem}`);
+      for (const edition of ["am", "pm"]) {
+        const key = `${dateLabel}-${edition}`;
+        if (editions[edition] && hhmm >= editions[edition] && !ran.has(key)) {
+          console.log(`\n⏰ Scheduled ${edition.toUpperCase()} edition (${editions[edition]} ${timezone})`);
+          const problem = await triggerRun(edition);
+          // Mark the edition done only once it actually STARTED. A "busy" bounce (a manual run in
+          // flight) stays eligible so a later tick picks it up once the run frees — no dropped brief.
+          if (problem === RUN_BUSY_MESSAGE) console.log(`⏭️  ${edition.toUpperCase()} bounced (run in progress) — retrying next tick`);
+          else { ran.add(key); if (problem) console.log(`⚠️  ${problem}`); }
+        }
       }
-    }
 
-    // Weekly memo, e.g. "Fri 17:00".
-    const weekly = editions.weekly;
-    if (weekly) {
-      const [day, time] = weekly.split(/\s+/);
-      const key = `${dateLabel}-weekly`;
-      if (day === weekday && time && hhmm >= time && !ran.has(key)) {
-        ran.add(key);
-        console.log(`\n⏰ Scheduled weekly memo (${weekly} ${timezone})`);
-        const problem = await triggerRun("weekly");
-        if (problem) console.log(`⚠️  ${problem}`);
+      // Weekly memo, e.g. "Fri 17:00". Guard the type: a hand-edited non-string weekly must not throw.
+      const weekly = editions.weekly;
+      if (typeof weekly === "string" && weekly.trim()) {
+        const [day, time] = weekly.split(/\s+/);
+        const key = `${dateLabel}-weekly`;
+        if (day === weekday && time && hhmm >= time && !ran.has(key)) {
+          console.log(`\n⏰ Scheduled weekly memo (${weekly} ${timezone})`);
+          const problem = await triggerRun("weekly");
+          if (problem === RUN_BUSY_MESSAGE) console.log(`⏭️  Weekly bounced (run in progress) — retrying next tick`);
+          else { ran.add(key); if (problem) console.log(`⚠️  ${problem}`); }
+        }
       }
-    }
 
-    // Nightly backup at 03:15 local.
-    const backupKey = `${dateLabel}-backup`;
-    if (hhmm >= "03:15" && !ran.has(backupKey)) {
-      ran.add(backupKey);
-      try {
-        const dir = await store.backupNow();
-        console.log(`💾 Nightly backup saved to ${dir} (newest 14 kept)`);
-      } catch (err) {
-        console.log(`⚠️  Backup failed: ${err.message}`);
+      // Nightly backup at 03:15 local.
+      const backupKey = `${dateLabel}-backup`;
+      if (hhmm >= "03:15" && !ran.has(backupKey)) {
+        ran.add(backupKey);
+        try {
+          const dir = await store.backupNow();
+          console.log(`💾 Nightly backup saved to ${dir} (newest 14 kept)`);
+        } catch (err) {
+          console.log(`⚠️  Backup failed: ${err.message}`);
+        }
       }
+    } catch (err) {
+      console.log(`⚠️  Scheduler tick skipped — check briefEditions in watchlist.json (${err.message})`);
     }
   };
 
-  setInterval(check, 30_000);
+  // .catch on the tick as a final backstop — setInterval swallows nothing, so an unguarded throw
+  // inside an async tick would otherwise become a process-killing unhandled rejection.
+  setInterval(() => { check().catch((err) => console.log(`⚠️  Scheduler tick error: ${err.message}`)); }, 30_000);
   console.log("⏰ Scheduler active — am/pm briefs, weekly memo, and a nightly 03:15 backup (times from watchlist.json).");
 }
