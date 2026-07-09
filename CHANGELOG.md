@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.13.0 — performance hardening
+
+Under-the-hood speed and scalability work. No change to features, outputs, or how the app is used;
+a full refresh dropped from ~35s to ~7s in local testing. No data migration or new keys required.
+
+### Changed
+- **Open-Meteo climatology is cached.** The weather engine used to re-download the full ~20-year
+  ERA5 archive for all 8 soybean regions, serially, on every run — the single heaviest part of a
+  refresh — just to percentile-rank the last 30 days. It now caches each region's daily history
+  (re-fetched only when missing or >30 days old) and pulls only a small recent window each run,
+  computing the exact same percentiles without the multi-decade download. Self-heals; the output
+  series are unchanged.
+- **Independent sources are fetched concurrently.** Collection (`collectAll`) and the market-series
+  refresh (`refreshMarketSeries`) now run their per-source loops through a small bounded pool
+  instead of one source at a time, so the network phase is the slowest source rather than the sum.
+  Per-source fail-soft is preserved (one source's failure never stops the run), and Open-Meteo's
+  internal per-region calls stay serial.
+- **`marketSnapshot()` is memoized.** The deep market-trend snapshot — used by the signal board,
+  alerts, market cards, memos, the Ask box, and every Markets render (several times per operation) —
+  is now computed once and reused until the series data changes (invalidated on write) instead of
+  recomputing each call.
+- **The Ask box's fallback search is one scan.** When a whole-phrase search finds nothing, the
+  per-word fallback now OR-combines the distinct words in a single query instead of one table scan
+  per word.
+
+### Added
+- **Indexes on `seen_items`** (`first_seen_at`; `source_id`+`first_seen_at`; `triage_verdict`) so
+  the item feeds, source stats, audit, and activity charts use an index rather than a full table
+  scan as the archive grows. Additive and applied automatically on start.
+
 ## 1.12.0 — WASDE stocks-to-use, storylines, figure drill-down, source-value ledger
 
 ### Added

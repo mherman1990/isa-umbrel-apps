@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-polibrief
 category: automation
 name: The Bean Brief
-version: "1.12.0"
+version: "1.13.0"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
@@ -28,12 +28,10 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  USDA's WASDE soybean balance sheet is now live — it adds a stocks-to-use "how tight is supply"
-  reading to the Markets signal board plus two new charts. A new Storylines panel on the home page
-  auto-groups what's flowing in into the handful of ongoing threads that matter (biofuel credits,
-  China trade, EU rules…), each with what changed and a dated timeline. Market figures cited in
-  answers and briefs now link straight to their chart, and the Sources page shows each feed's value
-  fairly by type. Plus reliability fixes so reports and summaries never come back truncated.
-  Informational and nonpartisan throughout.
+  A behind-the-scenes speed and reliability release. The twice-daily refresh now runs several times
+  faster: it no longer re-downloads two decades of weather history on every run, fetches its data
+  sources side by side instead of one after another, and reuses work already done within a run.
+  Nothing changes in how you use the app or what the briefs, signals, and charts show — just update,
+  no setup or new keys needed. Informational and nonpartisan throughout.
 submitter: Matt
 submission: https://github.com/mherman1990/isa-umbrel-apps
