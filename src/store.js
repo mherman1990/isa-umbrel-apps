@@ -181,6 +181,12 @@ const stmtUpsertSeriesMeta = db.prepare(
   `INSERT INTO market_series_meta (series, label, unit, category, updated_at) VALUES (?, ?, ?, ?, ?)
      ON CONFLICT(series) DO UPDATE SET label=excluded.label, unit=excluded.unit, category=excluded.category, updated_at=excluded.updated_at`
 );
+// Memoized marketSnapshot() result. The snapshot is derived purely from market_series /
+// market_series_meta, which only change via saveSeriesPoints() — so we compute it once and
+// hand back the same object until the series data changes. Invalidated below on every write.
+// (All callers treat the result as read-only — see marketSnapshot's contract note.)
+let _snapshotCache = null;
+
 /** Upsert a whole timeseries (idempotent — safe to re-refresh each run). */
 export function saveSeriesPoints(series, meta, points) {
   const run = db.transaction(() => {
@@ -192,6 +198,7 @@ export function saveSeriesPoints(series, meta, points) {
     }
   });
   run();
+  _snapshotCache = null; // series data changed → drop the memoized snapshot
 }
 export function getSeries(series) {
   return db.prepare("SELECT period, value FROM market_series WHERE series = ? ORDER BY period").all(series);
@@ -217,9 +224,13 @@ function periodToMs(p) {
  * (percentile), a seasonal read (vs. the same month across years), and a 12-point trail.
  * This is what lets "Ask the Bean Brief" (and the memos) answer "is this seasonally
  * normal / how does it compare to five years ago" from data we already keep. Cheap:
- * ~20 series × SQLite reads + arithmetic, a few hundred points each.
+ * ~20 series × SQLite reads + arithmetic, a few hundred points each — but it's called
+ * several times per operation (signals, alerts, cards, memos, the Ask box, every Markets
+ * render), so the result is memoized (invalidated in saveSeriesPoints). CONTRACT: callers
+ * must treat the returned array and its objects as read-only (they share one cached copy).
  */
 export function marketSnapshot() {
+  if (_snapshotCache) return _snapshotCache;
   const metas = db.prepare("SELECT series, label, unit, category FROM market_series_meta ORDER BY category, label").all();
   const out = [];
   for (const m of metas) {
@@ -273,6 +284,7 @@ export function marketSnapshot() {
       trail: pts.slice(-12),
     });
   }
+  _snapshotCache = out;
   return out;
 }
 
