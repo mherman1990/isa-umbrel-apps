@@ -77,4 +77,25 @@ export function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Run async `fn` over `items` with at most `limit` in flight at once, returning results in the
+ * SAME order as the input (a bounded Promise.all). `fn` is called as fn(item, index). Rejections
+ * propagate, so callers that need fail-soft should catch inside `fn` and return a marker. Used to
+ * fetch independent sources concurrently without unleashing all of them (or their hosts) at once.
+ */
+export async function mapPool(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  const worker = async () => {
+    while (true) {
+      const i = next++;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i], i);
+    }
+  };
+  await Promise.all(Array.from({ length: workerCount }, worker));
+  return results;
+}
+
 export { SourceError };

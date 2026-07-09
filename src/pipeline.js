@@ -22,6 +22,11 @@ import { upcomingReportsText, upcomingReports } from "./calendar.js";
 import { fetchDocumentText } from "./summarize.js";
 import { evaluateTriggers, triggersText } from "./triggers.js";
 import { scanBanned, COMPLIANCE_RULES, EDUCATION_FOOTER } from "./compliance.js";
+import { mapPool } from "./util.js";
+
+// How many market adapters to refresh at once — independent hosts, so the phase is the slowest
+// adapter, not the sum. (Open-Meteo's OWN per-region calls stay serial; only adapters overlap.)
+const SERIES_CONCURRENCY = 6;
 
 /** The live watchlist file: the data-volume copy in Docker/Umbrel, else the project one. */
 export function watchlistFilePath() {
@@ -132,23 +137,30 @@ function printScoredTable(kept, dropped) {
  * fetchSeries() — idempotent upsert into store.market_series. Fail-soft per adapter.
  */
 export async function refreshMarketSeries(env = process.env) {
-  let seriesCount = 0;
   let watchlist = {};
   try { watchlist = loadWatchlist(); } catch { /* no watchlist → refresh everything */ }
-  for (const adapter of Object.values(adapters)) {
-    if (typeof adapter.fetchSeries !== "function") continue;
-    if (watchlist.sources?.[adapter.id]?.enabled === false) continue; // skip disabled market sources
+  const seriesAdapters = Object.values(adapters).filter(
+    (a) => typeof a.fetchSeries === "function" && watchlist.sources?.[a.id]?.enabled !== false
+  );
+
+  // Refresh adapters concurrently (bounded). Fail-soft per adapter; the saveSeriesPoints() writes
+  // are synchronous (better-sqlite3) so they serialize safely even though the fetches overlap.
+  const counts = await mapPool(seriesAdapters, SERIES_CONCURRENCY, async (adapter) => {
     try {
       const list = await adapter.fetchSeries({ env });
+      let n = 0;
       for (const s of list) {
         store.saveSeriesPoints(s.series, s.meta, s.points);
-        seriesCount++;
+        n++;
       }
       if (list.length) console.log(`📈 ${adapter.label}: refreshed ${list.length} market series`);
+      return n;
     } catch (err) {
       console.log(`⚠️  ${adapter.label} series refresh failed: ${err.message}`);
+      return 0;
     }
-  }
+  });
+  const seriesCount = counts.reduce((a, n) => a + n, 0);
   try {
     const stale = store.seriesFreshness().filter((r) => r.stale);
     if (stale.length) console.log(`🟠 Data health: ${stale.length} series overdue — ${stale.slice(0, 6).map((s) => s.label).join(", ")}`);
