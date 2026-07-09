@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.15.0 — Iowa 2026 candidates in the registry; paid-endpoint & summary cleanup
+
+### Added
+- **Iowa 2026 general-election candidates in the registry** — 244 entities distilled from the Iowa
+  Secretary of State candidate database: the challengers and statewide candidates the OpenStates
+  "current officeholders" seed doesn't include (e.g. the Secretary of Agriculture race, Naig vs
+  Jones). A shipped data file (`src/data/ia-candidates-2026.json`) + a keyless seeder
+  (`registry-seed ia_candidates`, also run by `registry-refresh`). Monitoring core only — name /
+  party / office / district / level / incumbency; personal contact data intentionally excluded.
+  166 Iowa House, 66 Iowa Senate (incl. 25 holdovers), 12 statewide across 6 offices.
+
+### Fixed
+- **Duplicate paid Claude calls** (reviewer finding). The Ask box ran a Sonnet call on every
+  `GET /?q=…` render, so a refresh, an extra tab, or a shared `?q=` link re-paid on each load. It
+  now caches each query's result briefly (15 min) and shares a single in-flight call for concurrent
+  identical queries. `/items/summary` gained a per-item in-flight guard so concurrent requests for
+  the same uncached item share one generation instead of both paying.
+- **`item_summaries` expiry contradiction** (reviewer finding). `saveSummary` wrote an `expires_at`
+  that `getSummary` always ignored — summaries are permanent by design (re-opening never re-pays).
+  Removed the dead plumbing: dropped `expires_at` from the schema (with a guarded `DROP COLUMN`
+  migration for existing databases), from the read/write paths, the API response and its client
+  rendering, and deleted the now-unused `summaryExpiry()`.
+
 ## 1.14.0 — News tidy-up, marketer-focused signal board, review fixes
 
 ### Changed
