@@ -169,7 +169,30 @@ function dollar(m) {
   };
 }
 
-const SCORERS = [cropCondition, drought, exportPace, fundPositioning, crushDemand, stocksToUse, feedstockShare, brazilSupply, dollar];
+// The acreage-battle read: the soybean:corn price ratio steers spring planting intentions.
+function soyCornRatio(m) {
+  const s = m.get("nass:ia:soy-corn-ratio");
+  if (!s || s.percentile == null || !isFresh(s, 120)) return null;
+  const v = s.latest.value, p = s.percentile;
+  // A historically HIGH ratio (beans richly priced vs corn) pulls acres toward soybeans, building
+  // the next crop's supply (a longer-term weight); a LOW ratio favors corn, so fewer bean acres
+  // ahead. That acreage logic only bites in the Dec–Apr decision window — off-season it's context.
+  const mon = new Date().getUTCMonth() + 1;
+  const inWindow = mon <= 4 || mon === 12;
+  const direction = inWindow ? (p >= 75 ? "bearish" : p <= 25 ? "bullish" : "neutral") : "neutral";
+  return {
+    id: "soy_corn_ratio", name: "Soy:Corn Ratio", direction, value: v,
+    label: `${v.toFixed(2)}:1`,
+    detail: `Iowa soybeans are ${v.toFixed(2)}× the corn price (${s.latest.period}), ${p}th percentile of its range. ${inWindow ? (direction === "bearish" ? "Richly priced vs corn heading into planting — incentivizes soybean acres (supply-building for the new crop)." : direction === "bullish" ? "Corn favored heading into planting — fewer soybean acres ahead can tighten new-crop supply." : "Near the acreage-neutral pivot — planting incentives balanced.") : "Watched most in late winter/spring, when it steers planting intentions."}`,
+  };
+}
+
+// The farmer-facing signal board. NOTE: feedstockShare (soy-oil's % of biofuel feedstock) and
+// dollar (broad USD) are intentionally OFF the board — they're structural / macro-policy reads,
+// not signals a grain marketer leads with. Their DATA still shows on the Markets charts and reaches
+// the Analyst/Pulse memos via the market-data block, so nothing is lost; they're just not headline
+// farmer signals. (The functions are kept above for that context + easy reinstatement.)
+const SCORERS = [cropCondition, exportPace, stocksToUse, fundPositioning, crushDemand, brazilSupply, drought, soyCornRatio];
 
 /**
  * Compute the current signal board from stored market data.
