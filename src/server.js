@@ -603,7 +603,7 @@ function storylinesSection() {
       </div>`;
     })
     .join("");
-  return `<details class="topic" open><summary>🧵 Storylines <span class="muted">(${lines.length})${meta?.generatedAt ? ` · updated ${esc(fmtCT(meta.generatedAt))}` : ""}</span></summary>
+  return `<details class="topic"><summary>🧵 Storylines <span class="muted">(${lines.length})${meta?.generatedAt ? ` · updated ${esc(fmtCT(meta.generatedAt))}` : ""}</span></summary>
     <p class="muted" style="margin:2px 0 8px;font-size:.85em">The ongoing threads behind the headlines — auto-clustered from what's flowing in. <form method="post" action="/storylines" style="display:inline"><button class="ghost tiny">↻ Refresh</button></form></p>
     <div class="storylines">${cards}</div></details>`;
 }
@@ -666,7 +666,6 @@ ${lastRunProblem ? `<div class="banner err">❌ ${esc(lastRunProblem.message)} <
 ${notice ? `<div class="banner">${esc(notice)}</div>` : ""}
 ${searchSection}
 ${whatChangedSection()}
-${storylinesSection()}
 <style>
   .reports form{margin:0}
   .reports .report{display:flex;flex-direction:column;gap:3px}
@@ -818,6 +817,40 @@ function feedRows(cls, emptyMsg) {
     .join("");
 }
 
+// The News inbox — the collector inbox + press RSS, "what's flowing in". Shows the 20 most-recent
+// items and tucks the rest into a collapsed "older mail" section, and makes each item expandable
+// to read its stored body inline. Emails have no external link, so the stored body IS the way to
+// read the message — this is the "I want to read that headline but can't right now" remedy.
+function inboxFeed() {
+  const rows = store.listItems({ verdict: "", sourceIds: sourceIdsForClass("news"), days: 30, limit: 200 });
+  if (!rows.length) {
+    return `<p class="muted">No news items yet — they appear once the pipeline runs with the collector (email_intake) enabled on the Pi.</p>`;
+  }
+  const item = (r) => {
+    const src = adapters[r.source_id]?.label ?? r.source_id;
+    const when = (r.first_seen_at || "").slice(0, 10);
+    const body = (r.body || "").trim();
+    const preview = r.one_line || (body ? body.slice(0, 180) + (body.length > 180 ? "…" : "") : "");
+    return `<details class="mailitem">
+      <summary>
+        <span class="mi-title">${esc(r.title || "(untitled)")}</span>
+        <span class="mi-meta muted">${esc(src)} · ${esc(when)}</span>
+        ${preview ? `<span class="mi-prev muted">${esc(preview)}</span>` : ""}
+      </summary>
+      <div class="mailbody">
+        ${body ? `<div class="mi-body">${esc(body)}</div>` : `<p class="muted" style="margin:.3em 0">No stored text for this one — open the source to read it.</p>`}
+        ${r.url ? `<a class="mi-link" href="${esc(r.url)}" target="_blank" rel="noopener">Open original ↗</a>` : `<span class="muted mi-nolink">Email — no external link; the text above is the message.</span>`}
+      </div>
+    </details>`;
+  };
+  const recent = rows.slice(0, 20).map(item).join("");
+  const older = rows.slice(20);
+  const olderBlock = older.length
+    ? `<details class="topic mi-older"><summary>📬 Older mail <span class="muted">(${older.length})</span></summary>${older.map(item).join("")}</details>`
+    : "";
+  return `<div class="inbox">${recent}</div>${olderBlock}`;
+}
+
 function newsBody(notice) {
   const cached = getCachedNewsDigest();
   const digestBlock = cached
@@ -827,12 +860,29 @@ function newsBody(notice) {
        <p class="muted" style="font-size:.85em">One cheap Haiku call over the last two days of news.</p>`;
   return `<h1>📰 News</h1>
     ${notice ? `<div class="banner">${esc(notice)}</div>` : ""}
+    <style>
+      .mailitem{border-bottom:1px solid var(--isa-blue-40);padding:9px 0}
+      .mailitem>summary{cursor:pointer;list-style:none;display:block}
+      .mailitem>summary::-webkit-details-marker{display:none}
+      .mailitem>summary::before{content:"▸";display:inline-block;width:14px;opacity:.55}
+      .mailitem[open]>summary::before{content:"▾"}
+      .mailitem .mi-title{font-weight:600}
+      .mailitem .mi-meta{display:block;font-size:.8em;margin:1px 0 0 14px}
+      .mailitem .mi-prev{display:block;font-size:.9em;margin:2px 0 0 14px}
+      .mailitem .mailbody{margin:6px 0 4px 14px;font-size:.92em;line-height:1.55;max-width:72ch}
+      .mailitem .mi-body{white-space:pre-wrap;margin-bottom:8px}
+      .mailitem .mi-link{font-size:.9em}
+      .mi-older{margin-top:16px}
+      .mi-older>summary{cursor:pointer;font-weight:600}
+    </style>
     <h2 style="margin-bottom:2px">🧠 News of the day</h2>
     <p class="muted" style="margin-top:0">A distillation of the collector inbox + press RSS — themes and why they matter, not a relist.</p>
     ${digestBlock}
+    ${storylinesSection()}
     <hr style="border:none;border-top:1px solid var(--isa-blue-40);margin:20px 0">
-    <h2>What's flowing in</h2>
-    ${feedRows("news", "No news items yet — they appear once the pipeline runs with the collector (email_intake) enabled on the Pi.")}`;
+    <h2 style="margin-bottom:2px">📬 What's flowing in</h2>
+    <p class="muted" style="margin-top:0">The 20 most-recent items — click any headline to read it right here. Older mail is tucked below.</p>
+    ${inboxFeed()}`;
 }
 
 // A Markets chart = a container div + a JSON blob of its series, rendered client-side

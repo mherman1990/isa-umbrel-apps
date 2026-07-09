@@ -77,7 +77,9 @@ export async function fetchItems({ sinceISO, sourceConfig = {}, env = process.en
         sourceId: id,
         sourceLabel: label,
         title: (parsed.subject || "(no subject)").slice(0, 300),
-        summary: body.slice(0, 1000),
+        // Store a generous slice so the News tab's "read it here" expansion shows the real message
+        // (emails have no external link). markSeen caps the persisted body at 4000 to match.
+        summary: body.slice(0, 4000),
         url: "",
         publishedAt: (parsed.date || new Date()).toISOString(),
         jurisdiction: "Iowa",
