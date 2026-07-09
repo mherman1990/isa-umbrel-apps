@@ -90,6 +90,18 @@ for (const columnDef of [
   }
 }
 
+// Indexes for the common seen_items scan patterns. listItems, getSourceStats,
+// getAuditData, and activitySeries all filter or GROUP BY on first_seen_at / source_id /
+// triage_verdict — without these, each is a full table scan that degrades as the table
+// grows. IF NOT EXISTS + additive, so this auto-applies to existing databases (locally and
+// on the Pi on the next container start after an Update). The composite (source_id,
+// first_seen_at) covers the frequent source-scoped, time-ordered queries.
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_seen_first_seen  ON seen_items(first_seen_at);
+  CREATE INDEX IF NOT EXISTS idx_seen_source_seen ON seen_items(source_id, first_seen_at);
+  CREATE INDEX IF NOT EXISTS idx_seen_verdict     ON seen_items(triage_verdict);
+`);
+
 // Cached on-demand AI document summaries (web UI "AI summary" panel). Cached until
 // the item's comment deadline (the document doesn't change before then), or a
 // default window — see summarize.summaryExpiry.
