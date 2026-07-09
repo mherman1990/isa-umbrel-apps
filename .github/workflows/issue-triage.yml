@@ -1,0 +1,62 @@
+# Issue-triage agent — when someone reports an issue, read the code and post a recommended fix.
+#
+# Triggers:
+#   • a new (or reopened) issue        → triage it immediately
+#   • daily cron                       → sweep any open issue not yet triaged (a safety net)
+#   • manual "Run workflow" button     → triage one issue, or sweep all (leave the number blank)
+#
+# ONE-TIME SETUP (owner): add an API key so the agent can call Claude —
+#   repo → Settings → Secrets and variables → Actions → New repository secret
+#   Name: ANTHROPIC_API_KEY   Value: <your key from console.anthropic.com>
+# (Optional) set a model: same screen → Variables tab → New variable → TRIAGE_MODEL = claude-sonnet-5
+name: Issue triage — recommend a fix
+
+on:
+  issues:
+    types: [opened, reopened]
+  schedule:
+    - cron: "17 13 * * *" # ~08:17 America/Chicago; catches anything the issue event missed
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: "Issue number to (re)triage — leave blank to sweep all open, untriaged issues"
+        required: false
+
+permissions:
+  contents: read
+  issues: write
+
+# Don't run two triages of the same issue at once.
+concurrency:
+  group: issue-triage-${{ github.event.issue.number || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  triage:
+    # Cost guard: for a freshly-opened issue, only triage reports from trusted authors
+    # (owner / org member / collaborator) so public spam can't burn API credits. Scheduled
+    # sweeps and manual runs always proceed. To let anyone's issues trigger it, delete this `if`.
+    if: >
+      github.event_name != 'issues' ||
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      # Only the Anthropic SDK is needed; --ignore-scripts skips better-sqlite3's native build.
+      - name: Install dependencies
+        run: npm ci --omit=dev --ignore-scripts
+
+      - name: Analyze the issue and recommend a fix
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || github.event.inputs.issue }}
+          TRIAGE_MODEL: ${{ vars.TRIAGE_MODEL }}
+        run: node .github/scripts/triage-issue.mjs
