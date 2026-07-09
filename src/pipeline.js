@@ -419,7 +419,7 @@ export async function answerQuery(question, env) {
   const itemHits = store.searchSeenItems(question);
   const extraHits =
     itemHits.length === 0
-      ? question.split(/\s+/).filter((w) => w.length > 3).flatMap((w) => store.searchSeenItems(w, 10))
+      ? store.searchSeenItemsAny(question.split(/\s+/), 30) // one scan over the distinct words
       : [];
   const recent = store.listItems({ verdict: "relevant", days: 30, limit: 20 });
   const merged = [...new Map([...itemHits, ...extraHits, ...recent].map((h) => [h.uid, h])).values()].slice(0, 30);

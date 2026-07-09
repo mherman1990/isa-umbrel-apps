@@ -661,6 +661,24 @@ export function searchSeenItems(term, limit = 30) {
     .all(like, like, limit);
 }
 
+/**
+ * Items matching ANY of the given words (title or one_line), newest first, in ONE scan — the
+ * per-word fallback for the Ask box. Distinct words >3 chars are OR-combined so a multi-word
+ * query does a single table pass instead of one LIKE scan per word.
+ */
+export function searchSeenItemsAny(terms, limit = 30) {
+  const words = [...new Set((terms ?? []).filter((w) => w && w.length > 3))];
+  if (!words.length) return [];
+  const conds = words.map(() => "(title LIKE ? COLLATE NOCASE OR one_line LIKE ? COLLATE NOCASE)").join(" OR ");
+  const params = words.flatMap((w) => [`%${w}%`, `%${w}%`]);
+  return db
+    .prepare(
+      `SELECT uid, source_id, title, url, jurisdiction, triage_verdict, triage_topics, one_line, first_seen_at
+         FROM seen_items WHERE ${conds} ORDER BY first_seen_at DESC LIMIT ?`
+    )
+    .all(...params, limit);
+}
+
 // ---------------------------------------------------------------------------
 // On-demand AI summaries (web UI "AI summary" panel)
 
