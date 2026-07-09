@@ -102,18 +102,21 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_seen_verdict     ON seen_items(triage_verdict);
 `);
 
-// Cached on-demand AI document summaries (web UI "AI summary" panel). Cached until
-// the item's comment deadline (the document doesn't change before then), or a
-// default window — see summarize.summaryExpiry.
+// Cached on-demand AI document summaries (web UI "AI summary" panel). Summaries are
+// PERMANENT by design: a document doesn't change, so re-opening the panel always returns
+// the stored summary and never pays for a fresh call. (Older schemas had an unused expires_at
+// column — getSummary always ignored it; the migration below drops it.)
 db.exec(`
   CREATE TABLE IF NOT EXISTS item_summaries (
     uid        TEXT PRIMARY KEY,
     summary    TEXT NOT NULL,
     model      TEXT,
-    created_at TEXT NOT NULL,
-    expires_at TEXT
+    created_at TEXT NOT NULL
   );
 `);
+// Drop the vestigial expires_at from databases created before summaries were permanent.
+// Fails harmlessly if already gone (fresh DB) or unsupported (old SQLite → stays a null column).
+try { db.exec("ALTER TABLE item_summaries DROP COLUMN expires_at"); } catch { /* already dropped / not present */ }
 
 // ---------------------------------------------------------------------------
 // v2 Entity Registry + geo cache. Additive — the v1.2 brief pipeline never
@@ -693,26 +696,21 @@ export function getItemByUid(uid) {
     .get(uid);
 }
 
-/** A cached, non-expired AI summary for an item, or undefined. */
+/** The cached AI summary for an item, or undefined. Summaries are permanent (see the table note). */
 export function getSummary(uid) {
-  const row = db
-    .prepare("SELECT uid, summary, model, created_at, expires_at FROM item_summaries WHERE uid = ?")
+  return db
+    .prepare("SELECT uid, summary, model, created_at FROM item_summaries WHERE uid = ?")
     .get(uid);
-  if (!row) return undefined;
-  // Summaries are permanent once generated: re-opening the panel always returns the
-  // stored summary (never a fresh AI call), and it survives version updates (DB is in /data).
-  return row;
 }
 
-/** Store (or replace) an AI summary with an expiry timestamp. */
-export function saveSummary(uid, summary, model, expiresAt = null) {
+/** Store (or replace) an AI summary. Permanent — no expiry. */
+export function saveSummary(uid, summary, model) {
   db.prepare(
-    `INSERT INTO item_summaries (uid, summary, model, created_at, expires_at)
-       VALUES (?, ?, ?, ?, ?)
+    `INSERT INTO item_summaries (uid, summary, model, created_at)
+       VALUES (?, ?, ?, ?)
      ON CONFLICT(uid) DO UPDATE SET
-       summary = excluded.summary, model = excluded.model,
-       created_at = excluded.created_at, expires_at = excluded.expires_at`
-  ).run(uid, summary, model ?? null, new Date().toISOString(), expiresAt);
+       summary = excluded.summary, model = excluded.model, created_at = excluded.created_at`
+  ).run(uid, summary, model ?? null, new Date().toISOString());
 }
 
 /** Set of item uids that currently have a cached, non-expired summary. */

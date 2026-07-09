@@ -92,15 +92,3 @@ export async function summarizeItem(item, env) {
   const summary = response.content.find((b) => b.type === "text")?.text?.trim() ?? "";
   return { summary, model, note };
 }
-
-/**
- * When a cached summary should expire. Documents don't change before their
- * comment deadline, so cache until just past it; otherwise use a 30-day default.
- */
-export function summaryExpiry(item) {
-  const deadline = item.comment_deadline ? new Date(item.comment_deadline) : null;
-  if (deadline && !Number.isNaN(deadline.getTime()) && deadline.getTime() > Date.now()) {
-    return new Date(deadline.getTime() + 24 * 60 * 60 * 1000).toISOString();
-  }
-  return new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-}

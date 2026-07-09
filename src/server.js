@@ -25,7 +25,7 @@ import { computeSignals } from "./signals.js";
 import { upcomingReports } from "./calendar.js";
 import { adapters, sourceIdsForClass, classOf } from "./adapters/index.js";
 import { postToTeams } from "./deliver.js";
-import { summarizeItem, summaryExpiry } from "./summarize.js";
+import { summarizeItem } from "./summarize.js";
 import { syncRegistryFromSeed } from "./registry.js";
 
 // All user-facing timestamps render in Central time (the ISA org timezone).
@@ -327,6 +327,34 @@ async function triggerRun(edition) {
     runInProgress = false;
   }
 }
+
+// ---------- paid-endpoint guards (avoid duplicate Claude spend) ----------
+// The Ask box runs a Sonnet call on GET /?q=…, so a refresh, an extra tab, or a shared ?q= link
+// would otherwise re-pay on every load. Cache each query's result briefly and share a single
+// in-flight call for concurrent identical queries. Errors are never cached.
+const ASK_TTL_MS = 15 * 60 * 1000;
+const ASK_CACHE_MAX = 50;
+const askCache = new Map(); // q -> { result, ts }
+const askInFlight = new Map(); // q -> Promise<result>
+async function answerQueryOnce(q, env) {
+  const hit = askCache.get(q);
+  if (hit && Date.now() - hit.ts < ASK_TTL_MS) return hit.result;
+  if (askInFlight.has(q)) return askInFlight.get(q);
+  const p = answerQuery(q, env).then((result) => {
+    askCache.set(q, { result, ts: Date.now() });
+    if (askCache.size > ASK_CACHE_MAX) askCache.delete(askCache.keys().next().value); // evict oldest
+    return result;
+  });
+  askInFlight.set(q, p);
+  try {
+    return await p;
+  } finally {
+    askInFlight.delete(q);
+  }
+}
+
+// Per-item summary guard: concurrent requests for the same uncached item share one paid call.
+const summaryInFlight = new Map(); // uid -> Promise<{ summary, model }>
 
 // ---------- reusable widgets ----------
 function chip(topicId, kind, term) {
@@ -1134,7 +1162,7 @@ document.querySelectorAll('details.summary').forEach(function(d){
       .then(function(r){return r.json();})
       .then(function(j){
         if(j.ok){
-          body.innerHTML=j.html+'<p class="summeta">'+(j.cached?'cached':'generated')+' · '+j.model+(j.expiresAt?(' · cached until '+j.expiresAt):'')+'</p>';
+          body.innerHTML=j.html+'<p class="summeta">'+(j.cached?'cached':'generated')+' · '+j.model+'</p>';
         } else {
           body.innerHTML='<span class="muted">⚠️ '+(j.error||'Could not summarize this item.')+'</span>';
           d.dataset.loaded='';
@@ -1347,7 +1375,7 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
         let search = null;
         if (q) {
           try {
-            search = { q, result: await answerQuery(q, process.env) };
+            search = { q, result: await answerQueryOnce(q, process.env) };
           } catch (err) {
             search = { q, error: err.message };
           }
@@ -1583,18 +1611,25 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
           let cached = store.getSummary(uid);
           const fromCache = Boolean(cached);
           if (!cached) {
-            const { summary, model } = await summarizeItem(item, process.env);
-            if (!summary) throw new Error("The model returned an empty summary.");
-            const expiresAt = summaryExpiry(item);
-            store.saveSummary(uid, summary, model, expiresAt);
-            cached = { summary, model, expires_at: expiresAt };
+            // Share one generation across concurrent requests for the same item (no double-pay).
+            let p = summaryInFlight.get(uid);
+            if (!p) {
+              p = (async () => {
+                const { summary, model } = await summarizeItem(item, process.env);
+                if (!summary) throw new Error("The model returned an empty summary.");
+                store.saveSummary(uid, summary, model);
+                return { summary, model };
+              })();
+              summaryInFlight.set(uid, p);
+              p.finally(() => summaryInFlight.delete(uid));
+            }
+            cached = await p;
           }
           res.end(
             JSON.stringify({
               ok: true,
               cached: fromCache,
               model: cached.model,
-              expiresAt: cached.expires_at ? String(cached.expires_at).slice(0, 10) : null,
               html: markdownToHtml(cached.summary),
             })
           );
