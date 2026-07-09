@@ -8,6 +8,7 @@
 // thresholds are a usable current-conditions gauge in the meantime.
 
 import { fetchJSON } from "../util.js";
+import * as store from "../store.js";
 
 export const id = "open_meteo";
 export const label = "Open-Meteo (crop weather)";
@@ -89,36 +90,84 @@ export async function fetchItems() {
 
 // --- Anomaly-vs-normal layer (feeds the Markets charts + weather.js engine) ---
 // Rather than a fixed-threshold gauge, compute where the recent 30-day precip and heat sit
-// against ~27 years of ERA5 history for the SAME calendar window (Open-Meteo archive; free,
+// against ~20 years of ERA5 history for the SAME calendar window (Open-Meteo archive; free,
 // no key — this is what dissolves the old "needs PRISM normals" blocker). Percentiles: low
 // precip pctile = drier than normal (stress); high heat pctile = hotter than normal (stress).
+//
+// The ~20-year daily record barely changes day to day, but re-downloading it for every region
+// on every run was the single heaviest part of a refresh. So each region's historical daily
+// record is CACHED in kv_state and re-fetched only when missing or stale (>CLIMO_TTL_DAYS).
+// Each run then pulls just a small recent window and percentiles it against the cached history
+// — the exact same math on the same data, without the multi-decade download.
 
 const ARCHIVE = "https://archive-api.open-meteo.com/v1/archive";
-const WINDOW = 30; // trailing days
+const WINDOW = 30;                 // trailing days in the anomaly window
+const CLIMO_START = "2005-01-01";  // first day of the cached climatology
+const CLIMO_TTL_DAYS = 30;         // re-fetch the ~20-yr archive at most monthly
 const pctile = (arr, v) => (arr.length ? Math.round((100 * arr.filter((x) => x < v).length) / arr.length) : null);
 
-async function regionAnomaly(r) {
-  const end = new Date(Date.now() - 6 * 864e5).toISOString().slice(0, 10); // ERA5 lags ~5 days
-  const url = `${ARCHIVE}?latitude=${r.lat}&longitude=${r.lon}&start_date=2005-01-01&end_date=${end}` +
+// End date for any archive fetch — ERA5 lags ~5 days, so ask through 6 days ago.
+const archiveEnd = () => new Date(Date.now() - 6 * 864e5).toISOString().slice(0, 10);
+
+/** Fetch daily precip + max-temp arrays for a region over [startDate, endDate]. */
+async function fetchDaily(r, startDate, endDate) {
+  const url = `${ARCHIVE}?latitude=${r.lat}&longitude=${r.lon}&start_date=${startDate}&end_date=${endDate}` +
     `&daily=precipitation_sum,temperature_2m_max&timezone=auto`;
   const d = await fetchJSON(url);
-  const t = d.daily?.time ?? [], pr = d.daily?.precipitation_sum ?? [], tx = d.daily?.temperature_2m_max ?? [];
-  if (t.length < 400) throw new Error(`${r.name}: thin archive`);
-  const recentP = pr.slice(-WINDOW).reduce((a, b) => a + (b || 0), 0);
-  const recentT = tx.slice(-WINDOW).reduce((a, b) => a + (b || 0), 0) / WINDOW;
-  const endMD = t.at(-1).slice(5);
+  return { t: d.daily?.time ?? [], pr: d.daily?.precipitation_sum ?? [], tx: d.daily?.temperature_2m_max ?? [] };
+}
+
+const climoKey = (r) => `climo:open_meteo:v1:${r.name}`;
+
+/**
+ * The region's cached daily climatology (CLIMO_START→recent), re-fetched from the full archive
+ * only when the cache is missing/corrupt or older than CLIMO_TTL_DAYS. This is the ONE place
+ * that pays the multi-decade download; on a warm cache it does no network at all. Self-heals:
+ * a missing or unparseable cache simply triggers a refresh. Throws (fail-soft upstream, per
+ * groupAnomaly's per-region catch) only if the archive itself comes back unusable.
+ */
+async function getClimatology(r) {
+  const raw = store.getState(climoKey(r));
+  if (raw) {
+    try {
+      const c = JSON.parse(raw);
+      const ageDays = (Date.now() - Date.parse(c.computedAt)) / 864e5;
+      if (Array.isArray(c.t) && c.t.length > 400 && ageDays >= 0 && ageDays < CLIMO_TTL_DAYS) return c;
+    } catch { /* corrupt cache → fall through and refresh */ }
+  }
+  console.log(`🌡️  Open-Meteo ${r.name}: refreshing ${CLIMO_START}→ climatology (${raw ? "stale" : "cold cache"})`);
+  const full = await fetchDaily(r, CLIMO_START, archiveEnd());
+  if (full.t.length < 400) throw new Error(`${r.name}: thin archive`);
+  const c = { t: full.t, pr: full.pr, tx: full.tx, computedAt: new Date().toISOString() };
+  store.setState(climoKey(r), JSON.stringify(c));
+  return c;
+}
+
+async function regionAnomaly(r) {
+  // Recent window: a small fresh fetch covering the trailing WINDOW (+ ERA5 slack).
+  const recentStart = new Date(Date.now() - (6 + WINDOW + 12) * 864e5).toISOString().slice(0, 10);
+  const recent = await fetchDaily(r, recentStart, archiveEnd());
+  if (recent.t.length < WINDOW) throw new Error(`${r.name}: thin recent window`);
+  const recentP = recent.pr.slice(-WINDOW).reduce((a, b) => a + (b || 0), 0);
+  const recentT = recent.tx.slice(-WINDOW).reduce((a, b) => a + (b || 0), 0) / WINDOW;
+  const endMD = recent.t.at(-1).slice(5);
+  const curYear = recent.t.at(-1).slice(0, 4);
+
+  // History: every 30-day window ending on endMD in the cached record, for PRIOR years only.
+  // (The current year's endMD window is the recent window itself — excluded, exactly as the old
+  // full-archive code dropped the archive's final point.)
+  const { t, pr, tx } = await getClimatology(r);
   const histP = [], histT = [];
-  for (let i = WINDOW; i < t.length - 1; i++) {
-    if (t[i].slice(5) !== endMD) continue;
+  for (let i = WINDOW; i < t.length; i++) {
+    if (t[i].slice(5) !== endMD || t[i].slice(0, 4) === curYear) continue;
     let sp = 0, st = 0;
     for (let j = i - WINDOW + 1; j <= i; j++) { sp += pr[j] || 0; st += tx[j] || 0; }
     histP.push(sp); histT.push(st / WINDOW);
   }
-  const medP = [...histP].sort((a, b) => a - b)[Math.floor(histP.length / 2)] || 0;
   return {
     name: r.name, w: r.w,
     precipPctile: pctile(histP, recentP), heatPctile: pctile(histT, recentT),
-    recentPrecipMm: Math.round(recentP), normalPrecipMm: Math.round(medP), recentTmaxC: Math.round(recentT * 10) / 10,
+    recentPrecipMm: Math.round(recentP), recentTmaxC: Math.round(recentT * 10) / 10,
     years: histP.length,
   };
 }
