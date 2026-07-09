@@ -5,12 +5,14 @@
 import * as openstates from "./openstates.js";
 import * as fec from "./fec.js";
 import * as socrata from "./socrata.js";
+import * as iaCandidates from "./ia_candidates.js";
 import { refreshAttributionIndex } from "../registry.js";
 
 export const seeders = {
   [openstates.id]: openstates,
   [fec.id]: fec,
   [socrata.id]: socrata,
+  [iaCandidates.id]: iaCandidates,
 };
 
 /** Run one seeder by name and refresh the attribution index afterward. */
