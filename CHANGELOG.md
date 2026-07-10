@@ -4,16 +4,20 @@
 
 ### Added
 - **Iowa Political Map (`/map`)** — an interactive map of the registry's candidates and incumbents
-  over Iowa's real district geography. A muted CARTO/OpenStreetMap basemap with switchable political
-  boundaries (99 counties, 100 Iowa House districts, 50 Iowa Senate districts, 4 U.S. congressional
-  districts) and toggleable conservation overlays (the 100 Soil & Water Conservation Districts and
-  77 HUC8 watersheds). Each district is shaded by which parties filed for 2026 — contested, R-only,
-  D-only, other, or none — and clicking it lists the candidates (★ marks a known incumbent);
-  statewide races render in a side panel. The candidate/incumbent join is built from the same
-  registry the `/registry` page uses, with a static-seed fallback so the map is populated even
-  before `registry-refresh` runs. Boundaries are vendored GeoJSON (`src/assets/geo/`, built by
-  `scripts/fetch-geo.mjs` from U.S. Census TIGER, Iowa REAP/IDALS and USGS WBD) and Leaflet is
-  vendored (`src/assets/leaflet.*`) — no CDN, no build step, matching the uPlot pattern.
+  over Iowa's real district geography. A muted CARTO/OpenStreetMap basemap with always-on **county
+  lines as the base**, and the chosen political boundary (100 Iowa House districts, 50 Iowa Senate
+  districts, or 4 U.S. congressional districts) laid **translucently on top** so the county lines
+  read through. Each district is shaded **red or blue by the party that currently holds the seat**;
+  **hovering shows an info box** that names the district's **incumbent** and its 2026 **challenger(s)**,
+  each labeled with party (a seat whose incumbent isn't on the 2026 ballot is marked *open*).
+  Toggleable conservation overlays: the 100 Soil & Water Conservation Districts and 77 HUC8
+  watersheds. Statewide races render in a side panel. The incumbent/challenger join merges the same
+  registry the `/registry` page uses, the static 2026 candidate seed, and the current Iowa
+  legislature roster (`src/data/ia-incumbents.json`, built by `scripts/fetch-incumbents.mjs` from
+  OpenStates), with fallbacks so the map is populated even before `registry-refresh` runs.
+  Boundaries are vendored GeoJSON (`src/assets/geo/`, built by `scripts/fetch-geo.mjs` from U.S.
+  Census TIGER, Iowa REAP/IDALS and USGS WBD) and Leaflet is vendored (`src/assets/leaflet.*`) —
+  no CDN, no build step, matching the uPlot pattern.
 
 ## 1.15.0 — Iowa 2026 candidates in the registry; paid-endpoint & summary cleanup
 

@@ -1,21 +1,29 @@
 /* bbmap.js — renders The Bean Brief's Iowa Political Map with Leaflet.
  *
  * The /map page emits a #ia-map container and a <script id="mapdata"> JSON blob with the
- * candidate/incumbent join { house, senate, congress, statewide } keyed by district number.
- * This draws a CARTO light basemap, loads the vendored Iowa boundary GeoJSON from
- * /assets/geo/*.geojson, colors each political district by which parties filed for 2026,
- * and wires a layer control: one boundary at a time (Counties / House / Senate / Congress)
- * plus toggleable Soil & Water Conservation District and HUC8 watershed overlays.
+ * candidate/incumbent join { house, senate, congress, statewide }, each district keyed by number
+ * as { n, incumbent:{name,party}, cands:[{name,party,inc}], tone }. This draws a muted CARTO
+ * basemap, overlays crisp county lines, then lays the chosen political boundary (House / Senate /
+ * Congress) translucently on top — each district shaded RED or BLUE by the seat-holder's party.
+ * Hovering a district shows an info box naming the incumbent and the 2026 challenger(s); the
+ * vendored Soil & Water Conservation District and HUC8 watershed overlays toggle on top.
  *
  * Vendored/static (no build step). Loaded after leaflet.js on the /map page.
  */
 (function () {
   if (typeof L === "undefined") return;
 
-  var TONE = { R: "#C0392B", D: "#2C6FB0", contested: "#8E44AD", other: "#7F8C8D", none: "#E3E7EA" };
+  // Fill = current seat-holder's party. Red = Republican, blue = Democratic.
+  var TONE = { R: "#C0392B", D: "#2C6FB0", other: "#C77D0A", none: "#CBD3DA" };
 
   function esc(s) {
     return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  function pdot(party) {
+    return '<span class="pdot p-' + esc(String(party || "?").toLowerCase()) + '"></span>';
+  }
+  function person(p) {
+    return pdot(p.party) + " " + esc(p.name) + " (" + esc(p.party || "?") + ")";
   }
 
   function getData() {
@@ -28,37 +36,46 @@
     }
   }
 
-  function popupHtml(title, d) {
-    var h = '<div class="pop-title">' + esc(title) + "</div>";
-    if (!d || !d.cands || !d.cands.length) {
-      return h + '<div class="muted">No candidate on file for 2026.</div>';
+  // The hover/click info box: district, incumbent, and challenger(s), each labeled.
+  function infoHtml(name, d) {
+    var h = '<div class="tip-title">' + esc((d && d.n) || name) + "</div>";
+    if (!d) return h + '<div class="muted">No data for this district.</div>';
+    var cands = d.cands || [];
+    var incRunning = cands.some(function (c) { return c.inc; });
+
+    if (d.incumbent) {
+      h += '<div class="tip-row"><span class="tip-role">Incumbent</span><span class="tip-name">' + person(d.incumbent) + "</span></div>";
+      if (!incRunning) h += '<div class="tip-row"><span class="tip-open">Open seat — incumbent not on the 2026 ballot</span></div>';
     }
-    h += '<ul class="pop-cands">';
-    d.cands.forEach(function (c) {
-      var p = String(c.party || "?").toLowerCase();
-      h +=
-        '<li><span class="cand"><span class="pdot p-' + esc(p) + '"></span>' +
-        esc(c.name) +
-        ' <span class="muted">(' + esc(c.party || "?") + ")</span>" +
-        (c.inc ? ' <span class="incflag">★ incumbent</span>' : "") +
-        "</span></li>";
-    });
-    return h + "</ul>";
+
+    var others = cands.filter(function (c) { return !c.inc; });
+    var role = d.incumbent && incRunning ? "Challenger" : "Candidate";
+    if (others.length) {
+      others.forEach(function (c, i) {
+        h += '<div class="tip-row"><span class="tip-role">' + (i === 0 ? role : "") + '</span><span class="tip-name">' + person(c) + "</span></div>";
+      });
+    } else if (d.incumbent && incRunning) {
+      h += '<div class="tip-row"><span class="tip-role">Challenger</span><span class="muted">none filed</span></div>';
+    } else if (!d.incumbent && !cands.length) {
+      h += '<div class="muted">No candidate on file for 2026.</div>';
+    }
+    return h;
   }
 
-  // A choropleth boundary layer joined to the candidate data by feature.properties.key.
+  // A choropleth political boundary joined to the candidate data by feature.properties.key.
   function districtLayer(geo, dict) {
     var gj = L.geoJSON(geo, {
       style: function (f) {
         var d = dict[f.properties.key];
-        return { color: "#5a6b7a", weight: 1, fillColor: TONE[d ? d.tone : "none"], fillOpacity: 0.6 };
+        return { color: "#3f4b57", weight: 1, fillColor: TONE[d ? d.tone : "none"], fillOpacity: 0.4 };
       },
       onEachFeature: function (f, layer) {
         var d = dict[f.properties.key];
-        var title = (d && d.n) || f.properties.name;
-        layer.bindPopup(popupHtml(title, d), { maxWidth: 320 });
+        var html = infoHtml(f.properties.name, d);
+        layer.bindTooltip(html, { sticky: true, direction: "top", className: "map-tip", opacity: 1 });
+        layer.bindPopup(html, { maxWidth: 300 }); // click/tap fallback (no hover on touch)
         layer.on("mouseover", function () {
-          layer.setStyle({ weight: 2.5, fillOpacity: 0.78 });
+          layer.setStyle({ weight: 2.5, fillOpacity: 0.6 });
           layer.bringToFront();
         });
         layer.on("mouseout", function () {
@@ -69,30 +86,23 @@
     return gj;
   }
 
-  // A plain reference boundary (counties) — light fill, name-only popup.
-  function referenceLayer(geo) {
-    var gj = L.geoJSON(geo, {
-      style: { color: "#8a97a3", weight: 1, fillColor: "#c9d3dc", fillOpacity: 0.15 },
-      onEachFeature: function (f, layer) {
-        layer.bindPopup('<div class="pop-title">' + esc(f.properties.name) + "</div>");
-        layer.on("mouseover", function () {
-          layer.setStyle({ weight: 2, fillOpacity: 0.3 });
-        });
-        layer.on("mouseout", function () {
-          gj.resetStyle(layer);
-        });
-      },
+  // Always-on county lines — the reference base beneath the translucent districts. Non-interactive
+  // so hover/click fall through to the political layer on top.
+  function countyLines(geo) {
+    return L.geoJSON(geo, {
+      interactive: false,
+      style: { color: "#4a5763", weight: 1, fill: false, opacity: 0.55 },
     });
-    return gj;
   }
 
-  // An outline overlay (SWCD / HUC8) — no fill, distinct stroke, drawn in a higher pane.
+  // An outline overlay (SWCD / HUC8) — no meaningful fill, distinct stroke, in a higher pane.
   function overlayLayer(geo, color, pane, labeler) {
     return L.geoJSON(geo, {
       pane: pane,
       style: { color: color, weight: 1.4, fill: true, fillOpacity: 0.04, fillColor: color },
       onEachFeature: function (f, layer) {
         layer.bindPopup('<div class="pop-title">' + esc(labeler(f.properties)) + "</div>");
+        layer.bindTooltip(esc(labeler(f.properties)), { sticky: true, className: "map-tip", opacity: 1 });
       },
     });
   }
@@ -109,13 +119,11 @@
     c.onAdd = function () {
       var div = L.DomUtil.create("div", "map-legend");
       div.innerHTML =
-        "<h4>2026 filings by district</h4>" +
-        '<div class="row"><span class="sw" style="background:' + TONE.contested + '"></span>Contested (R &amp; D)</div>' +
-        '<div class="row"><span class="sw" style="background:' + TONE.R + '"></span>R candidate only</div>' +
-        '<div class="row"><span class="sw" style="background:' + TONE.D + '"></span>D candidate only</div>' +
-        '<div class="row"><span class="sw" style="background:' + TONE.other + '"></span>Other party only</div>' +
-        '<div class="row"><span class="sw" style="background:' + TONE.none + '"></span>No candidate</div>' +
+        "<h4>Seat currently held by</h4>" +
+        '<div class="row"><span class="sw" style="background:' + TONE.R + '"></span>Republican</div>' +
+        '<div class="row"><span class="sw" style="background:' + TONE.D + '"></span>Democrat</div>' +
         '<h4 style="margin-top:6px">Overlays</h4>' +
+        '<div class="row"><span class="sw" style="border:1px solid #4a5763;background:transparent"></span>County line</div>' +
         '<div class="row"><span class="sw" style="background:#6B8E23"></span>SWCD boundary</div>' +
         '<div class="row"><span class="sw" style="background:#2E86AB"></span>HUC8 watershed</div>';
       return div;
@@ -136,7 +144,7 @@
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, &copy; <a href="https://carto.com/attributions">CARTO</a>',
     }).addTo(map);
 
-    // A higher pane so the SWCD/HUC8 outlines sit above the filled district polygons.
+    // Panes: county lines sit just above the tiles; SWCD/HUC8 outlines sit above everything.
     map.createPane("overlaysHi");
     map.getPane("overlaysHi").style.zIndex = 450;
 
@@ -152,22 +160,19 @@
       loadJSON(G + "huc8.geojson"),
     ])
       .then(function (geo) {
-        var counties = referenceLayer(geo[0]);
+        var counties = countyLines(geo[0]);
         var house = districtLayer(geo[1], data.house);
         var senate = districtLayer(geo[2], data.senate);
         var congress = districtLayer(geo[3], data.congress);
-        var swcd = overlayLayer(geo[4], "#6B8E23", "overlaysHi", function (p) {
-          return p.name;
-        });
-        var huc8 = overlayLayer(geo[5], "#2E86AB", "overlaysHi", function (p) {
-          return p.name + " — HUC8 " + p.key;
-        });
+        var swcd = overlayLayer(geo[4], "#6B8E23", "overlaysHi", function (p) { return p.name; });
+        var huc8 = overlayLayer(geo[5], "#2E86AB", "overlaysHi", function (p) { return p.name + " — HUC8 " + p.key; });
 
-        house.addTo(map); // default political boundary
+        counties.addTo(map); // always-on base reference
+        house.addTo(map); // default political boundary (translucent, over the county lines)
 
         L.control
           .layers(
-            { Counties: counties, "Iowa House": house, "Iowa Senate": senate, "U.S. Congress": congress },
+            { "Iowa House": house, "Iowa Senate": senate, "U.S. Congress": congress },
             { "Soil & Water Cons. Districts": swcd, "HUC8 Watersheds": huc8 },
             { collapsed: false }
           )

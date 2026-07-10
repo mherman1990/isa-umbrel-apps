@@ -852,16 +852,36 @@ function canonOffice(office) {
   return alias[o] || o;
 }
 
-// A district's "tone" for the choropleth: which parties are actually on the 2026 ballot there.
-function toneFor(cands) {
-  const parties = new Set(cands.map((c) => c.party));
-  const hasR = parties.has("R");
-  const hasD = parties.has("D");
-  if (hasR && hasD) return "contested";
-  if (hasR) return "R";
-  if (hasD) return "D";
-  if (cands.length) return "other";
-  return "none";
+// The current Iowa legislature roster (built by scripts/fetch-incumbents.mjs) — lets the map name
+// the incumbent per district and color the district by the seat-holder's party. Always present.
+function loadIncumbentRoster() {
+  try {
+    return JSON.parse(fs.readFileSync(new URL("./data/ia-incumbents.json", import.meta.url), "utf8")).incumbents ?? [];
+  } catch {
+    return [];
+  }
+}
+
+// A district's color "tone" is the seat-holder's party: red (R) or blue (D). Fall back to a
+// single filed party when there's no known incumbent, else neutral.
+function partyTone(party, cands) {
+  if (party === "R" || party === "D") return party;
+  if (party) return "other";
+  const parties = new Set((cands ?? []).map((c) => c.party));
+  if (parties.has("R") && !parties.has("D")) return "R";
+  if (parties.has("D") && !parties.has("R")) return "D";
+  return (cands ?? []).length ? "other" : "none";
+}
+
+// Loose name match so a filer who is the sitting incumbent is recognized despite middle
+// initials / punctuation differences ("Gary M. Mohr" ~ "Gary Mohr").
+function sameName(a, b) {
+  const norm = (s) => String(s || "").toLowerCase().replace(/[.,]/g, "").replace(/\s+/g, " ").trim();
+  const na = norm(a), nb = norm(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  const fa = na.split(" "), fb = nb.split(" ");
+  return fa[0] === fb[0] && fa[fa.length - 1] === fb[fb.length - 1]; // first + last agree
 }
 
 /**
@@ -933,13 +953,33 @@ function buildMapData() {
     }
   }
 
-  // Roll each district's candidate list up into { name, cands, tone, incP }.
-  const finish = (bucket, labeler) => {
+  // Index the current roster by chamber+district so each seat knows its incumbent.
+  const incBy = { lower: {}, upper: {} };
+  for (const inc of loadIncumbentRoster()) {
+    const idx = incBy[inc.chamber];
+    if (idx && inc.district) idx[String(Number(inc.district))] = { name: inc.name, party: inc.party || "?" };
+  }
+
+  // Roll each district up into { n, incumbent, cands, tone }. The incumbent comes from the roster
+  // (state chambers) or from a hand-seed officeholder among the filers (Congress). A filer who IS
+  // the incumbent is flagged so the hover box can label them "running for re-election".
+  const finish = (bucket, labeler, incIndex) => {
     const out = {};
-    for (const [key, cands] of Object.entries(bucket)) {
+    const keys = new Set([...Object.keys(bucket), ...Object.keys(incIndex || {})]);
+    for (const key of keys) {
+      const filers = bucket[key] ?? [];
+      let incumbent = incIndex ? incIndex[key] ?? null : null;
+      if (!incumbent) {
+        const seed = filers.find((c) => c.inc); // Congress: incumbency comes from the hand-seed
+        if (seed) incumbent = { name: seed.name, party: seed.party };
+      }
+      const cands = filers.map((c) => ({
+        name: c.name,
+        party: c.party,
+        inc: incumbent && sameName(c.name, incumbent.name) ? 1 : 0,
+      }));
       cands.sort((a, b) => (b.inc - a.inc) || String(a.party).localeCompare(String(b.party)));
-      const inc = cands.find((c) => c.inc);
-      out[key] = { n: labeler(key), cands, tone: toneFor(cands), incP: inc ? inc.party : null };
+      out[key] = { n: labeler(key), incumbent, cands, tone: partyTone(incumbent ? incumbent.party : null, cands) };
     }
     return out;
   };
@@ -959,9 +999,9 @@ function buildMapData() {
     .sort((a, b) => a.office.localeCompare(b.office));
 
   return {
-    house: finish(house, (k) => `Iowa House District ${k}`),
-    senate: finish(senate, (k) => `Iowa Senate District ${k}`),
-    congress: finish(congress, (k) => `Iowa Congressional District ${k}`),
+    house: finish(house, (k) => `Iowa House District ${k}`, incBy.lower),
+    senate: finish(senate, (k) => `Iowa Senate District ${k}`, incBy.upper),
+    congress: finish(congress, (k) => `Iowa Congressional District ${k}`, null),
     statewide,
   };
 }
@@ -1003,8 +1043,17 @@ function mapBody() {
   .pop-cands li { margin: 3px 0; font-size: .92em; }
   .cand { display: inline-flex; align-items: center; gap: 6px; }
   .pdot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; flex: 0 0 auto; border: 1px solid rgba(0,0,0,.25); }
-  .p-r { background: #C0392B; } .p-d { background: #2C6FB0; } .p-i, .p-l, .p-g { background: #8E44AD; } .p-\\? , .p-np { background: #9AA3AB; }
+  .p-r { background: #C0392B; } .p-d { background: #2C6FB0; } .p-i, .p-l, .p-g { background: #C77D0A; } .p-\\? , .p-np { background: #9AA3AB; }
   .incflag { color: var(--isa-rust); font-weight: 700; font-size: .82em; }
+  /* hover info box */
+  .leaflet-tooltip.map-tip { background: #fff; border: 1px solid var(--isa-dark-40); border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.18); padding: 8px 11px; max-width: 260px; white-space: normal; font-family: system-ui, sans-serif; }
+  .leaflet-tooltip.map-tip::before { display: none; }
+  .map-tip .tip-title { font-weight: 700; color: var(--isa-dark); font-size: .95em; margin-bottom: 4px; }
+  .map-tip .tip-row { display: flex; align-items: baseline; gap: 6px; margin: 2px 0; font-size: .86em; }
+  .map-tip .tip-role { color: var(--muted); font-size: .82em; min-width: 74px; opacity: .8; }
+  .map-tip .tip-name { font-weight: 600; }
+  .map-tip .tip-open { color: var(--isa-rust); font-weight: 700; font-size: .82em; }
   .swcd-panel { border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; }
   .sw-race { padding: 7px 0; border-bottom: 1px solid var(--line); }
   .sw-race:last-child { border-bottom: none; }
@@ -1017,7 +1066,7 @@ function mapBody() {
   .leaflet-control-attribution { font-size: .68em; }
 </style>
 <h1>🗺️ Iowa Political Map</h1>
-<p class="map-lead muted">The registry's candidates and incumbents on Iowa's real districts — pick a boundary (Counties, Iowa House, Iowa Senate, U.S. Congress) from the layer control, and toggle the Soil &amp; Water Conservation District and HUC8 watershed overlays. <strong>${totalCands}</strong> candidates across ${counts.house} House, ${counts.senate} Senate &amp; ${counts.congress} congressional districts. Click any district for its candidates.</p>
+<p class="map-lead muted">County lines form the base; the political districts lay translucent on top, each shaded <span style="color:#C0392B;font-weight:700">red</span> or <span style="color:#2C6FB0;font-weight:700">blue</span> by the party that currently holds the seat. Pick a boundary (Iowa House, Iowa Senate, U.S. Congress) from the layer control and toggle the Soil &amp; Water Conservation District and HUC8 watershed overlays. <strong>${totalCands}</strong> candidates across ${counts.house} House, ${counts.senate} Senate &amp; ${counts.congress} congressional districts. Hover a district for its incumbent and challenger.</p>
 <div class="map-wrap">
   <div id="ia-map"></div>
   <div class="swcd-panel">
@@ -1026,7 +1075,7 @@ function mapBody() {
     ${statewideHtml}
   </div>
 </div>
-<p class="muted" style="margin-top:14px;font-size:.85em">District tone shows which parties filed for 2026 in that seat: <strong>contested</strong> (both major parties), <strong>R-only</strong> or <strong>D-only</strong> (single major party filed), or <strong>no candidate</strong>. ★ marks a known incumbent. Boundaries: U.S. Census TIGER (2024 districts), Iowa REAP/IDALS (SWCDs), USGS WBD (HUC8). Basemap © OpenStreetMap contributors, © CARTO.</p>
+<p class="muted" style="margin-top:14px;font-size:.85em">District color is the current seat-holder's party — <span style="color:#C0392B;font-weight:700">Republican</span> or <span style="color:#2C6FB0;font-weight:700">Democratic</span>. Hovering names the incumbent and the 2026 challenger(s); a seat whose incumbent isn't on the 2026 ballot is marked <em>open</em>. Incumbents: current Iowa legislature roster (OpenStates). Boundaries: U.S. Census TIGER (2024 districts), Iowa REAP/IDALS (SWCDs), USGS WBD (HUC8). Basemap © OpenStreetMap contributors, © CARTO.</p>
 <script id="mapdata" type="application/json">${spec}</script>
 <script src="/assets/leaflet.js?v=${ASSET_VER}"></script>
 <script src="/assets/bbmap.js?v=${ASSET_VER}"></script>`;
