@@ -294,7 +294,7 @@ function page(title, body) {
 </style></head>
 <body><header>
 <a class="brand" href="/"><img class="logo" src="/assets/isa-logo-main.png" alt="Iowa Soybean Association"><span class="brandname">The Bean Brief</span></a>
-<nav><a href="/">Home</a><a href="/items">Laws, Rules &amp; Decisions</a><a href="/news">News</a><a href="/markets">Markets</a><a href="/watchlist">Watchlist</a><a href="/sources">Sources</a><a href="/registry">Registry</a><a href="/logs">Logs &amp; Settings</a></nav>
+<nav><a href="/">Home</a><a href="/items">Laws, Rules &amp; Decisions</a><a href="/news">News</a><a href="/markets">Markets</a><a href="/map">Map</a><a href="/watchlist">Watchlist</a><a href="/sources">Sources</a><a href="/registry">Registry</a><a href="/logs">Logs &amp; Settings</a></nav>
 </header>
 <script>(function(){var p=location.pathname;document.querySelectorAll('nav a').forEach(function(a){var h=a.getAttribute('href');if(h==='/'?p==='/':p===h||p.indexOf(h+'/')===0)a.classList.add('active');});})();</script>
 ${body}
@@ -815,6 +815,221 @@ function registryBody(notice) {
     body = `<div class="banner err">⚠️ ${esc(err.message)}</div>`;
   }
   return `${notice ? `<div class="banner">${esc(notice)}</div>` : ""}${body}`;
+}
+
+// ---------- map page (v2) ----------
+// The Iowa political map: the registry's candidates/incumbents rendered over real district
+// geography (state House/Senate, U.S. Congress, counties) with conservation overlays (SWCD,
+// HUC8). Boundaries are vendored GeoJSON (src/assets/geo, built by scripts/fetch-geo.mjs);
+// the who-runs-where join is computed here from the same registry the /registry page shows.
+
+// Always-present fallback so the map is populated even before the ia_candidates seeder runs
+// (the DB may hold only the hand-seed until `registry-refresh`). Read straight from the image.
+function loadCandidateSeed() {
+  try {
+    return JSON.parse(fs.readFileSync(new URL("./data/ia-candidates-2026.json", import.meta.url), "utf8"));
+  } catch {
+    return { candidates: [] };
+  }
+}
+
+// Derive a chamber ("lower"/"upper") from an office string when the row doesn't carry one.
+// Federal chambers ("U.S. House"/"U.S. Senate") are NOT state chambers — return null so they
+// fall through to the congressional / statewide buckets instead of the Iowa House/Senate maps.
+function chamberOfOffice(office) {
+  const o = (office || "").toLowerCase();
+  if (o.includes("u.s.") || o.includes("congress") || o.includes("federal")) return null;
+  if (o.includes("house")) return "lower";
+  if (o.includes("senate")) return "upper";
+  return null;
+}
+
+// Canonicalize statewide office labels so the hand-seed incumbent ("Iowa Attorney General")
+// and the candidate-seed challengers ("Attorney General") land in the same race.
+function canonOffice(office) {
+  let o = (office || "Other").trim().replace(/^Iowa\s+/i, "");
+  const alias = { "State Auditor": "Auditor of State" };
+  return alias[o] || o;
+}
+
+// A district's "tone" for the choropleth: which parties are actually on the 2026 ballot there.
+function toneFor(cands) {
+  const parties = new Set(cands.map((c) => c.party));
+  const hasR = parties.has("R");
+  const hasD = parties.has("D");
+  if (hasR && hasD) return "contested";
+  if (hasR) return "R";
+  if (hasD) return "D";
+  if (cands.length) return "other";
+  return "none";
+}
+
+/**
+ * Build the candidate/incumbent join for the map. Merges the live registry (SQLite entities:
+ * hand-seed + any machine seeders) with the static candidate seed so coverage is guaranteed,
+ * de-duped by stable entity id. Returns compact per-layer dictionaries + a statewide list.
+ */
+function buildMapData() {
+  const byId = new Map(); // id -> { name, party, office, district, chamber, level, incumbent }
+  const add = (r) => {
+    if (!r.id || byId.has(r.id)) return;
+    byId.set(r.id, r);
+  };
+
+  // 1. Live registry entities (the same source the /registry page renders).
+  try {
+    for (const e of store.listEntities({ limit: 5000 })) {
+      if (["candidate", "officeholder"].includes(e.type)) {
+        add({
+          id: e.id,
+          name: e.full_name,
+          party: e.party,
+          office: e.office,
+          district: e.district,
+          chamber: chamberOfOffice(e.office),
+          level: e.level,
+          incumbent: e.incumbent ? 1 : 0,
+        });
+      }
+    }
+  } catch {
+    /* DB not ready — the seed fallback below still populates the map */
+  }
+
+  // 2. Static candidate seed fallback (idempotent — skipped where already present by id).
+  for (const c of loadCandidateSeed().candidates ?? []) {
+    add({
+      id: c.id,
+      name: c.name,
+      party: c.party,
+      office: c.office,
+      district: c.district,
+      chamber: c.chamber ?? chamberOfOffice(c.office),
+      level: c.level ?? "state",
+      incumbent: c.incumbent ? 1 : 0,
+    });
+  }
+
+  const house = {};
+  const senate = {};
+  const congress = {};
+  const statewideByOffice = {};
+
+  const push = (bucket, key, rec) => {
+    (bucket[key] ??= []).push(rec);
+  };
+
+  for (const r of byId.values()) {
+    const rec = { name: r.name, party: r.party || "?", inc: r.incumbent ? 1 : 0 };
+    const o = (r.office || "").toLowerCase();
+    if (r.chamber === "lower" && r.district) push(house, String(Number(r.district)), rec);
+    else if (r.chamber === "upper" && r.district) push(senate, String(Number(r.district)), rec);
+    else if (o.includes("u.s. house") || o.includes("us house")) {
+      const m = String(r.district || "").match(/(\d+)/); // "IA-01" -> "1"
+      if (m) push(congress, String(Number(m[1])), rec);
+    } else if (r.level !== "county" && r.type !== "party_org") {
+      // Statewide / at-large offices (Governor, AG, U.S. Senate, Sec. of Ag, …).
+      push(statewideByOffice, canonOffice(r.office), rec);
+    }
+  }
+
+  // Roll each district's candidate list up into { name, cands, tone, incP }.
+  const finish = (bucket, labeler) => {
+    const out = {};
+    for (const [key, cands] of Object.entries(bucket)) {
+      cands.sort((a, b) => (b.inc - a.inc) || String(a.party).localeCompare(String(b.party)));
+      const inc = cands.find((c) => c.inc);
+      out[key] = { n: labeler(key), cands, tone: toneFor(cands), incP: inc ? inc.party : null };
+    }
+    return out;
+  };
+
+  const statewide = Object.entries(statewideByOffice)
+    .map(([office, cands]) => {
+      // Dedupe by name (an incumbent may appear as both a hand-seed officeholder and a filer);
+      // keep the incumbent-flagged copy.
+      const byName = new Map();
+      for (const c of cands) {
+        const k = c.name.toLowerCase();
+        if (!byName.has(k) || (c.inc && !byName.get(k).inc)) byName.set(k, c);
+      }
+      const merged = [...byName.values()].sort((a, b) => (b.inc - a.inc) || String(a.party).localeCompare(String(b.party)));
+      return { office, cands: merged };
+    })
+    .sort((a, b) => a.office.localeCompare(b.office));
+
+  return {
+    house: finish(house, (k) => `Iowa House District ${k}`),
+    senate: finish(senate, (k) => `Iowa Senate District ${k}`),
+    congress: finish(congress, (k) => `Iowa Congressional District ${k}`),
+    statewide,
+  };
+}
+
+function mapBody() {
+  let data;
+  try {
+    data = buildMapData();
+  } catch (err) {
+    return `<div class="banner err">⚠️ Couldn't build map data: ${esc(err.message)}</div>`;
+  }
+  const counts = {
+    house: Object.keys(data.house).length,
+    senate: Object.keys(data.senate).length,
+    congress: Object.keys(data.congress).length,
+  };
+  const totalCands =
+    Object.values(data.house).concat(Object.values(data.senate), Object.values(data.congress)).reduce((a, d) => a + d.cands.length, 0) +
+    data.statewide.reduce((a, s) => a + s.cands.length, 0);
+
+  // Statewide races render as a side panel (no polygon to click).
+  const badge = (c) =>
+    `<span class="cand"><span class="pdot p-${esc((c.party || "?").toLowerCase())}"></span>${esc(c.name)}${c.inc ? ' <span class="incflag">★ incumbent</span>' : ""} <span class="muted">(${esc(c.party || "?")})</span></span>`;
+  const statewideHtml = data.statewide.length
+    ? data.statewide
+        .map((s) => `<div class="sw-race"><div class="sw-office">${esc(s.office)}</div>${s.cands.map(badge).join("")}</div>`)
+        .join("")
+    : `<p class="muted">No statewide races loaded.</p>`;
+
+  const spec = JSON.stringify(data).replace(/</g, "\\u003c");
+  return `<link rel="stylesheet" href="/assets/leaflet.css?v=${ASSET_VER}">
+<style>
+  .map-wrap { display: grid; grid-template-columns: 1fr; gap: 16px; }
+  #ia-map { height: 620px; border: 1px solid var(--line); border-radius: 10px; z-index: 0; }
+  .map-lead { margin: 2px 0 12px; }
+  .leaflet-popup-content { font-family: system-ui, sans-serif; margin: 10px 12px; }
+  .pop-title { font-weight: 700; color: var(--isa-dark); font-size: 1.02em; margin-bottom: 4px; }
+  .pop-cands { list-style: none; padding: 0; margin: 4px 0 0; }
+  .pop-cands li { margin: 3px 0; font-size: .92em; }
+  .cand { display: inline-flex; align-items: center; gap: 6px; }
+  .pdot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; flex: 0 0 auto; border: 1px solid rgba(0,0,0,.25); }
+  .p-r { background: #C0392B; } .p-d { background: #2C6FB0; } .p-i, .p-l, .p-g { background: #8E44AD; } .p-\\? , .p-np { background: #9AA3AB; }
+  .incflag { color: var(--isa-rust); font-weight: 700; font-size: .82em; }
+  .swcd-panel { border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; }
+  .sw-race { padding: 7px 0; border-bottom: 1px solid var(--line); }
+  .sw-race:last-child { border-bottom: none; }
+  .sw-office { font-weight: 700; color: var(--isa-dark); margin-bottom: 3px; }
+  .sw-race .cand { display: flex; margin: 2px 0; font-size: .92em; }
+  .map-legend { background: #fff; padding: 8px 10px; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.2); font-size: .82em; line-height: 1.5; }
+  .map-legend .row { display: flex; align-items: center; gap: 6px; }
+  .map-legend .sw { width: 14px; height: 14px; border-radius: 3px; display: inline-block; border: 1px solid rgba(0,0,0,.25); }
+  .map-legend h4 { margin: 0 0 4px; color: var(--isa-dark); font-size: .9em; }
+  .leaflet-control-attribution { font-size: .68em; }
+</style>
+<h1>🗺️ Iowa Political Map</h1>
+<p class="map-lead muted">The registry's candidates and incumbents on Iowa's real districts — pick a boundary (Counties, Iowa House, Iowa Senate, U.S. Congress) from the layer control, and toggle the Soil &amp; Water Conservation District and HUC8 watershed overlays. <strong>${totalCands}</strong> candidates across ${counts.house} House, ${counts.senate} Senate &amp; ${counts.congress} congressional districts. Click any district for its candidates.</p>
+<div class="map-wrap">
+  <div id="ia-map"></div>
+  <div class="swcd-panel">
+    <h2 style="margin-top:0">Statewide races</h2>
+    <p class="muted" style="margin-top:0;font-size:.9em">Offices elected statewide — no single district to click on the map.</p>
+    ${statewideHtml}
+  </div>
+</div>
+<p class="muted" style="margin-top:14px;font-size:.85em">District tone shows which parties filed for 2026 in that seat: <strong>contested</strong> (both major parties), <strong>R-only</strong> or <strong>D-only</strong> (single major party filed), or <strong>no candidate</strong>. ★ marks a known incumbent. Boundaries: U.S. Census TIGER (2024 districts), Iowa REAP/IDALS (SWCDs), USGS WBD (HUC8). Basemap © OpenStreetMap contributors, © CARTO.</p>
+<script id="mapdata" type="application/json">${spec}</script>
+<script src="/assets/leaflet.js?v=${ASSET_VER}"></script>
+<script src="/assets/bbmap.js?v=${ASSET_VER}"></script>`;
 }
 
 // ---------- watchlist page ----------
@@ -1350,6 +1565,22 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
           "uPlot.min.css": "text/css; charset=utf-8",
           "uPlot.iife.min.js": "text/javascript; charset=utf-8",
           "bbcharts.js": "text/javascript; charset=utf-8",
+          // Map page: vendored Leaflet + its marker/layer images + our renderer.
+          "leaflet.js": "text/javascript; charset=utf-8",
+          "leaflet.css": "text/css; charset=utf-8",
+          "bbmap.js": "text/javascript; charset=utf-8",
+          "images/layers.png": "image/png",
+          "images/layers-2x.png": "image/png",
+          "images/marker-icon.png": "image/png",
+          "images/marker-icon-2x.png": "image/png",
+          "images/marker-shadow.png": "image/png",
+          // Vendored Iowa boundary GeoJSON (built by scripts/fetch-geo.mjs).
+          "geo/counties.geojson": "application/json; charset=utf-8",
+          "geo/congress.geojson": "application/json; charset=utf-8",
+          "geo/senate.geojson": "application/json; charset=utf-8",
+          "geo/house.geojson": "application/json; charset=utf-8",
+          "geo/swcd.geojson": "application/json; charset=utf-8",
+          "geo/huc8.geojson": "application/json; charset=utf-8",
         };
         const name = url.pathname.slice("/assets/".length);
         const ctype = ASSETS[name];
@@ -1490,6 +1721,12 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
       if (req.method === "GET" && url.pathname === "/registry") {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
         res.end(page("The Bean Brief · registry", registryBody(url.searchParams.get("notice"))));
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/map") {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.end(page("The Bean Brief · map", mapBody()));
         return;
       }
 

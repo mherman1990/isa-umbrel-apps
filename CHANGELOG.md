@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased — Iowa Political Map
+
+### Added
+- **Iowa Political Map (`/map`)** — an interactive map of the registry's candidates and incumbents
+  over Iowa's real district geography. A muted CARTO/OpenStreetMap basemap with switchable political
+  boundaries (99 counties, 100 Iowa House districts, 50 Iowa Senate districts, 4 U.S. congressional
+  districts) and toggleable conservation overlays (the 100 Soil & Water Conservation Districts and
+  77 HUC8 watersheds). Each district is shaded by which parties filed for 2026 — contested, R-only,
+  D-only, other, or none — and clicking it lists the candidates (★ marks a known incumbent);
+  statewide races render in a side panel. The candidate/incumbent join is built from the same
+  registry the `/registry` page uses, with a static-seed fallback so the map is populated even
+  before `registry-refresh` runs. Boundaries are vendored GeoJSON (`src/assets/geo/`, built by
+  `scripts/fetch-geo.mjs` from U.S. Census TIGER, Iowa REAP/IDALS and USGS WBD) and Leaflet is
+  vendored (`src/assets/leaflet.*`) — no CDN, no build step, matching the uPlot pattern.
+
 ## 1.15.0 — Iowa 2026 candidates in the registry; paid-endpoint & summary cleanup
 
 ### Added
