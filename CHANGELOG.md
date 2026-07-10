@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — Iowa Political Map
+## 1.17.0 — Iowa Political Map
 
 ### Added
 - **Iowa Political Map (`/map`)** — an interactive map of the registry's candidates and incumbents
@@ -18,6 +18,25 @@
   Boundaries are vendored GeoJSON (`src/assets/geo/`, built by `scripts/fetch-geo.mjs` from U.S.
   Census TIGER, Iowa REAP/IDALS and USGS WBD) and Leaflet is vendored (`src/assets/leaflet.*`) —
   no CDN, no build step, matching the uPlot pattern.
+
+## 1.16.0 — Studio: a desktop chart-exploration workbench
+
+### Added
+- **Studio tab (desktop) — a chart workbench over the market timeseries.** A new tab for building
+  and exporting charts from the data the app already collects, separate from the curated Markets
+  view. Pick any of the ~35 market series from a grouped catalog and compare them on one chart
+  (series with different units land on a second y-axis automatically); reshape with transforms —
+  **rebase to 100**, **YoY %**, **ratio A ÷ B**, and a **seasonality** overlay (each year as its own
+  line); shade a **historical normal-range band** (10th–90th percentile) behind the focused series;
+  and drop **USDA/CME report dates and "what changed" alerts as flags on the x-axis** — the
+  cross-stream read a price terminal doesn't do for beans. A side panel shows the focused series'
+  trend stats (latest, Δ prior, YoY, percentile, seasonal, range) from the same `marketSnapshot` the
+  Ask box uses. Export a **PNG** (with the education footer stamped on) for slides/Teams, the **CSV**,
+  or a **shareable link** that reproduces the exact view (the spec is encoded in the URL). Desktop-only
+  (the Markets tab still works everywhere); a natural-language prompt bar and an "Explain this chart"
+  read are stubbed in the UI for a later phase. Self-contained new files (`src/studio.js`,
+  `src/assets/studio.js`) + `/api/studio/*` routes; renders with the already-vendored uPlot. Code-only
+  — no new keys, dependencies, or data migration; live on Update.
 
 ## 1.15.0 — Iowa 2026 candidates in the registry; paid-endpoint & summary cleanup
 
