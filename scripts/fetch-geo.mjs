@@ -25,14 +25,6 @@ const IOWA_BBOX = { xmin: -96.65, ymin: 40.37, xmax: -90.14, ymax: 43.51, spatia
 
 const TIGER = "https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb";
 
-/** Title-case a SHOUTY name like "DECATUR" or "WEST POTTAWATTAMIE" → "Decatur" / "West Pottawattamie". */
-function titleCase(s) {
-  return String(s)
-    .toLowerCase()
-    .replace(/\b\w/g, (c) => c.toUpperCase())
-    .replace(/\bMc(\w)/g, (_, c) => "Mc" + c.toUpperCase());
-}
-
 const LAYERS = [
   {
     name: "counties",
@@ -57,12 +49,6 @@ const LAYERS = [
     url: `${TIGER}/Legislative/MapServer/2/query`,
     params: { where: "GEOID LIKE '19%'", outFields: "BASENAME,GEOID", maxAllowableOffset: 0.003 },
     map: (p) => ({ key: String(Number(p.BASENAME)), name: `Iowa House District ${Number(p.BASENAME)}` }),
-  },
-  {
-    name: "swcd",
-    url: "https://services.arcgis.com/vPD5PVLI6sfkZ5E4/arcgis/rest/services/ReapSWCD/FeatureServer/0/query",
-    params: { where: "1=1", outFields: "District,Name", maxAllowableOffset: 0.003 },
-    map: (p) => ({ key: titleCase(p.District ?? p.Name), name: `${titleCase(p.District ?? p.Name)} SWCD` }),
   },
   {
     name: "huc8",

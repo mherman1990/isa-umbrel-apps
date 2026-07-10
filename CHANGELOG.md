@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.18.0 — Map: drop SWCD, watersheds as a background layer
+
+### Changed
+- **Removed the Soil & Water Conservation District overlay.** Iowa's SWCDs are all-but-identical to
+  county lines (which the map already draws), so the layer was redundant clutter — dropped from the
+  map, its legend, the asset allowlist, and the boundary build script; `swcd.geojson` deleted.
+- **HUC8 watersheds are now a passive background layer.** The overlay renders in a low, non-
+  interactive pane beneath the districts, so hovering a district always shows its candidate card
+  (never a watershed card).
+- **The hover card lists the district's watersheds when the HUC8 overlay is on.** A district usually
+  spans several HUC8s; toggling the overlay adds a "Watersheds (HUC8)" section (code + name) to each
+  district's card, and removing it takes them away. The district→watershed overlap is precomputed
+  from the vendored GeoJSON by `scripts/build-district-hucs.mjs` into `src/data/district-hucs.json`
+  (avg ~3.5 HUC8s per House district, ~4.8 per Senate, ~21 per congressional district).
+
 ## 1.17.0 — Iowa Political Map
 
 ### Added

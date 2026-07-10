@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-polibrief
 category: automation
 name: The Bean Brief
-version: "1.17.0"
+version: "1.18.0"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
@@ -28,11 +28,11 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  New "Map" tab — an interactive Iowa political map. County lines form the base and each legislative
-  or congressional district lays translucent on top, shaded red or blue by the party that holds the
-  seat. Hover a district to see its incumbent and 2026 challenger; switch between Iowa House, Senate
-  and U.S. Congress boundaries, and toggle Soil & Water Conservation District and HUC8 watershed
-  overlays. Builds on the Studio chart workbench added in 1.16.0. Nothing to set up and no new keys —
-  just Update. Informational and nonpartisan throughout.
+  Map tab refinements. The Soil & Water Conservation District overlay is gone (it just retraced the
+  county lines). The HUC8 watershed overlay is now a passive background layer, so hovering always
+  shows the district's candidate card — and with it on, that card also lists the watersheds the
+  district spans (most cover several). County lines still form the base, districts still shade red
+  or blue by the party that holds the seat. Nothing to set up and no new keys — just Update.
+  Informational and nonpartisan throughout.
 submitter: Matt
 submission: https://github.com/mherman1990/isa-umbrel-apps

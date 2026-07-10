@@ -820,8 +820,8 @@ function registryBody(notice) {
 
 // ---------- map page (v2) ----------
 // The Iowa political map: the registry's candidates/incumbents rendered over real district
-// geography (state House/Senate, U.S. Congress, counties) with conservation overlays (SWCD,
-// HUC8). Boundaries are vendored GeoJSON (src/assets/geo, built by scripts/fetch-geo.mjs);
+// geography (state House/Senate, U.S. Congress, counties) with a HUC8 watershed background
+// overlay. Boundaries are vendored GeoJSON (src/assets/geo, built by scripts/fetch-geo.mjs);
 // the who-runs-where join is computed here from the same registry the /registry page shows.
 
 // Always-present fallback so the map is populated even before the ia_candidates seeder runs
@@ -860,6 +860,16 @@ function loadIncumbentRoster() {
     return JSON.parse(fs.readFileSync(new URL("./data/ia-incumbents.json", import.meta.url), "utf8")).incumbents ?? [];
   } catch {
     return [];
+  }
+}
+
+// The precomputed district→HUC8 overlap map (built by scripts/build-district-hucs.mjs) — lets the
+// hover card list the watersheds a district spans when the HUC layer is on. Always present.
+function loadDistrictHucs() {
+  try {
+    return JSON.parse(fs.readFileSync(new URL("./data/district-hucs.json", import.meta.url), "utf8"));
+  } catch {
+    return { hucNames: {}, house: {}, senate: {}, congress: {} };
   }
 }
 
@@ -964,7 +974,11 @@ function buildMapData() {
   // Roll each district up into { n, incumbent, cands, tone }. The incumbent comes from the roster
   // (state chambers) or from a hand-seed officeholder among the filers (Congress). A filer who IS
   // the incumbent is flagged so the hover box can label them "running for re-election".
-  const finish = (bucket, labeler, incIndex) => {
+  const dHucs = loadDistrictHucs();
+  const hucsFor = (layerHucs, key) =>
+    (layerHucs[key] ?? []).map((code) => ({ huc: code, name: dHucs.hucNames[code] ?? "" }));
+
+  const finish = (bucket, labeler, incIndex, layerHucs) => {
     const out = {};
     const keys = new Set([...Object.keys(bucket), ...Object.keys(incIndex || {})]);
     for (const key of keys) {
@@ -980,7 +994,13 @@ function buildMapData() {
         inc: incumbent && sameName(c.name, incumbent.name) ? 1 : 0,
       }));
       cands.sort((a, b) => (b.inc - a.inc) || String(a.party).localeCompare(String(b.party)));
-      out[key] = { n: labeler(key), incumbent, cands, tone: partyTone(incumbent ? incumbent.party : null, cands) };
+      out[key] = {
+        n: labeler(key),
+        incumbent,
+        cands,
+        tone: partyTone(incumbent ? incumbent.party : null, cands),
+        hucs: hucsFor(layerHucs || {}, key), // watersheds this district spans (shown when HUC layer is on)
+      };
     }
     return out;
   };
@@ -1000,9 +1020,9 @@ function buildMapData() {
     .sort((a, b) => a.office.localeCompare(b.office));
 
   return {
-    house: finish(house, (k) => `Iowa House District ${k}`, incBy.lower),
-    senate: finish(senate, (k) => `Iowa Senate District ${k}`, incBy.upper),
-    congress: finish(congress, (k) => `Iowa Congressional District ${k}`, null),
+    house: finish(house, (k) => `Iowa House District ${k}`, incBy.lower, dHucs.house),
+    senate: finish(senate, (k) => `Iowa Senate District ${k}`, incBy.upper, dHucs.senate),
+    congress: finish(congress, (k) => `Iowa Congressional District ${k}`, null, dHucs.congress),
     statewide,
   };
 }
@@ -1055,7 +1075,11 @@ function mapBody() {
   .map-tip .tip-role { color: var(--muted); font-size: .82em; min-width: 74px; opacity: .8; }
   .map-tip .tip-name { font-weight: 600; }
   .map-tip .tip-open { color: var(--isa-rust); font-weight: 700; font-size: .82em; }
-  .swcd-panel { border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; }
+  .map-tip .tip-huc { margin-top: 6px; padding-top: 5px; border-top: 1px solid var(--line); }
+  .map-tip .tip-huc-h { font-size: .78em; font-weight: 700; color: #2E86AB; margin-bottom: 2px; }
+  .map-tip .tip-huc-row { font-size: .82em; line-height: 1.35; }
+  .map-tip .tip-huc-code { font-variant-numeric: tabular-nums; color: var(--muted); margin-right: 3px; }
+  .side-panel { border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; }
   .sw-race { padding: 7px 0; border-bottom: 1px solid var(--line); }
   .sw-race:last-child { border-bottom: none; }
   .sw-office { font-weight: 700; color: var(--isa-dark); margin-bottom: 3px; }
@@ -1067,16 +1091,16 @@ function mapBody() {
   .leaflet-control-attribution { font-size: .68em; }
 </style>
 <h1>🗺️ Iowa Political Map</h1>
-<p class="map-lead muted">County lines form the base; the political districts lay translucent on top, each shaded <span style="color:#C0392B;font-weight:700">red</span> or <span style="color:#2C6FB0;font-weight:700">blue</span> by the party that currently holds the seat. Pick a boundary (Iowa House, Iowa Senate, U.S. Congress) from the layer control and toggle the Soil &amp; Water Conservation District and HUC8 watershed overlays. <strong>${totalCands}</strong> candidates across ${counts.house} House, ${counts.senate} Senate &amp; ${counts.congress} congressional districts. Hover a district for its incumbent and challenger.</p>
+<p class="map-lead muted">County lines form the base; the political districts lay translucent on top, each shaded <span style="color:#C0392B;font-weight:700">red</span> or <span style="color:#2C6FB0;font-weight:700">blue</span> by the party that currently holds the seat. Pick a boundary (Iowa House, Iowa Senate, U.S. Congress) from the layer control and toggle the HUC8 watershed overlay. <strong>${totalCands}</strong> candidates across ${counts.house} House, ${counts.senate} Senate &amp; ${counts.congress} congressional districts. Hover a district for its incumbent and challenger — with the HUC8 overlay on, the card also lists the watersheds the district spans.</p>
 <div class="map-wrap">
   <div id="ia-map"></div>
-  <div class="swcd-panel">
+  <div class="side-panel">
     <h2 style="margin-top:0">Statewide races</h2>
     <p class="muted" style="margin-top:0;font-size:.9em">Offices elected statewide — no single district to click on the map.</p>
     ${statewideHtml}
   </div>
 </div>
-<p class="muted" style="margin-top:14px;font-size:.85em">District color is the current seat-holder's party — <span style="color:#C0392B;font-weight:700">Republican</span> or <span style="color:#2C6FB0;font-weight:700">Democratic</span>. Hovering names the incumbent and the 2026 challenger(s); a seat whose incumbent isn't on the 2026 ballot is marked <em>open</em>. Incumbents: current Iowa legislature roster (OpenStates). Boundaries: U.S. Census TIGER (2024 districts), Iowa REAP/IDALS (SWCDs), USGS WBD (HUC8). Basemap © OpenStreetMap contributors, © CARTO.</p>
+<p class="muted" style="margin-top:14px;font-size:.85em">District color is the current seat-holder's party — <span style="color:#C0392B;font-weight:700">Republican</span> or <span style="color:#2C6FB0;font-weight:700">Democratic</span>. Hovering names the incumbent and the 2026 challenger(s); a seat whose incumbent isn't on the 2026 ballot is marked <em>open</em>. Incumbents: current Iowa legislature roster (OpenStates). Boundaries: U.S. Census TIGER (2024 districts), USGS WBD (HUC8 watersheds). Basemap © OpenStreetMap contributors, © CARTO.</p>
 <script id="mapdata" type="application/json">${spec}</script>
 <script src="/assets/leaflet.js?v=${ASSET_VER}"></script>
 <script src="/assets/bbmap.js?v=${ASSET_VER}"></script>`;
@@ -1630,7 +1654,6 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
           "geo/congress.geojson": "application/json; charset=utf-8",
           "geo/senate.geojson": "application/json; charset=utf-8",
           "geo/house.geojson": "application/json; charset=utf-8",
-          "geo/swcd.geojson": "application/json; charset=utf-8",
           "geo/huc8.geojson": "application/json; charset=utf-8",
         };
         const name = url.pathname.slice("/assets/".length);

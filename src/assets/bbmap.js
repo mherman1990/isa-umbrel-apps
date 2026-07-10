@@ -2,11 +2,13 @@
  *
  * The /map page emits a #ia-map container and a <script id="mapdata"> JSON blob with the
  * candidate/incumbent join { house, senate, congress, statewide }, each district keyed by number
- * as { n, incumbent:{name,party}, cands:[{name,party,inc}], tone }. This draws a muted CARTO
- * basemap, overlays crisp county lines, then lays the chosen political boundary (House / Senate /
- * Congress) translucently on top — each district shaded RED or BLUE by the seat-holder's party.
- * Hovering a district shows an info box naming the incumbent and the 2026 challenger(s); the
- * vendored Soil & Water Conservation District and HUC8 watershed overlays toggle on top.
+ * as { n, incumbent:{name,party}, cands:[{name,party,inc}], tone, hucs:[{huc,name}] }. This draws
+ * a muted CARTO basemap, overlays crisp county lines, then lays the chosen political boundary
+ * (House / Senate / Congress) translucently on top — each district shaded RED or BLUE by the
+ * seat-holder's party. Hovering a district shows an info box naming the incumbent and the 2026
+ * challenger(s). The HUC8 watershed overlay is a passive background layer (non-interactive), so
+ * hovering always shows the candidate card; when it's on, that card also lists the watersheds the
+ * district spans (a district usually covers several).
  *
  * Vendored/static (no build step). Loaded after leaflet.js on the /map page.
  */
@@ -15,6 +17,7 @@
 
   // Fill = current seat-holder's party. Red = Republican, blue = Democratic.
   var TONE = { R: "#C0392B", D: "#2C6FB0", other: "#C77D0A", none: "#CBD3DA" };
+  var HUC_COLOR = "#2E86AB";
 
   function esc(s) {
     return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -36,8 +39,9 @@
     }
   }
 
-  // The hover/click info box: district, incumbent, and challenger(s), each labeled.
-  function infoHtml(name, d) {
+  // The hover/click info box: district, incumbent, challenger(s), and — when the HUC layer is on —
+  // the watersheds this district spans.
+  function infoHtml(name, d, showHuc) {
     var h = '<div class="tip-title">' + esc((d && d.n) || name) + "</div>";
     if (!d) return h + '<div class="muted">No data for this district.</div>';
     var cands = d.cands || [];
@@ -59,11 +63,22 @@
     } else if (!d.incumbent && !cands.length) {
       h += '<div class="muted">No candidate on file for 2026.</div>';
     }
+
+    if (showHuc && d.hucs && d.hucs.length) {
+      h += '<div class="tip-huc"><div class="tip-huc-h">Watersheds (HUC8) — ' + d.hucs.length + "</div>";
+      d.hucs.forEach(function (x) {
+        h += '<div class="tip-huc-row"><span class="tip-huc-code">' + esc(x.huc) + "</span> " + esc(x.name) + "</div>";
+      });
+      h += "</div>";
+    }
     return h;
   }
 
   // A choropleth political boundary joined to the candidate data by feature.properties.key.
-  function districtLayer(geo, dict) {
+  // Cards are bound with static content for the current HUC state; refreshCards() re-sets them
+  // (via setTooltipContent) whenever the HUC overlay is toggled — deterministic, no reliance on
+  // Leaflet re-evaluating function content on each reopen.
+  function districtLayer(geo, dict, showHuc) {
     var gj = L.geoJSON(geo, {
       style: function (f) {
         var d = dict[f.properties.key];
@@ -71,9 +86,9 @@
       },
       onEachFeature: function (f, layer) {
         var d = dict[f.properties.key];
-        var html = infoHtml(f.properties.name, d);
+        var html = infoHtml(f.properties.name, d, showHuc());
         layer.bindTooltip(html, { sticky: true, direction: "top", className: "map-tip", opacity: 1 });
-        layer.bindPopup(html, { maxWidth: 300 }); // click/tap fallback (no hover on touch)
+        layer.bindPopup(html, { maxWidth: 320 });
         layer.on("mouseover", function () {
           layer.setStyle({ weight: 2.5, fillOpacity: 0.6 });
           layer.bringToFront();
@@ -83,7 +98,23 @@
         });
       },
     });
+    gj._dict = dict; // used by refreshCards() on HUC toggle
     return gj;
+  }
+
+  // Re-set every district's card content to match the current HUC-overlay state.
+  function refreshCards(groups, showHuc) {
+    groups.forEach(function (gj) {
+      gj.eachLayer(function (layer) {
+        var f = layer.feature;
+        if (!f) return;
+        var html = infoHtml(f.properties.name, gj._dict[f.properties.key], showHuc);
+        layer.setTooltipContent(html);
+        if (layer.getPopup()) layer.setPopupContent(html);
+        // drop a card that's open right now so the next hover shows the refreshed content
+        if (layer.isTooltipOpen && layer.isTooltipOpen()) layer.closeTooltip();
+      });
+    });
   }
 
   // Always-on county lines — the reference base beneath the translucent districts. Non-interactive
@@ -95,15 +126,13 @@
     });
   }
 
-  // An outline overlay (SWCD / HUC8) — no meaningful fill, distinct stroke, in a higher pane.
-  function overlayLayer(geo, color, pane, labeler) {
+  // HUC8 watersheds — a passive BACKGROUND layer in a low pane, non-interactive so it never grabs
+  // the hover (the district card wins). Soft fill + stroke so the basins read behind the districts.
+  function hucLayer(geo) {
     return L.geoJSON(geo, {
-      pane: pane,
-      style: { color: color, weight: 1.4, fill: true, fillOpacity: 0.04, fillColor: color },
-      onEachFeature: function (f, layer) {
-        layer.bindPopup('<div class="pop-title">' + esc(labeler(f.properties)) + "</div>");
-        layer.bindTooltip(esc(labeler(f.properties)), { sticky: true, className: "map-tip", opacity: 1 });
-      },
+      pane: "hucBg",
+      interactive: false,
+      style: { color: HUC_COLOR, weight: 1.2, opacity: 0.7, fill: true, fillColor: HUC_COLOR, fillOpacity: 0.14 },
     });
   }
 
@@ -122,10 +151,9 @@
         "<h4>Seat currently held by</h4>" +
         '<div class="row"><span class="sw" style="background:' + TONE.R + '"></span>Republican</div>' +
         '<div class="row"><span class="sw" style="background:' + TONE.D + '"></span>Democrat</div>' +
-        '<h4 style="margin-top:6px">Overlays</h4>' +
+        '<h4 style="margin-top:6px">Reference</h4>' +
         '<div class="row"><span class="sw" style="border:1px solid #4a5763;background:transparent"></span>County line</div>' +
-        '<div class="row"><span class="sw" style="background:#6B8E23"></span>SWCD boundary</div>' +
-        '<div class="row"><span class="sw" style="background:#2E86AB"></span>HUC8 watershed</div>';
+        '<div class="row"><span class="sw" style="background:' + HUC_COLOR + ';opacity:.45"></span>HUC8 watershed</div>';
       return div;
     };
     return c;
@@ -144,9 +172,9 @@
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, &copy; <a href="https://carto.com/attributions">CARTO</a>',
     }).addTo(map);
 
-    // Panes: county lines sit just above the tiles; SWCD/HUC8 outlines sit above everything.
-    map.createPane("overlaysHi");
-    map.getPane("overlaysHi").style.zIndex = 450;
+    // A low pane so the HUC8 basins sit BEHIND the county lines + district polygons (above the tiles).
+    map.createPane("hucBg");
+    map.getPane("hucBg").style.zIndex = 350;
 
     legend().addTo(map);
 
@@ -156,16 +184,16 @@
       loadJSON(G + "house.geojson"),
       loadJSON(G + "senate.geojson"),
       loadJSON(G + "congress.geojson"),
-      loadJSON(G + "swcd.geojson"),
       loadJSON(G + "huc8.geojson"),
     ])
       .then(function (geo) {
         var counties = countyLines(geo[0]);
-        var house = districtLayer(geo[1], data.house);
-        var senate = districtLayer(geo[2], data.senate);
-        var congress = districtLayer(geo[3], data.congress);
-        var swcd = overlayLayer(geo[4], "#6B8E23", "overlaysHi", function (p) { return p.name; });
-        var huc8 = overlayLayer(geo[5], "#2E86AB", "overlaysHi", function (p) { return p.name + " — HUC8 " + p.key; });
+        var huc8 = hucLayer(geo[4]);
+        var hucOn = function () { return map.hasLayer(huc8); };
+        var house = districtLayer(geo[1], data.house, hucOn);
+        var senate = districtLayer(geo[2], data.senate, hucOn);
+        var congress = districtLayer(geo[3], data.congress, hucOn);
+        var groups = [house, senate, congress];
 
         counties.addTo(map); // always-on base reference
         house.addTo(map); // default political boundary (translucent, over the county lines)
@@ -173,10 +201,15 @@
         L.control
           .layers(
             { "Iowa House": house, "Iowa Senate": senate, "U.S. Congress": congress },
-            { "Soil & Water Cons. Districts": swcd, "HUC8 Watersheds": huc8 },
+            { "HUC8 Watersheds": huc8 },
             { collapsed: false }
           )
           .addTo(map);
+
+        // Toggling the HUC overlay rewrites every district card to add/remove its watershed list.
+        var onOverlay = function () { refreshCards(groups, hucOn()); };
+        map.on("overlayadd", onOverlay);
+        map.on("overlayremove", onOverlay);
 
         try {
           map.fitBounds(counties.getBounds(), { padding: [10, 10] });
