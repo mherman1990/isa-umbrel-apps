@@ -5,7 +5,7 @@
 // "why it matters". Every verdict is written to SQLite, so tomorrow the same item
 // costs nothing (collect.js filters already-seen items before we ever get here).
 
-import Anthropic from "@anthropic-ai/sdk";
+import { anthropicClient } from "./llm.js";
 import * as store from "./store.js";
 
 const BATCH_SIZE = 15;
@@ -53,26 +53,17 @@ function parseVerdicts(text) {
 export async function triageItems(kept, topics, env) {
   if (kept.length === 0) return { relevant: [], triagedCount: 0 };
 
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  const client = anthropicClient(env);
   const model = env.TRIAGE_MODEL || "claude-haiku-4-5";
   const topicList = topics.map((t) => `${t.id}: ${t.label}`).join("\n");
   const systemPrompt = SYSTEM_PROMPT + feedbackGuidance();
 
   const relevant = [];
   let triagedCount = 0;
+  let lostCount = 0;
 
-  for (let i = 0; i < kept.length; i += BATCH_SIZE) {
-    const batch = kept.slice(i, i + BATCH_SIZE);
-    const payload = batch.map((item) => ({
-      uid: item.uid,
-      title: item.title,
-      summary: (item.summary ?? "").slice(0, 600),
-      source: item.sourceLabel,
-      jurisdiction: item.jurisdiction,
-      docType: item.docType,
-      localTopicGuesses: item.matchedTopics?.map((t) => t.id) ?? [],
-    }));
-
+  /** One model round-trip for a batch: returns a parsed verdict array, or null on malformed JSON. */
+  async function requestVerdicts(payload) {
     let verdicts = null;
     for (let attempt = 1; attempt <= 2 && verdicts === null; attempt++) {
       const response = await client.messages.create({
@@ -86,21 +77,18 @@ export async function triageItems(kept, topics, env) {
           },
         ],
       });
-      store.recordUsage(model, "triage", response.usage.input_tokens, response.usage.output_tokens);
+      store.recordUsage(model, "triage", response.usage);
       const text = response.content.find((b) => b.type === "text")?.text ?? "";
       verdicts = parseVerdicts(text);
       if (verdicts === null && attempt === 1) {
         console.log("   ⚠️ triage batch returned malformed JSON — retrying once");
       }
     }
+    return verdicts;
+  }
 
-    if (verdicts === null) {
-      // Give up on this batch: mark items seen-but-unscored so the run continues.
-      console.log(`   ⚠️ triage batch ${i / BATCH_SIZE + 1} failed twice — ${batch.length} items recorded as unscored`);
-      for (const item of batch) store.markSeen(item, null);
-      continue;
-    }
-
+  /** Apply a parsed verdict array to its batch: persist each item and collect the relevant ones. */
+  function applyVerdicts(batch, verdicts) {
     const byUid = new Map(verdicts.filter((v) => v && v.uid).map((v) => [v.uid, v]));
     for (const item of batch) {
       const v = byUid.get(item.uid);
@@ -126,5 +114,47 @@ export async function triageItems(kept, topics, env) {
     }
   }
 
+  const payloadFor = (batch) =>
+    batch.map((item) => ({
+      uid: item.uid,
+      title: item.title,
+      summary: (item.summary ?? "").slice(0, 600),
+      source: item.sourceLabel,
+      jurisdiction: item.jurisdiction,
+      docType: item.docType,
+      localTopicGuesses: item.matchedTopics?.map((t) => t.id) ?? [],
+    }));
+
+  /**
+   * Triage one batch; on malformed JSON, SPLIT and recurse instead of dropping the whole batch.
+   * A single bad response used to bury up to BATCH_SIZE relevant items as "unscored" forever
+   * (isSeen excludes them next run). Splitting bounds any real loss to a lone item whose own
+   * one-item response won't parse — usually a symptom of that one item, not the batch.
+   */
+  async function processBatch(batch) {
+    const verdicts = await requestVerdicts(payloadFor(batch));
+    if (verdicts !== null) {
+      applyVerdicts(batch, verdicts);
+      return;
+    }
+    if (batch.length > 1) {
+      const mid = Math.ceil(batch.length / 2);
+      console.log(`   ↔️ triage batch of ${batch.length} failed to parse — splitting into ${mid} + ${batch.length - mid}`);
+      await processBatch(batch.slice(0, mid));
+      await processBatch(batch.slice(mid));
+      return;
+    }
+    // A single item that still won't parse: record it seen-unscored so the run continues, and
+    // count it so the loss is visible rather than silent.
+    lostCount++;
+    console.log(`   ⚠️ triage could not classify 1 item after splitting — recorded as unscored: ${batch[0].title?.slice(0, 80) ?? batch[0].uid}`);
+    store.markSeen(batch[0], null);
+  }
+
+  for (let i = 0; i < kept.length; i += BATCH_SIZE) {
+    await processBatch(kept.slice(i, i + BATCH_SIZE));
+  }
+
+  if (lostCount) console.log(`   ⚠️ ${lostCount} item${lostCount === 1 ? "" : "s"} could not be triaged this run (recorded unscored).`);
   return { relevant, triagedCount };
 }

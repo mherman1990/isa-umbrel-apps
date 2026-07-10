@@ -108,7 +108,7 @@ program
   .description("Generate the News-of-the-day digest from the last two days of news items")
   .action(async () => {
     const { generateNewsDigest } = await import("./pipeline.js");
-    const d = await generateNewsDigest(process.env);
+    const d = await generateNewsDigest(process.env, { force: true });
     console.log(d ? `🧠 News digest updated (${d.count} items).` : "   (no news items in the last two days)");
   });
 
@@ -117,7 +117,7 @@ program
   .description("Generate the farmer market-education cards from the active condition triggers")
   .action(async () => {
     const { generateMarketCards } = await import("./pipeline.js");
-    const c = await generateMarketCards(process.env);
+    const c = await generateMarketCards(process.env, { force: true });
     console.log(c ? `🌱 Market cards updated (${c.triggers.length} triggers${c.flags.length ? `, ${c.flags.length} compliance flags` : ""}).` : "   (no active triggers or reports today)");
   });
 
@@ -126,7 +126,7 @@ program
   .description("Cluster recent relevant items into named, persistent storyline threads")
   .action(async () => {
     const { generateStorylines } = await import("./pipeline.js");
-    const s = await generateStorylines(process.env);
+    const s = await generateStorylines(process.env, { force: true });
     console.log(s ? `🧵 Storylines updated (${s.count} active thread${s.count === 1 ? "" : "s"}).` : "   (not enough recent items to cluster yet)");
   });
 

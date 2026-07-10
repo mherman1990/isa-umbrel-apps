@@ -7,6 +7,8 @@ import fs from "node:fs";
 import path from "node:path";
 import * as store from "./store.js";
 
+const TEAMS_TIMEOUT_MS = 15_000;
+
 export function saveBrief(markdown, edition, timezone = "America/Chicago") {
   const dateLabel = new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(new Date());
   const dir = path.join(store.DATA_DIR, "briefings");
@@ -57,16 +59,42 @@ export async function postToTeams(markdown, env) {
     ],
   };
 
-  const res = await fetch(env.TEAMS_WEBHOOK_URL, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    const body = (await res.text().catch(() => "")).slice(0, 200);
-    throw new Error(`Teams webhook returned HTTP ${res.status}${body ? ` — ${body}` : ""} (check the webhook URL is still valid)`);
+  // The brief is already saved to disk before we get here, so a Teams failure never loses
+  // the brief — but the post is the primary delivery channel, so retry transient failures
+  // (timeout, 429, 5xx) with backoff instead of dropping the notification on the first hiccup.
+  const body = JSON.stringify(payload);
+  const maxAttempts = 3;
+  let lastErr;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TEAMS_TIMEOUT_MS);
+    try {
+      const res = await fetch(env.TEAMS_WEBHOOK_URL, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+        signal: controller.signal,
+      });
+      if (res.ok) return true;
+      const text = (await res.text().catch(() => "")).slice(0, 200);
+      // 4xx other than 429 is a permanent problem (bad/expired URL) — don't waste retries.
+      if (res.status !== 429 && res.status < 500) {
+        throw new Error(`Teams webhook returned HTTP ${res.status}${text ? ` — ${text}` : ""} (check the webhook URL is still valid)`);
+      }
+      lastErr = new Error(`Teams webhook returned HTTP ${res.status}${text ? ` — ${text}` : ""}`);
+    } catch (err) {
+      if (err.name === "AbortError") lastErr = new Error(`Teams webhook timed out after ${TEAMS_TIMEOUT_MS / 1000}s`);
+      else lastErr = err;
+    } finally {
+      clearTimeout(timer);
+    }
+    if (attempt < maxAttempts) {
+      const backoffMs = 1000 * 2 ** (attempt - 1); // 1s, 2s
+      console.log(`   ⚠️ Teams post attempt ${attempt} failed (${lastErr.message}) — retrying in ${backoffMs / 1000}s`);
+      await new Promise((r) => setTimeout(r, backoffMs));
+    }
   }
-  return true;
+  throw lastErr ?? new Error("Teams webhook failed");
 }
 
 /** Low-level SMTP send shared by the internal and farmer renders. */

@@ -9,6 +9,7 @@
 // The database file (polibrief.db) sits in the project root, next to watchlist.json.
 
 import Database from "better-sqlite3";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,6 +25,11 @@ const DB_PATH = path.join(DATA_DIR, "polibrief.db");
 
 const db = new Database(DB_PATH);
 db.pragma("journal_mode = WAL");
+// WAL lets readers and one writer coexist, but a SECOND writer (e.g. a manual
+// `node src/index.js run` while `serve`'s scheduler is mid-write) otherwise gets an
+// instant SQLITE_BUSY and crashes. busy_timeout makes the loser wait-and-retry for up
+// to 5s instead of throwing — enough to ride out any of our short synchronous writes.
+db.pragma("busy_timeout = 5000");
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS seen_items (
@@ -55,8 +61,10 @@ db.exec(`
     ts            TEXT NOT NULL,
     model         TEXT NOT NULL,
     purpose       TEXT NOT NULL,    -- 'triage' | 'brief' | 'query' | 'weekly'
-    input_tokens  INTEGER NOT NULL,
-    output_tokens INTEGER NOT NULL
+    input_tokens  INTEGER NOT NULL, -- uncached prompt input (billed at full rate)
+    output_tokens INTEGER NOT NULL,
+    cache_write_tokens INTEGER NOT NULL DEFAULT 0, -- prompt cache creation (billed 1.25x)
+    cache_read_tokens  INTEGER NOT NULL DEFAULT 0  -- prompt cache hits (billed 0.1x)
   );
 
   CREATE TABLE IF NOT EXISTS tracked_items (
@@ -82,9 +90,19 @@ for (const columnDef of [
   "body TEXT", // item body/summary text (esp. email bodies) — feeds the deeper News digest
   "feedback_note TEXT", // free-text note on 👍/👎, fed into the triage prompt as guidance
   "archived INTEGER DEFAULT 0", // set-aside items — out of the main LRD list, recoverable
+  "content_hash TEXT", // normalized title|date|jurisdiction fingerprint for cross-source dedup
 ]) {
   try {
     db.exec(`ALTER TABLE seen_items ADD COLUMN ${columnDef}`);
+  } catch {
+    /* column already exists */
+  }
+}
+
+// token_usage cache-token columns for databases created before prompt-cache accounting.
+for (const columnDef of ["cache_write_tokens INTEGER NOT NULL DEFAULT 0", "cache_read_tokens INTEGER NOT NULL DEFAULT 0"]) {
+  try {
+    db.exec(`ALTER TABLE token_usage ADD COLUMN ${columnDef}`);
   } catch {
     /* column already exists */
   }
@@ -100,6 +118,7 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_seen_first_seen  ON seen_items(first_seen_at);
   CREATE INDEX IF NOT EXISTS idx_seen_source_seen ON seen_items(source_id, first_seen_at);
   CREATE INDEX IF NOT EXISTS idx_seen_verdict     ON seen_items(triage_verdict);
+  CREATE INDEX IF NOT EXISTS idx_seen_content_hash ON seen_items(content_hash);
 `);
 
 // Cached on-demand AI document summaries (web UI "AI summary" panel). Summaries are
@@ -515,9 +534,9 @@ export function setState(k, v) {
 const stmtIsSeen = db.prepare("SELECT 1 FROM seen_items WHERE uid = ?");
 const stmtMarkSeen = db.prepare(`
   INSERT INTO seen_items (uid, source_id, first_seen_at, triage_verdict, triage_topics, title, url, jurisdiction, one_line,
-                          comment_deadline, doc_type, published_at, entity_id, item_type, geo, body)
+                          comment_deadline, doc_type, published_at, entity_id, item_type, geo, body, content_hash)
   VALUES (@uid, @sourceId, @firstSeenAt, @verdict, @topics, @title, @url, @jurisdiction, @oneLine,
-          @commentDeadline, @docType, @publishedAt, @entityId, @itemType, @geo, @body)
+          @commentDeadline, @docType, @publishedAt, @entityId, @itemType, @geo, @body, @contentHash)
   ON CONFLICT(uid) DO UPDATE SET
     triage_verdict = excluded.triage_verdict,
     triage_topics  = excluded.triage_topics,
@@ -525,7 +544,8 @@ const stmtMarkSeen = db.prepare(`
     entity_id      = COALESCE(excluded.entity_id, seen_items.entity_id),
     item_type      = COALESCE(excluded.item_type, seen_items.item_type),
     geo            = COALESCE(excluded.geo, seen_items.geo),
-    body           = COALESCE(excluded.body, seen_items.body)
+    body           = COALESCE(excluded.body, seen_items.body),
+    content_hash   = COALESCE(excluded.content_hash, seen_items.content_hash)
 `);
 const stmtGetSince = db.prepare("SELECT last_success_at FROM runs WHERE source_id = ?");
 const stmtSetLastSuccess = db.prepare(`
@@ -535,6 +555,32 @@ const stmtSetLastSuccess = db.prepare(`
 
 export function isSeen(uid) {
   return stmtIsSeen.get(uid) !== undefined;
+}
+
+/**
+ * A conservative cross-source fingerprint for near-duplicate detection: the normalized
+ * title + published date + jurisdiction. Deliberately strict — two items only collide if
+ * all three match — so distinct bills/rules (which differ in title, number, or date) are
+ * never merged. Returns null for titles too short/generic to dedup safely.
+ */
+export function contentHash(item) {
+  const title = String(item.title ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  if (title.length < 12) return null; // too generic to risk merging
+  const date = String(item.publishedAt ?? item.published_at ?? "").slice(0, 10);
+  const juris = String(item.jurisdiction ?? "").toLowerCase().trim();
+  return crypto.createHash("sha1").update(`${title}|${date}|${juris}`).digest("hex");
+}
+
+/** Stable hex fingerprint of an arbitrary string — used to gate regeneration on unchanged inputs. */
+export function sha1(str) {
+  return crypto.createHash("sha1").update(String(str)).digest("hex");
+}
+
+const stmtHashSeen = db.prepare("SELECT 1 FROM seen_items WHERE content_hash = ? LIMIT 1");
+/** True if any already-seen item shares this content hash (a near-duplicate from another source). */
+export function isHashSeen(hash) {
+  if (!hash) return false;
+  return stmtHashSeen.get(hash) !== undefined;
 }
 
 /**
@@ -559,12 +605,20 @@ export function markSeen(item, verdict = null) {
     itemType: verdict?.type ?? item.raw?.itemType ?? null,
     geo: item.raw?.geo ? JSON.stringify(item.raw.geo) : null,
     body: item.summary ? String(item.summary).slice(0, 4000) : null,
+    contentHash: contentHash(item),
   });
 }
 
+// last_success is stamped at fetch time, BEFORE the item is triaged/marked-seen. If a run dies
+// between collect and processing, those fetched-but-unprocessed items fall outside the next run's
+// window and are silently never seen again. Re-scanning a few hours of overlap each run closes
+// that gap; store.isSeen dedups anything already handled, so the overlap costs a bit of network
+// but never a duplicate model call. Tunable via POLIBRIEF_FETCH_OVERLAP_HOURS.
+const FETCH_OVERLAP_MS = (Number(process.env.POLIBRIEF_FETCH_OVERLAP_HOURS) || 6) * 60 * 60 * 1000;
+
 /**
- * The incremental window start for a source: its last successful run,
- * capped at `fallbackDays` ago on first run so we never fetch the whole archive.
+ * The incremental window start for a source: its last successful run (minus a small overlap
+ * buffer), capped at `fallbackDays` ago on first run so we never fetch the whole archive.
  */
 export function getSince(sourceId, fallbackDays = 7) {
   const fallback = new Date(Date.now() - fallbackDays * 24 * 60 * 60 * 1000);
@@ -573,7 +627,7 @@ export function getSince(sourceId, fallbackDays = 7) {
   const last = new Date(row.last_success_at);
   // Guard against a corrupted/future timestamp making the window empty forever.
   if (Number.isNaN(last.getTime()) || last > new Date()) return fallback.toISOString();
-  return last.toISOString();
+  return new Date(last.getTime() - FETCH_OVERLAP_MS).toISOString();
 }
 
 export function setLastSuccess(sourceId, iso = new Date().toISOString()) {
@@ -598,10 +652,27 @@ export function listBriefs(limit = 50) {
     .all(limit);
 }
 
-export function recordUsage(model, purpose, inputTokens, outputTokens) {
+/**
+ * Record a call's token usage. Pass the SDK `response.usage` object so cache tokens
+ * (cache_creation_input_tokens / cache_read_input_tokens) are captured too — those are
+ * what make prompt-cache savings measurable in `audit`. (A legacy 4-arg call —
+ * recordUsage(model, purpose, inTok, outTok) — is still accepted.)
+ */
+export function recordUsage(model, purpose, usage, legacyOutputTokens) {
+  let inputTokens = 0, outputTokens = 0, cacheWrite = 0, cacheRead = 0;
+  if (usage && typeof usage === "object") {
+    inputTokens = usage.input_tokens ?? 0;
+    outputTokens = usage.output_tokens ?? 0;
+    cacheWrite = usage.cache_creation_input_tokens ?? 0;
+    cacheRead = usage.cache_read_input_tokens ?? 0;
+  } else {
+    // legacy positional form: (model, purpose, inputTokens, outputTokens)
+    inputTokens = usage ?? 0;
+    outputTokens = legacyOutputTokens ?? 0;
+  }
   db.prepare(
-    "INSERT INTO token_usage (ts, model, purpose, input_tokens, output_tokens) VALUES (?, ?, ?, ?, ?)"
-  ).run(new Date().toISOString(), model, purpose, inputTokens ?? 0, outputTokens ?? 0);
+    "INSERT INTO token_usage (ts, model, purpose, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens) VALUES (?, ?, ?, ?, ?, ?, ?)"
+  ).run(new Date().toISOString(), model, purpose, inputTokens, outputTokens, cacheWrite, cacheRead);
 }
 
 /** Per-source item counts + last-success times, and this month's token usage, for `audit`. */
@@ -621,9 +692,11 @@ export function getAuditData() {
   const monthUsage = db
     .prepare(
       `SELECT model,
-              SUM(input_tokens)  AS input_tokens,
-              SUM(output_tokens) AS output_tokens,
-              COUNT(*)           AS calls
+              SUM(input_tokens)       AS input_tokens,
+              SUM(output_tokens)      AS output_tokens,
+              SUM(cache_write_tokens) AS cache_write_tokens,
+              SUM(cache_read_tokens)  AS cache_read_tokens,
+              COUNT(*)                AS calls
          FROM token_usage WHERE ts >= ? GROUP BY model ORDER BY model`
     )
     .all(monthStart.toISOString());

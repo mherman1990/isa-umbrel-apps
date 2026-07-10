@@ -1400,7 +1400,7 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
       if (req.method === "POST" && url.pathname === "/market-cards") {
         let notice;
         try {
-          const c = await generateMarketCards(process.env);
+          const c = await generateMarketCards(process.env, { force: true });
           notice = c ? `Market cards updated (${c.triggers.length} active trigger${c.triggers.length === 1 ? "" : "s"}).` : "No active triggers or imminent reports today.";
         } catch (err) {
           notice = `Card generation failed: ${err.message}`;
@@ -1412,7 +1412,7 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
       if (req.method === "POST" && url.pathname === "/news/digest") {
         let notice;
         try {
-          const d = await generateNewsDigest(process.env);
+          const d = await generateNewsDigest(process.env, { force: true });
           notice = d ? `News digest updated (${d.count} items distilled).` : "No news items in the last two days to digest yet.";
         } catch (err) {
           notice = `Digest failed: ${err.message}`;
@@ -1424,7 +1424,7 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
       if (req.method === "POST" && url.pathname === "/storylines") {
         let notice;
         try {
-          const s = await generateStorylines(process.env);
+          const s = await generateStorylines(process.env, { force: true });
           notice = s ? `Storylines updated (${s.count} active thread${s.count === 1 ? "" : "s"}).` : "Not enough recent items to cluster into storylines yet.";
         } catch (err) {
           notice = `Storyline update failed: ${err.message}`;
@@ -1921,6 +1921,21 @@ function startScheduler() {
     const m = path.basename(b.path).match(/^(\d{4}-\d{2}-\d{2})-(am|pm|weekly)\.md$/);
     if (m) ran.add(`${m[1]}-${m[2]}`);
   }
+  // Also seed from persisted run-markers: a QUIET run saves no brief file, so without this a
+  // container restart mid-day would re-fire that edition (and re-pay news/cards/storylines). The
+  // marker records that an edition already ran regardless of whether it produced a brief.
+  try {
+    const persisted = JSON.parse(store.getState("scheduler_ran") || "[]");
+    if (Array.isArray(persisted)) for (const k of persisted) ran.add(k);
+  } catch { /* no/invalid marker — fall back to brief-file seeding only */ }
+
+  // Persist the recent run-markers (last ~2 days, so the set stays bounded).
+  const persistRan = () => {
+    try {
+      const cutoff = new Intl.DateTimeFormat("en-CA").format(new Date(Date.now() - 2 * 86400e3));
+      store.setState("scheduler_ran", JSON.stringify([...ran].filter((k) => k.slice(0, 10) >= cutoff)));
+    } catch { /* best-effort */ }
+  };
 
   const check = async () => {
     let watchlist;
@@ -1932,6 +1947,7 @@ function startScheduler() {
     // The whole tick is guarded: watchlist.json invites hand-editing, and a bad briefEditions
     // value (e.g. an invalid IANA timezone → Intl throws RangeError) must degrade to a logged,
     // skipped tick — never an unhandled rejection that would crash-loop the container.
+    const ranSizeAtStart = ran.size;
     try {
       const editions = watchlist.briefEditions ?? {};
       const timezone = editions.timezone ?? "America/Chicago";
@@ -1979,6 +1995,7 @@ function startScheduler() {
     } catch (err) {
       console.log(`⚠️  Scheduler tick skipped — check briefEditions in watchlist.json (${err.message})`);
     }
+    if (ran.size !== ranSizeAtStart) persistRan(); // only write when an edition actually fired
   };
 
   // .catch on the tick as a final backstop — setInterval swallows nothing, so an unguarded throw

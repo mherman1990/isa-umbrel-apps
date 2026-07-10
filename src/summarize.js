@@ -5,8 +5,9 @@
 // soybean farmers. Called from the web UI "AI summary" panel on the items page.
 // Results are cached (see store.item_summaries) until the item's comment deadline.
 
-import Anthropic from "@anthropic-ai/sdk";
 import * as cheerio from "cheerio";
+
+import { anthropicClient } from "./llm.js";
 
 import * as store from "./store.js";
 
@@ -58,7 +59,7 @@ export async function summarizeItem(item, env) {
   if (!env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not set in .env");
   const { text, note } = await fetchDocumentText(item.url);
 
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  const client = anthropicClient(env);
   const model = env.SUMMARY_MODEL || env.BRIEF_MODEL || "claude-sonnet-5";
 
   const meta = [
@@ -87,7 +88,7 @@ export async function summarizeItem(item, env) {
     system: SYSTEM,
     messages: [{ role: "user", content: `${meta}\n\n${docBlock}` }],
   });
-  store.recordUsage(model, "summary", response.usage.input_tokens, response.usage.output_tokens);
+  store.recordUsage(model, "summary", response.usage);
 
   const summary = response.content.find((b) => b.type === "text")?.text?.trim() ?? "";
   return { summary, model, note };

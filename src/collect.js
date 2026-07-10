@@ -85,5 +85,27 @@ export async function collectAll({ watchlist, env, onlySource = null, commit = t
     fetchedCount += r.fetched;
   }
 
-  return { items, skippedSources, fetchedCount };
+  // Near-duplicate suppression: the same rule/story often arrives under different uids from
+  // different sources (e.g. a rule in both Federal Register and Regulations.gov, or one article
+  // across two RSS feeds). uid-dedup (store.isSeen, above) can't catch those. Drop items that
+  // share a content fingerprint — normalized title + date + jurisdiction — with one already seen
+  // OR with an earlier item in THIS batch, so the model isn't paid twice and the brief isn't
+  // duplicated. The fingerprint is deliberately strict (see store.contentHash), and every drop is
+  // logged, so this never silently merges genuinely distinct items.
+  const seenHash = new Set();
+  const deduped = [];
+  let dupCount = 0;
+  for (const item of items) {
+    const h = store.contentHash(item);
+    if (h && (seenHash.has(h) || store.isHashSeen(h))) {
+      dupCount++;
+      if (commit) store.markSeen(item, null); // record it so it isn't re-fetched next run
+      continue;
+    }
+    if (h) seenHash.add(h);
+    deduped.push(item);
+  }
+  if (dupCount) console.log(`🔁 Dropped ${dupCount} near-duplicate item${dupCount === 1 ? "" : "s"} (same title/date/jurisdiction as another source)`);
+
+  return { items: deduped, skippedSources, fetchedCount };
 }

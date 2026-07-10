@@ -5,7 +5,7 @@
 // trusted to copy arithmetic). The model is instructed to never invent items and
 // to include the URL for every item.
 
-import Anthropic from "@anthropic-ai/sdk";
+import { anthropicClient } from "./llm.js";
 import * as store from "./store.js";
 
 function briefSystemPrompt(statesTracked) {
@@ -68,7 +68,7 @@ Hard rules:
 }
 
 export async function generateBrief({ relevantItems, watchlist, edition, env, stats, audience = "internal" }) {
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  const client = anthropicClient(env);
   const model = env.BRIEF_MODEL || "claude-sonnet-5";
   const statesTracked = (watchlist.sources?.legiscan?.states ?? []).join(", ") || "state";
   const maxItems = watchlist.output?.maxItemsInBrief ?? 25;
@@ -114,7 +114,7 @@ export async function generateBrief({ relevantItems, watchlist, edition, env, st
         },
       ],
     });
-    store.recordUsage(model, isFarmer ? "brief-farmer" : "brief", response.usage.input_tokens, response.usage.output_tokens);
+    store.recordUsage(model, isFarmer ? "brief-farmer" : "brief", response.usage);
     body = response.content.find((b) => b.type === "text")?.text?.trim() ?? "";
   }
 

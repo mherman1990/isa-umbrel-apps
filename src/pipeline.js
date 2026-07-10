@@ -2,7 +2,6 @@
 // plus `query` and `audit`. Used by both the CLI (index.js) and the web
 // server's built-in scheduler (server.js).
 
-import Anthropic from "@anthropic-ai/sdk";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -23,6 +22,7 @@ import { fetchDocumentText } from "./summarize.js";
 import { evaluateTriggers, triggersText } from "./triggers.js";
 import { scanBanned, COMPLIANCE_RULES, EDUCATION_FOOTER } from "./compliance.js";
 import { mapPool } from "./util.js";
+import { anthropicClient } from "./llm.js";
 
 // How many market adapters to refresh at once — independent hosts, so the phase is the slowest
 // adapter, not the sum. (Open-Meteo's OWN per-region calls stay serial; only adapters overlap.)
@@ -445,7 +445,7 @@ export async function answerQuery(question, env) {
     return { answer: "Nothing stored yet matches. Run the pipeline a few times first.", hits: [] };
   }
 
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  const client = anthropicClient(env);
   const model = env.BRIEF_MODEL || "claude-sonnet-5";
   const response = await client.messages.create({
     model,
@@ -468,7 +468,7 @@ export async function answerQuery(question, env) {
       },
     ],
   });
-  store.recordUsage(model, "query", response.usage.input_tokens, response.usage.output_tokens);
+  store.recordUsage(model, "query", response.usage);
   return { answer: response.content.find((b) => b.type === "text")?.text ?? "(no answer)", hits: merged };
 }
 
@@ -711,7 +711,7 @@ export async function generateMemo(presetId, env) {
   const thinkNote = preset.thinking ? ` + ${preset.thinking.type} thinking${preset.effort ? `/${preset.effort}` : ""}` : "";
   console.log(`\n📝 ${preset.label}: ${official.length + news.length} items + ${marketBlock ? "market data" : "no market data"} over the last ${preset.scopeDays}d (${model}${thinkNote})…`);
 
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  const client = anthropicClient(env);
   const request = {
     model,
     max_tokens: preset.maxTokens,
@@ -738,7 +738,7 @@ export async function generateMemo(presetId, env) {
   if (preset.thinking) request.thinking = preset.thinking;
   if (preset.effort) request.output_config = { effort: preset.effort };
   const response = await client.messages.create(request);
-  store.recordUsage(model, "memo", response.usage.input_tokens, response.usage.output_tokens);
+  store.recordUsage(model, "memo", response.usage);
   const markdown = response.content.find((b) => b.type === "text")?.text?.trim() ?? "";
   const filePath = saveBrief(markdown, preset.edition, timezone);
   return { markdown, filePath, edition: preset.edition };
@@ -760,10 +760,24 @@ export async function runWeekly(env) {
  * (collector newsletters + press RSS) into themes, rather than relisting the feed. Cached in
  * kv_state (regenerated on demand). @returns {{ markdown, date, count } | null}
  */
-export async function generateNewsDigest(env = process.env) {
+export async function generateNewsDigest(env = process.env, { force = false } = {}) {
   if (!env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not set in .env — get one at console.anthropic.com");
   const items = store.listItems({ days: 2, sourceIds: sourceIdsForClass("news"), limit: 70 });
   if (!items.length) return null;
+
+  // Regeneration gate: the twice-daily runs distill an overlapping 2-day window, so between the
+  // AM and PM run the item set is usually identical. If the inputs haven't changed since the last
+  // digest, serve the cached one instead of re-fetching articles and re-paying Haiku. `force`
+  // (explicit "regenerate" from the CLI/UI) always regenerates. Hash the item identity only —
+  // fetched article text is derived from these same items, so it's covered.
+  const inputHash = store.sha1(JSON.stringify(items.map((it) => [it.uid, it.title, it.url])));
+  if (!force) {
+    const prev = getCachedNewsDigest();
+    if (prev && prev.inputHash === inputHash) {
+      console.log("🧠 News digest unchanged since last run — serving cached (skipped Haiku call).");
+      return { ...prev, cached: true };
+    }
+  }
 
   // Go beyond headlines: use the stored body (email bodies) where we have it, and for the rest
   // fetch the linked article's readable text (capped, in parallel) so the digest distills real
@@ -787,7 +801,7 @@ export async function generateNewsDigest(env = process.env) {
   });
   const withContent = items.filter((it) => (it.body || "").trim() || fetched.has(it.uid)).length;
 
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  const client = anthropicClient(env);
   const model = env.TRIAGE_MODEL || "claude-haiku-4-5";
   const resp = await client.messages.create({
     model,
@@ -796,10 +810,10 @@ export async function generateNewsDigest(env = process.env) {
       "You distill the last couple of days of ag news for the Iowa Soybean Association team. Each item below gives a headline and — where available — the email body or the article's actual text; read the CONTENT, not just the headline. DISTILL, do not relist: group into 2–4 themes, a couple of sentences each on what's actually developing and why it matters to Iowa soybeans (draw on the specifics in the content), and link out to the 1–2 most important sources per theme as markdown links. Skip noise, ads, and duplicates. Plain, tight, no preamble — start at the first theme heading.",
     messages: [{ role: "user", content: `Recent ag news (headline + content where available):\n\n${enriched.join("\n\n")}` }],
   });
-  store.recordUsage(model, "news_digest", resp.usage.input_tokens, resp.usage.output_tokens);
+  store.recordUsage(model, "news_digest", resp.usage);
   const markdown = resp.content.find((b) => b.type === "text")?.text?.trim() ?? "";
   const date = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date());
-  store.setState("news_digest", JSON.stringify({ date, markdown, createdAt: new Date().toISOString(), count: items.length, withContent }));
+  store.setState("news_digest", JSON.stringify({ date, markdown, createdAt: new Date().toISOString(), count: items.length, withContent, inputHash }));
   return { markdown, date, count: items.length, withContent };
 }
 
@@ -819,7 +833,7 @@ export function getCachedNewsDigest() {
  * cards (teach, never advise; the banned-phrasing filter + standard footer are applied here).
  * Cached in kv_state. @returns {{ markdown, date, triggers, flags } | null}
  */
-export async function generateMarketCards(env = process.env) {
+export async function generateMarketCards(env = process.env, { force = false } = {}) {
   if (!env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not set in .env — get one at console.anthropic.com");
   const now = new Date();
   const fired = evaluateTriggers(now);
@@ -835,11 +849,24 @@ export async function generateMarketCards(env = process.env) {
     `IMMINENT REPORTS (next 7 days):\n${cal.slice(0, 4).map((r) => `- ${r.date} [impact ${r.impact}] ${r.name}: ${r.note}`).join("\n") || "(none)"}\n\n` +
     `MARKET DATA (for grounding any figure you cite — never invent numbers):\n${marketBlock || "(none)"}`;
 
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  // Regeneration gate: cards depend only on the active triggers, imminent reports, and market
+  // snapshot (all captured in `user`; the date is day-resolution). If nothing changed since the
+  // last generation, serve the cached cards — identical inputs yield identical output, and the
+  // cached markdown already passed the compliance scan and carries the footer. `force` overrides.
+  const inputHash = store.sha1(user);
+  if (!force) {
+    const prev = getCachedMarketCards();
+    if (prev && prev.inputHash === inputHash) {
+      console.log("🌱 Market cards unchanged since last run — serving cached (skipped Sonnet call).");
+      return { ...prev, cached: true };
+    }
+  }
+
+  const client = anthropicClient(env);
   const model = env.BRIEF_MODEL || "claude-sonnet-5";
   // max_tokens headroom for Sonnet 5's default adaptive thinking (counts against the budget) + the cards.
   const resp = await client.messages.create({ model, max_tokens: 2500, system, messages: [{ role: "user", content: user }] });
-  store.recordUsage(model, "cards", resp.usage.input_tokens, resp.usage.output_tokens);
+  store.recordUsage(model, "cards", resp.usage);
   let markdown = resp.content.find((b) => b.type === "text")?.text?.trim() ?? "";
 
   const flags = scanBanned(markdown); // defense-in-depth compliance check on the output
@@ -847,7 +874,7 @@ export async function generateMarketCards(env = process.env) {
   markdown += `\n\n---\n\n_${EDUCATION_FOOTER}_`;
 
   const date = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(now);
-  store.setState("market_cards", JSON.stringify({ date, markdown, createdAt: new Date().toISOString(), triggers: fired.map((f) => f.id), flags }));
+  store.setState("market_cards", JSON.stringify({ date, markdown, createdAt: new Date().toISOString(), triggers: fired.map((f) => f.id), flags, inputHash }));
   return { markdown, date, triggers: fired.map((f) => f.id), flags };
 }
 
@@ -868,7 +895,7 @@ export function getCachedMarketCards() {
  * key and CONTINUED by name across runs (existing names fed in), so a storyline accumulates memory
  * rather than resetting. Stored in the storylines table; a homepage panel reads it. @returns {{count}|null}
  */
-export async function generateStorylines(env = process.env) {
+export async function generateStorylines(env = process.env, { force = false } = {}) {
   if (!env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not set in .env — get one at console.anthropic.com");
   // Recent relevant items across LRD (triaged relevant) + news. News is never triaged, so pull by class.
   const official = store.listItems({ verdict: "relevant", days: 21, sourceIds: sourceIdsForClass("official"), limit: 60 });
@@ -880,6 +907,18 @@ export async function generateStorylines(env = process.env) {
   );
   const existing = store.listStorylines(20).map((s) => s.name);
 
+  // Regeneration gate: the 21-day window barely moves between the AM and PM run. If the item set
+  // and existing thread names are unchanged since the last clustering, keep the stored storylines
+  // and skip the Sonnet call. `force` (explicit CLI/UI regenerate) always re-clusters.
+  const inputHash = store.sha1(JSON.stringify({ items: items.map((it) => it.uid), existing }));
+  if (!force) {
+    const meta = getStorylinesMeta();
+    if (meta && meta.inputHash === inputHash) {
+      console.log("🧵 Storylines unchanged since last run — keeping stored threads (skipped Sonnet call).");
+      return { count: meta.count ?? store.listStorylines(30).length, cached: true };
+    }
+  }
+
   const system =
     `You maintain the "storylines" for the Iowa Soybean Association's policy & market monitor — the handful of ongoing THREADS the news is really about (e.g. "45Z Clean Fuel Production Credit", "EU Deforestation Regulation (EUDR)", "Summit Carbon CO2 Pipeline", "Renewable diesel & soybean-oil demand", "China soybean trade"). Cluster the monitoring items below into 3–7 active storylines. For each, write what recently changed and why it matters to Iowa soybeans, plus a short dated timeline.\n\n` +
     `CONTINUE existing threads by their EXACT name where items fit one (list provided) — do not rename or fork a thread that already exists. Only include storylines with genuine recent activity in these items; ignore one-off noise that belongs to no thread.\n\n` +
@@ -890,7 +929,7 @@ export async function generateStorylines(env = process.env) {
     `EXISTING STORYLINE NAMES (continue these where they fit):\n${existing.length ? existing.map((n) => `- ${n}`).join("\n") : "(none yet)"}\n\n` +
     `MONITORING ITEMS (last 21 days):\n${lines.join("\n")}`;
 
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  const client = anthropicClient(env);
   const model = env.BRIEF_MODEL || "claude-sonnet-5";
   // Disable thinking: this is a structured-JSON clustering task, not a reasoning one. On Sonnet 5
   // (our BRIEF_MODEL) adaptive thinking is ON by default and counts against max_tokens — left on it
@@ -898,7 +937,7 @@ export async function generateStorylines(env = process.env) {
   // JSON (up to 7 threads × a paragraph + a 5-entry timeline) runs a few thousand tokens; too small
   // truncates the array mid-object and it won't parse.
   const resp = await client.messages.create({ model, max_tokens: 4500, thinking: { type: "disabled" }, system, messages: [{ role: "user", content: user }] });
-  store.recordUsage(model, "storylines", resp.usage.input_tokens, resp.usage.output_tokens);
+  store.recordUsage(model, "storylines", resp.usage);
   const text = resp.content.find((b) => b.type === "text")?.text ?? "";
   let arr = [];
   try {
@@ -937,7 +976,7 @@ export async function generateStorylines(env = process.env) {
     saved++;
   }
   store.pruneStorylines(30);
-  store.setState("storylines_meta", JSON.stringify({ generatedAt: new Date().toISOString(), count: saved }));
+  store.setState("storylines_meta", JSON.stringify({ generatedAt: new Date().toISOString(), count: saved, inputHash }));
   console.log(`🧵 Storylines: ${saved} active thread${saved === 1 ? "" : "s"} updated`);
   return { count: saved };
 }
@@ -975,11 +1014,19 @@ export async function runAudit() {
   let totalCost = 0;
   for (const row of monthUsage) {
     const price = PRICES[row.model] ?? { input: 3.0, output: 15.0 };
-    const cost = (row.input_tokens / 1e6) * price.input + (row.output_tokens / 1e6) * price.output;
+    // Prompt-cache billing: writes cost 1.25x the input rate, reads (hits) 0.1x.
+    const cacheWrite = row.cache_write_tokens ?? 0;
+    const cacheRead = row.cache_read_tokens ?? 0;
+    const cost =
+      (row.input_tokens / 1e6) * price.input +
+      (row.output_tokens / 1e6) * price.output +
+      (cacheWrite / 1e6) * price.input * 1.25 +
+      (cacheRead / 1e6) * price.input * 0.1;
     totalCost += cost;
+    const cacheNote = cacheWrite || cacheRead ? ` (cache: ${cacheWrite} wr / ${cacheRead} rd)` : "";
     console.log(
       `   ${row.model.padEnd(20)} ${String(row.calls).padStart(4)} calls, ` +
-        `${String(row.input_tokens).padStart(9)} in / ${String(row.output_tokens).padStart(8)} out tokens ≈ $${cost.toFixed(2)}`
+        `${String(row.input_tokens).padStart(9)} in / ${String(row.output_tokens).padStart(8)} out tokens ≈ $${cost.toFixed(2)}${cacheNote}`
     );
   }
   if (monthUsage.length > 0) console.log(`   ${"".padEnd(20)} estimated month-to-date total ≈ $${totalCost.toFixed(2)}`);
