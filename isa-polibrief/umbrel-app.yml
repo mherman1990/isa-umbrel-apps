@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-polibrief
 category: automation
 name: The Bean Brief
-version: "1.15.0"
+version: "1.16.0"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
@@ -28,11 +28,11 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  The registry now knows Iowa's 2026 candidates — the challengers and statewide races (including
-  Secretary of Agriculture) that weren't tracked before, so the monitor can watch everyone running.
-  Two efficiency fixes as well: the "Ask the Bean Brief" box no longer re-runs (and re-charges) a
-  question when you refresh or reopen a tab, and the saved AI item-summaries are now correctly
-  treated as permanent. After updating, run one command on the Pi to load the candidates (see the
-  release notes) — no new keys. Informational and nonpartisan throughout.
+  New "Studio" tab — a desktop chart workbench. Pick any market series from a catalog and chart them
+  together, rebase or index them to compare, build a ratio, see a seasonality overlay, or shade a
+  series' normal historical range. USDA report dates and market alerts show as flags right on the
+  chart. Export a PNG for slides or Teams, download the CSV, or copy a link that reproduces the view.
+  It's built for a desktop screen — the Markets tab still works everywhere. Nothing to set up and no
+  new keys — just Update. Informational and nonpartisan throughout.
 submitter: Matt
 submission: https://github.com/mherman1990/isa-umbrel-apps

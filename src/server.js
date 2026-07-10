@@ -27,6 +27,7 @@ import { adapters, sourceIdsForClass, classOf } from "./adapters/index.js";
 import { postToTeams } from "./deliver.js";
 import { summarizeItem } from "./summarize.js";
 import { syncRegistryFromSeed } from "./registry.js";
+import { studioBody, studioCatalog, studioSeries, studioSeriesCSV, studioEvents } from "./studio.js";
 
 // All user-facing timestamps render in Central time (the ISA org timezone).
 const CENTRAL_TZ = "America/Chicago";
@@ -294,7 +295,7 @@ function page(title, body) {
 </style></head>
 <body><header>
 <a class="brand" href="/"><img class="logo" src="/assets/isa-logo-main.png" alt="Iowa Soybean Association"><span class="brandname">The Bean Brief</span></a>
-<nav><a href="/">Home</a><a href="/items">Laws, Rules &amp; Decisions</a><a href="/news">News</a><a href="/markets">Markets</a><a href="/watchlist">Watchlist</a><a href="/sources">Sources</a><a href="/registry">Registry</a><a href="/logs">Logs &amp; Settings</a></nav>
+<nav><a href="/">Home</a><a href="/items">Laws, Rules &amp; Decisions</a><a href="/news">News</a><a href="/markets">Markets</a><a href="/studio">Studio</a><a href="/watchlist">Watchlist</a><a href="/sources">Sources</a><a href="/registry">Registry</a><a href="/logs">Logs &amp; Settings</a></nav>
 </header>
 <script>(function(){var p=location.pathname;document.querySelectorAll('nav a').forEach(function(a){var h=a.getAttribute('href');if(h==='/'?p==='/':p===h||p.indexOf(h+'/')===0)a.classList.add('active');});})();</script>
 ${body}
@@ -1350,6 +1351,7 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
           "uPlot.min.css": "text/css; charset=utf-8",
           "uPlot.iife.min.js": "text/javascript; charset=utf-8",
           "bbcharts.js": "text/javascript; charset=utf-8",
+          "studio.js": "text/javascript; charset=utf-8",
         };
         const name = url.pathname.slice("/assets/".length);
         const ctype = ASSETS[name];
@@ -1436,6 +1438,35 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
       if (req.method === "GET" && url.pathname === "/markets") {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
         res.end(page("The Bean Brief · markets", marketsBody(url.searchParams.get("notice"))));
+        return;
+      }
+
+      // ----- Studio (desktop chart workbench). Data lives in studio.js; routes namespaced under
+      // /api/studio/ so they stay clear of other tabs. See docs/STUDIO_TAB_PLAN.md. -----
+      if (req.method === "GET" && url.pathname === "/studio") {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.end(page("The Bean Brief · studio", studioBody(url)));
+        return;
+      }
+      if (req.method === "GET" && url.pathname === "/api/studio/catalog") {
+        res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify(studioCatalog()));
+        return;
+      }
+      if (req.method === "GET" && url.pathname === "/api/studio/series") {
+        const ids = (url.searchParams.get("ids") || "").split(",").map((s) => s.trim()).filter(Boolean);
+        if (url.searchParams.get("format") === "csv") {
+          res.writeHead(200, { "content-type": "text/csv; charset=utf-8", "content-disposition": 'attachment; filename="bean-brief-studio.csv"' });
+          res.end(studioSeriesCSV(ids));
+          return;
+        }
+        res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify(studioSeries(ids)));
+        return;
+      }
+      if (req.method === "GET" && url.pathname === "/api/studio/events") {
+        res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify(studioEvents(url.searchParams.get("from"), url.searchParams.get("to"))));
         return;
       }
 
