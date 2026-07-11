@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-polibrief
 category: automation
 name: The Bean Brief
-version: "1.18.1"
+version: "1.18.2"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
@@ -28,10 +28,11 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  Studio polish and fixes. Chart axes now show their units, exported PNGs include the title and a
-  legend, the seasonality view highlights the current year against a 5-year average, and comparing
-  series that use different units is clearer and safer. Several labels and dates were corrected, and
-  annual series now show their full history by default. Desktop-only, as before. Code-only — nothing
-  to set up and no new keys; just Update. Informational and nonpartisan throughout.
+  Markets tab polish. Charts now default to the last 12 months (with annual series showing their full
+  history) and carry a faint normal-range band so it's easy to see whether the latest reading is high
+  or low. The signal board is tidier on a phone, pages load much faster, chart colors are easier to
+  tell apart, and a few labels were corrected. Behind the scenes, the farmer-education cards now hold
+  back any wording that could read as advice. Code-only — nothing to set up and no new keys; just
+  Update. Informational and nonpartisan throughout.
 submitter: Matt
 submission: https://github.com/mherman1990/isa-umbrel-apps

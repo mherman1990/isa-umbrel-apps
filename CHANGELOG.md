@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.18.2 — Markets: chart defaults, guardrail backstop, mobile & speed
+
+### Fixed
+- **Chart defaults match a farmer's question.** The Markets charts now default to the **last 12
+  months** (was 6), and any chart whose window would show fewer than ~8 points **auto-widens to its
+  full history** — so annual/quarterly series (e.g. Brazil production, quarterly stocks) no longer
+  render as a lonely dot. A faint **normal-range band** (10th–90th percentile of the primary series)
+  sits behind level charts as an at-a-glance "is this high or low?" reference.
+- **Farmer-education cards can't ship advice.** The compliance scan on card output was log-only — it
+  now **regenerates the cards once** if any advice-like phrasing is detected, and **withholds them
+  entirely** if a second pass is still flagged (better no card than an advice card). The prior cards
+  stay in place; the event is logged.
+- **Mobile.** Charts reliably reflow to the viewport (a `ResizeObserver` plus an overflow guard), so a
+  phone rotation or a narrowed window no longer leaves the page scrolling sideways. On a phone the
+  signal board goes compact (two columns, detail hidden) and the range buttons get bigger tap targets.
+- **Colour-vision safety.** The multi-line chart palette (up to 9 feedstock series) was reworked to an
+  ISA-blue + Okabe-Ito set that stays distinct under the common colour-vision deficiencies.
+- **Percentile labels** now use the correct ordinal ("92nd", not "92th").
+
+### Changed
+- **Responses are gzip-compressed.** The Markets page shipped ~240 KB of inline chart data uncompressed
+  to every device; every text response (HTML/JS/CSS/JSON) is now gzipped when the client supports it —
+  the Markets page drops to ~46 KB on the wire (~80% smaller). Binary assets pass through untouched.
+
+Code-only — no new keys, dependencies, or data migration; live on Update.
+
 ## 1.18.1 — Studio: chart-honesty & export fixes; phase-2 removed
 
 ### Fixed

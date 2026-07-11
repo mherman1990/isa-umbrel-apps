@@ -838,12 +838,26 @@ export async function generateMarketCards(env = process.env) {
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   const model = env.BRIEF_MODEL || "claude-sonnet-5";
   // max_tokens headroom for Sonnet 5's default adaptive thinking (counts against the budget) + the cards.
-  const resp = await client.messages.create({ model, max_tokens: 2500, system, messages: [{ role: "user", content: user }] });
-  store.recordUsage(model, "cards", resp.usage.input_tokens, resp.usage.output_tokens);
-  let markdown = resp.content.find((b) => b.type === "text")?.text?.trim() ?? "";
+  const synth = async (sys) => {
+    const resp = await client.messages.create({ model, max_tokens: 2500, system: sys, messages: [{ role: "user", content: user }] });
+    store.recordUsage(model, "cards", resp.usage.input_tokens, resp.usage.output_tokens);
+    return resp.content.find((b) => b.type === "text")?.text?.trim() ?? "";
+  };
 
-  const flags = scanBanned(markdown); // defense-in-depth compliance check on the output
-  if (flags.length) console.log(`⚠️  Market cards compliance flags (${flags.length}): ${flags.join(" · ")}`);
+  // Defense-in-depth: the synthesis prompt forbids advice, but if the model slips, do NOT publish it.
+  // Regenerate once with a corrective instruction; if it's STILL flagged, withhold the cards entirely
+  // (better no card than an advice card) — the previously cached cards stay in place.
+  let markdown = await synth(system);
+  let flags = scanBanned(markdown);
+  if (flags.length) {
+    console.log(`⚠️  Market cards compliance flags on first pass (${flags.length}): ${flags.join(" · ")} — regenerating once.`);
+    markdown = await synth(`${system}\n\nYOUR PREVIOUS DRAFT CONTAINED ADVICE-LIKE PHRASING: "${flags.join('", "')}". Rewrite every card so NONE of that appears — describe what is happening or what history shows, never what the farmer should do.`);
+    flags = scanBanned(markdown);
+    if (flags.length) {
+      console.log(`⛔  Market cards STILL flagged after retry (${flags.join(" · ")}) — withholding; cards not updated.`);
+      return null;
+    }
+  }
   markdown += `\n\n---\n\n_${EDUCATION_FOOTER}_`;
 
   const date = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(now);

@@ -17,6 +17,8 @@ const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct
 const monthOf = (period) => MON[(Number(String(period).slice(5, 7)) || 1) - 1];
 const pctStr = (v) => (v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`);
 const round = (v) => (Math.abs(v) >= 1000 ? Math.round(v).toLocaleString() : Math.round(v * 100) / 100);
+// Correct ordinal suffix (92nd, 21st, 33rd) — percentile labels are farmer-facing.
+const ordinal = (n) => { const s = ["th", "st", "nd", "rd"], v = n % 100; return `${n}${s[(v - 20) % 10] || s[v] || s[0]}`; };
 
 // A series' latest period is "fresh enough" to score (guards off-season / stale series).
 function isFresh(s, maxDays = 120) {
@@ -70,8 +72,8 @@ function fundPositioning(m) {
   const direction = p >= 65 ? "bullish" : p <= 35 ? "bearish" : "neutral";
   return {
     id: "fund_positioning", name: "Fund Positioning", direction, value: p,
-    label: `${p}th pctile`,
-    detail: `CBOT managed-money net ${round(s.latest.value)} contracts (${s.latest.period}) — ${p}th percentile of its range. ${direction === "bullish" ? "Funds leaning long." : direction === "bearish" ? "Funds leaning short — crowded shorts can cover." : "Funds near neutral."}`,
+    label: `${ordinal(p)} pctile`,
+    detail: `CBOT managed-money net ${round(s.latest.value)} contracts (${s.latest.period}) — ${ordinal(p)} percentile of its range. ${direction === "bullish" ? "Funds leaning long." : direction === "bearish" ? "Funds leaning short — crowded shorts can cover." : "Funds near neutral."}`,
   };
 }
 
@@ -82,8 +84,8 @@ function crushDemand(m) {
   const direction = p >= 80 ? "bullish" : p <= 25 ? "bearish" : "neutral";
   return {
     id: "crush_demand", name: "Crush Demand", direction, value: p,
-    label: `${p}th pctile`,
-    detail: `U.S. crush ${round(s.latest.value)} (${s.latest.period}), ${s.yoyPct != null ? pctStr(s.yoyPct) + " YoY, " : ""}${p}th percentile of its range. ${direction === "bullish" ? "Record-strong domestic demand supports basis." : direction === "bearish" ? "Soft crush demand." : "Crush demand mid-range."}`,
+    label: `${ordinal(p)} pctile`,
+    detail: `U.S. crush ${round(s.latest.value)} (${s.latest.period}), ${s.yoyPct != null ? pctStr(s.yoyPct) + " YoY, " : ""}${ordinal(p)} percentile of its range. ${direction === "bullish" ? "Record-strong domestic demand supports basis." : direction === "bearish" ? "Soft crush demand." : "Crush demand mid-range."}`,
   };
 }
 
@@ -164,8 +166,8 @@ function dollar(m) {
   const direction = p >= 70 ? "bearish" : p <= 30 ? "bullish" : "neutral";
   return {
     id: "dollar", name: "U.S. Dollar", direction, value: s.latest.value,
-    label: `${p}th pctile`,
-    detail: `Broad dollar index ${round(s.latest.value)} (${s.latest.period}), ${p}th percentile of its range${s.changePct != null ? `, ${pctStr(s.changePct)} vs. prior` : ""}. ${direction === "bearish" ? "A strong dollar caps U.S. export competitiveness vs. Brazil." : direction === "bullish" ? "A weaker dollar helps U.S. export competitiveness." : "Dollar mid-range."}`,
+    label: `${ordinal(p)} pctile`,
+    detail: `Broad dollar index ${round(s.latest.value)} (${s.latest.period}), ${ordinal(p)} percentile of its range${s.changePct != null ? `, ${pctStr(s.changePct)} vs. prior` : ""}. ${direction === "bearish" ? "A strong dollar caps U.S. export competitiveness vs. Brazil." : direction === "bullish" ? "A weaker dollar helps U.S. export competitiveness." : "Dollar mid-range."}`,
   };
 }
 
@@ -183,7 +185,7 @@ function soyCornRatio(m) {
   return {
     id: "soy_corn_ratio", name: "Soy:Corn Ratio", direction, value: v,
     label: `${v.toFixed(2)}:1`,
-    detail: `Iowa soybeans are ${v.toFixed(2)}× the corn price (${s.latest.period}), ${p}th percentile of its range. ${inWindow ? (direction === "bearish" ? "Richly priced vs corn heading into planting — incentivizes soybean acres (supply-building for the new crop)." : direction === "bullish" ? "Corn favored heading into planting — fewer soybean acres ahead can tighten new-crop supply." : "Near the acreage-neutral pivot — planting incentives balanced.") : "Watched most in late winter/spring, when it steers planting intentions."}`,
+    detail: `Iowa soybeans are ${v.toFixed(2)}× the corn price (${s.latest.period}), ${ordinal(p)} percentile of its range. ${inWindow ? (direction === "bearish" ? "Richly priced vs corn heading into planting — incentivizes soybean acres (supply-building for the new crop)." : direction === "bullish" ? "Corn favored heading into planting — fewer soybean acres ahead can tighten new-crop supply." : "Near the acreage-neutral pivot — planting incentives balanced.") : "Watched most in late winter/spring, when it steers planting intentions."}`,
   };
 }
 

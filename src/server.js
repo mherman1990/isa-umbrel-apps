@@ -18,6 +18,7 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
+import zlib from "node:zlib";
 
 import * as store from "./store.js";
 import { runPipeline, runMemo, answerQuery, loadWatchlist, saveWatchlist, generateNewsDigest, getCachedNewsDigest, generateMarketCards, getCachedMarketCards, generateStorylines, getStorylinesMeta } from "./pipeline.js";
@@ -162,6 +163,44 @@ function linkifySeries(html) {
 // the URL that changes every restart/deploy so a new version is never served stale.
 const ASSET_VER = Date.now().toString(36);
 
+// gzip compressible responses when the client accepts it. Wraps res so every existing
+// `res.writeHead(...); res.end(body)` call site is compressed with no per-route changes; binary
+// assets (images) pass through untouched, redirects/streaming/tiny bodies are left alone. The
+// Markets page ships ~240KB of inline chart JSON — this cuts it (and every text page) ~80%.
+function setupGzip(req, res) {
+  if (!/\bgzip\b/.test(req.headers["accept-encoding"] || "")) return;
+  const _writeHead = res.writeHead.bind(res);
+  const _write = res.write.bind(res);
+  const _end = res.end.bind(res);
+  let status = 200, headers = null, flushed = false;
+  const norm = (a, b) => (b && typeof b === "object" ? b : a && typeof a === "object" ? a : {});
+  const ctOf = (h) => { for (const k in h) if (k.toLowerCase() === "content-type") return h[k]; return String(res.getHeader("content-type") || ""); };
+  const compressible = (ct) => /text\/|application\/(json|javascript|xml)|image\/svg/i.test(ct);
+  res.writeHead = function (code, a, b) { status = code; headers = norm(a, b); return res; };
+  res.write = function (chunk, enc, cb) { if (!flushed) { _writeHead(status, headers || {}); flushed = true; } return _write(chunk, enc, cb); };
+  res.end = function (chunk, enc, cb) {
+    if (typeof chunk === "function") { cb = chunk; chunk = undefined; }
+    if (typeof enc === "function") { cb = enc; enc = undefined; }
+    if (flushed) return _end(chunk, enc, cb); // already streaming — headers went out uncompressed
+    const h = headers || {};
+    if (chunk && compressible(ctOf(h)) && (typeof chunk === "string" || Buffer.isBuffer(chunk))) {
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, enc || "utf8");
+      if (buf.length >= 860) {
+        let gz; try { gz = zlib.gzipSync(buf); } catch { gz = null; }
+        if (gz) {
+          const h2 = {};
+          for (const k in h) if (k.toLowerCase() !== "content-length") h2[k] = h[k];
+          h2["Content-Encoding"] = "gzip"; h2["Vary"] = "Accept-Encoding"; h2["Content-Length"] = gz.length;
+          _writeHead(status, h2);
+          return _end(gz, cb);
+        }
+      }
+    }
+    _writeHead(status, h);
+    return _end(chunk, enc, cb);
+  };
+}
+
 function page(title, body) {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
@@ -288,10 +327,23 @@ function page(title, body) {
   .chart-range button.on { background: var(--isa-blue); color: #fff; border-color: var(--isa-blue); }
   .chart-range .rcustom { margin-left: auto; color: var(--isa-dark); opacity: .85; display: inline-flex; align-items: center; gap: 5px; }
   .chart-range input[type=date] { padding: 2px 6px; font-size: .92em; }
-  .bbchart-box { margin: 8px 0 6px; min-height: 60px; }
+  .bbchart-box { margin: 8px 0 6px; min-height: 60px; overflow-x: hidden; }
   .u-legend { font-size: .82em; margin-top: 6px; }
   .u-legend .u-marker { width: 10px; height: 10px; }
   .u-title { color: var(--isa-dark); font-weight: 600; }
+  /* Mobile: the signal board goes compact (name · arrow · label; detail hidden) so the cards and
+     charts aren't buried under 10 stacked cards on a phone. */
+  @media (max-width: 640px) {
+    .sig-grid { grid-template-columns: 1fr 1fr; gap: 7px; }
+    .sig { padding: 7px 9px; }
+    .sig-label { margin-bottom: 0; }
+    .sig-detail { display: none; }
+  }
+  /* Touch: bigger tap targets on the range control for outdoor, one-handed use. */
+  @media (pointer: coarse) {
+    .chart-range button { padding: 9px 14px; }
+    .chart-range input[type=date] { padding: 7px 8px; }
+  }
 </style></head>
 <body><header>
 <a class="brand" href="/"><img class="logo" src="/assets/isa-logo-main.png" alt="Iowa Soybean Association"><span class="brandname">The Bean Brief</span></a>
@@ -1624,6 +1676,7 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
 
   const server = http.createServer(async (req, res) => {
     try {
+      setupGzip(req, res); // transparently gzip compressible responses (esp. the ~240KB Markets page)
       const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`);
 
       if (req.method === "GET" && url.pathname === "/health") {
