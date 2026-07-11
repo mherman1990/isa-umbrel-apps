@@ -10,27 +10,40 @@
 // of truth; the client renders it with the already-vendored uPlot. This module never draws — it
 // only serves the data the app already collects. Charts stay secondary: the value is making the
 // existing analytical layer (marketSnapshot stats, the report calendar, alerts) explorable.
+//
+// Staff-only, desktop-only. No LLM here — the natural-language prompt and "Explain this chart"
+// ideas were dropped (phase 2 removed); everything the Studio shows is stored data, no generation.
 
 import fs from "node:fs";
 import * as store from "./store.js";
-import { EDUCATION_FOOTER } from "./compliance.js";
 
 const MAX_SERIES = 8; // guardrail: a spec can't request an unbounded number of series
 
+// Cache-bust the vendored client on each release: the asset route sends a 24h max-age, so without
+// a versioned URL a Studio update would serve stale JS to staff for up to a day after deploy.
+const ASSET_V = (() => {
+  try { return JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).version || "1"; }
+  catch { return "1"; }
+})();
+
 // Friendly group labels + display order for the catalog rail. Unknown categories fall through to
-// the end and use their own id as the label (so a newly-added market source still shows up).
+// the end and use their own id as the label (so a newly-added market source still shows up) — keep
+// this map in sync with the series actually in the DB so no raw snake_case slug reaches the rail.
 const CAT_LABEL = {
   soy_price: "Soybean price", corn_price: "Corn price", soy_corn_ratio: "Soybean : corn ratio",
-  soy_crush: "Soybean crush", soy_stocks: "Soybean stocks", soy_balance: "Ending stocks (WASDE)",
+  soy_crush: "Soybean crush", biofuel_feedstock: "Biodiesel feedstocks (EIA)",
+  soy_stocks: "Soybean stocks", soy_balance: "Ending stocks (WASDE)",
   soy_balance_stu: "Stocks-to-use (WASDE)", soy_condition: "Crop condition", drought: "Iowa drought",
   weather_us: "U.S. crop weather", weather_sa: "S. America crop weather", soy_exports: "Exports (weekly)",
   barge_freight: "Barge freight", positioning: "Fund positioning (CFTC)", macro_usd: "U.S. dollar index",
   macro_rates: "10-year Treasury", brazil_production: "Brazil production",
+  brazil_soy: "Brazil soy production", brazil_soy_area: "Brazil soy area",
 };
 const CAT_ORDER = [
-  "soy_price", "corn_price", "soy_corn_ratio", "soy_crush", "soy_stocks", "soy_balance",
-  "soy_balance_stu", "soy_condition", "weather_us", "weather_sa", "drought", "soy_exports",
-  "barge_freight", "positioning", "macro_usd", "macro_rates", "brazil_production",
+  "soy_price", "corn_price", "soy_corn_ratio", "soy_crush", "biofuel_feedstock", "soy_stocks",
+  "soy_balance", "soy_balance_stu", "soy_condition", "weather_us", "weather_sa", "drought",
+  "soy_exports", "barge_freight", "positioning", "macro_usd", "macro_rates",
+  "brazil_production", "brazil_soy", "brazil_soy_area",
 ];
 
 export const STUDIO_TRANSFORMS = [
@@ -102,6 +115,8 @@ export function studioSeriesCSV(idsRaw) {
 // Dated events to flag on the x-axis: authoritative USDA/CME report dates (the calendar data file)
 // + recent "what changed" alerts, both within [fromISO, toISO]. Overlaying policy/report context
 // ON the fundamental series is the Studio's differentiator — no price terminal does this for beans.
+// NOTE: only calendar_events.2026.json ships today, so report flags are 2026-only; multi-year views
+// will show flags at the recent edge until prior-year calendar files are added (data follow-up).
 let _CAL = null;
 function calEvents() {
   if (_CAL) return _CAL;
@@ -141,12 +156,8 @@ export function studioBody(url) {
   body { max-width: 1360px; }
   #studio-gate { display: none; }
   .st-toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 6px 0 14px; }
-  .st-prompt { flex: 1 1 260px; min-width: 240px; display: flex; align-items: center; gap: 8px;
-    border: 1px solid var(--isa-dark-40); border-radius: 8px; padding: 7px 11px; background: #fff; color: var(--muted); }
-  .st-prompt input { flex: 1; border: none; background: none; font-size: .9em; color: var(--ink); }
-  .st-tag { font-size: .68em; font-weight: 700; padding: 2px 8px; border-radius: 999px;
-    background: var(--isa-gold-40); color: var(--isa-rust); border: 1px solid var(--isa-gold); white-space: nowrap; }
   .st-range, .st-export { display: flex; gap: 5px; align-items: center; }
+  .st-export { margin-left: auto; }
   .st-range button, .st-export button, .st-export a { background: #fff; color: var(--isa-dark);
     border: 1px solid var(--isa-dark-40); border-radius: 6px; padding: 5px 11px; font-size: .85em;
     font-weight: 600; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 5px; }
@@ -167,32 +178,27 @@ export function studioBody(url) {
   .st-caption .st-title { font-weight: 700; color: var(--isa-dark); }
   .st-caption .st-chip { font-size: .72em; font-weight: 600; color: var(--isa-dark); background: var(--isa-blue-40);
     border-radius: 999px; padding: 1px 9px; }
-  #studio-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; font-size: .8em; color: var(--ink); }
-  #studio-legend .lg-sw { display: inline-block; width: 14px; height: 3px; vertical-align: middle; margin-right: 5px; border-radius: 2px; }
-  #studio-legend .lg-foc { text-decoration: underline; text-decoration-style: dotted; cursor: pointer; }
+  .st-caption .st-chip.warn { background: var(--isa-gold-40); color: var(--isa-rust); }
   .st-statshead { font-weight: 700; color: var(--isa-dark); font-size: .82em; text-transform: uppercase;
     letter-spacing: .04em; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
   .st-focussel { width: 100%; margin-bottom: 8px; }
   .st-stat { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 0; border-bottom: 1px dashed var(--line); }
   .st-stat .k { font-size: .78em; color: var(--muted); }
   .st-stat .v { font-size: .92em; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
-  .st-stat .v.up { color: #2f7d4e; } .st-stat .v.down { color: #b8481f; }
-  .st-explain { margin: 12px 0 8px; }
-  .st-explain button { width: 100%; justify-content: center; opacity: .8; }
+  /* Direction shown with a neutral glyph, not green/red — "up" isn't "good" for every series
+     (a rising dollar or drought reads bearish), so valence colour would mislead. */
+  .st-stat .v.up::before { content: "▲ "; font-size: .72em; color: var(--muted); }
+  .st-stat .v.down::before { content: "▼ "; font-size: .72em; color: var(--muted); }
   .st-foot { font-size: .74em; color: var(--muted); line-height: 1.45; margin-top: 8px; }
   .st-empty { color: var(--muted); text-align: center; padding: 60px 12px; }
+  .st-empty.err { color: var(--isa-rust); }
   .uplot { font-family: system-ui, sans-serif; }
   @media (max-width: 999px) { #studio-app { display: none; } }
 </style>
-<h1>Chart studio <span class="muted" style="font-size:.55em;font-weight:700;letter-spacing:.03em">DESKTOP</span></h1>
+<h1>Chart studio <span class="muted" style="font-size:.55em;font-weight:700;letter-spacing:.03em">DESKTOP · STAFF</span></h1>
 <div id="studio-gate" class="banner">The chart studio is built for a wider screen — open The Bean Brief on a desktop, or widen this window, to use it. The <a href="/markets">Markets</a> tab works everywhere.</div>
 <div id="studio-app" data-spec="${attr(spec)}">
   <div class="st-toolbar">
-    <div class="st-prompt" title="Natural-language charting is coming next">
-      <span aria-hidden="true">✦</span>
-      <input type="text" disabled placeholder="Describe a chart — “crush vs. soybean-oil feedstock share, rebased, 3y”">
-      <span class="st-tag">phase 2</span>
-    </div>
     <div class="st-range" id="st-range">
       <span class="muted" style="font-size:.8em;font-weight:600">Range</span>
       <button data-months="6">6M</button><button data-months="12">1Y</button>
@@ -217,5 +223,5 @@ export function studioBody(url) {
 </div>
 <link rel="stylesheet" href="/assets/uPlot.min.css">
 <script src="/assets/uPlot.iife.min.js"></script>
-<script src="/assets/studio.js"></script>`;
+<script src="/assets/studio.js?v=${attr(ASSET_V)}"></script>`;
 }

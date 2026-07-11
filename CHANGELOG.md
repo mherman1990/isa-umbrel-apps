@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.18.1 — Studio: chart-honesty & export fixes; phase-2 removed
+
+### Fixed
+- **Axes carry units.** Both y-axes label their unit ($/bu, index, % YoY, …) instead of showing bare
+  numbers, so a dual-axis chart is readable without hovering.
+- **Multi-series comparisons made honest.** A chart mixing 3+ distinct units is now blocked with a
+  steer to Rebase/YoY (three units can't be drawn truthfully on two axes — the old code silently piled
+  the extras onto the second axis); any two-axis chart carries a "scales differ" warning; and the
+  normal-range band draws on the *focused* series' own axis (it could previously paint against the
+  wrong scale when the focus was the right-hand series).
+- **PNG export includes the title, a colour legend (swatch · label · unit), and the compliance footer**
+  instead of a bare, unlabeled chart.
+- **Truthful defaults & transforms.** "Rebase to 100" indexes to the first *visible* point (not the
+  first point ever), and the range auto-widens when a window would show fewer than 8 points, so annual
+  series (e.g. Brazil production) no longer render as a 2–3 point stub at the 3-year default.
+- **Seasonality reads at a glance** — the current year is emphasised over a 5-year average line with
+  prior years faded — instead of equal-weight spaghetti.
+- **Labeling & provenance.** Source attribution reads "USDA NASS" (was a raw "nass"); three catalog
+  groups get real names (Biodiesel feedstocks, Brazil soy production, Brazil soy area); the footer
+  shows "data through &lt;latest period&gt;" rather than today's date; and direction uses a neutral ▲/▼
+  instead of green/red (up isn't "good" for a rising dollar or a worsening drought).
+- **State coverage.** A failed data load shows a distinct error instead of the empty-picker state, and
+  clustered report-date flags no longer overprint their labels.
+
+### Changed
+- **Phase-2 (LLM) features removed.** The natural-language prompt bar and the "Explain this chart"
+  button are gone — Studio is a stored-data-only, staff-facing tool. (The "Explain" button had shipped
+  wired to a route that never existed, so it failed on every click.)
+- The Studio client is cache-busted per release (`/assets/studio.js?v=<version>`) so a Studio update
+  reaches staff on Update instead of after the 24-hour asset cache expires.
+
+Code-only — no new keys, dependencies, or data migration; live on Update.
+
 ## 1.18.0 — Map: drop SWCD, watersheds as a background layer
 
 ### Changed

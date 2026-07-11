@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-polibrief
 category: automation
 name: The Bean Brief
-version: "1.18.0"
+version: "1.18.1"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
@@ -28,11 +28,10 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  Map tab refinements. The Soil & Water Conservation District overlay is gone (it just retraced the
-  county lines). The HUC8 watershed overlay is now a passive background layer, so hovering always
-  shows the district's candidate card — and with it on, that card also lists the watersheds the
-  district spans (most cover several). County lines still form the base, districts still shade red
-  or blue by the party that holds the seat. Nothing to set up and no new keys — just Update.
-  Informational and nonpartisan throughout.
+  Studio polish and fixes. Chart axes now show their units, exported PNGs include the title and a
+  legend, the seasonality view highlights the current year against a 5-year average, and comparing
+  series that use different units is clearer and safer. Several labels and dates were corrected, and
+  annual series now show their full history by default. Desktop-only, as before. Code-only — nothing
+  to set up and no new keys; just Update. Informational and nonpartisan throughout.
 submitter: Matt
 submission: https://github.com/mherman1990/isa-umbrel-apps
