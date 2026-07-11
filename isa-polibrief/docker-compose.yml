@@ -16,7 +16,7 @@ services:
       APP_PORT: 8484
 
   web:
-    image: ghcr.io/mherman1990/polibrief:1.18.2
+    image: ghcr.io/mherman1990/polibrief:1.18.3
     restart: on-failure
     stop_grace_period: 30s
     environment:

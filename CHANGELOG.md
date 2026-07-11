@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.18.3 — Home / News / Laws: readability & accessibility
+
+### Fixed
+- **News text no longer shows raw HTML entities.** RSS and email arrive entity-encoded (e.g. `&#8217;`,
+  `&#8212;`, `&amp;`), and the display then re-escaped the `&`, so codes like "Reuters&#8217;s" showed
+  verbatim. A `decodeEntities()` pass now runs **before** the HTML-escape on all News/feed text —
+  decoded punctuation renders correctly, unknown entities are left untouched, and (because the escape
+  still runs last) there's no XSS. Fixes already-stored items at render time.
+- **News previews cut on a word boundary** instead of mid-word.
+- **The Laws/Rules/Decisions table scrolls inside its own container on mobile** (`overflow-x`), so the
+  page body no longer scrolls sideways (was ~8px over on a 375px viewport).
+- **The 👍 / 👎 relevance buttons have accessible labels** ("Mark relevant" / "Mark not relevant") for
+  screen readers, not just a hover title.
+- **The homepage Ask box input** uses a responsive min-width so it can't overflow narrow phones.
+
+Code-only — no new keys, dependencies, or data migration; live on Update.
+
 ## 1.18.2 — Markets: chart defaults, guardrail backstop, mobile & speed
 
 ### Fixed

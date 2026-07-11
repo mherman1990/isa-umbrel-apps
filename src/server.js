@@ -53,6 +53,16 @@ function captureConsole() {
 function esc(s) {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
+// Decode HTML entities from source text (RSS/email arrives entity-encoded, e.g. "&#8217;" / "&mdash;").
+// Always run BEFORE esc() so the decoded punctuation is then re-escaped safely — never after (that
+// would reintroduce raw markup). Fixes already-stored items at render time.
+const _NAMED_ENTS = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", hellip: "…", mdash: "—", ndash: "–", rsquo: "’", lsquo: "‘", ldquo: "“", rdquo: "”" };
+function decodeEntities(s) {
+  return String(s)
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => { const n = parseInt(h, 16); return n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : _; })
+    .replace(/&#(\d+);/g, (_, d) => { const n = parseInt(d, 10); return n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : _; })
+    .replace(/&([a-z]+);/gi, (m, n) => (n.toLowerCase() in _NAMED_ENTS ? _NAMED_ENTS[n.toLowerCase()] : m));
+}
 function inline(md) {
   return esc(md)
     .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
@@ -738,7 +748,7 @@ function homeBody(notice, openId = null, search = null) {
 
   const searchSection = `<h2 style="margin-bottom:2px">🔎 Ask the Bean Brief</h2>
 <form method="get" action="/" class="toolbar">
-  <input type="text" name="q" placeholder='e.g. "how is soybean crush trending?" or "connect 45Z guidance to feedstock demand"' value="${esc(search?.q ?? "")}" style="min-width:340px">
+  <input type="text" name="q" placeholder='e.g. "how is soybean crush trending?" or "connect 45Z guidance to feedstock demand"' value="${esc(search?.q ?? "")}" style="flex:1;min-width:min(340px,100%)">
   <button>Ask</button>
 </form>
 <p class="muted" style="margin-top:0">Answers draw on everything stored — Laws/Rules/Decisions + News + Markets data + briefs — with links. One Sonnet call (~a cent) per question.</p>
@@ -1182,9 +1192,9 @@ function feedRows(cls, emptyMsg) {
       const src = adapters[r.source_id]?.label ?? r.source_id;
       const when = (r.first_seen_at || "").slice(0, 10);
       return `<article style="padding:10px 0;border-bottom:1px solid var(--isa-blue-40)">
-        <a href="${esc(r.url || "#")}" target="_blank" rel="noopener"><strong>${esc(r.title || "(untitled)")}</strong></a>
+        <a href="${esc(r.url || "#")}" target="_blank" rel="noopener"><strong>${esc(decodeEntities(r.title || "(untitled)"))}</strong></a>
         <div class="muted" style="font-size:.85em">${esc(src)} · ${esc(when)}</div>
-        ${r.one_line ? `<div>${esc(r.one_line)}</div>` : ""}
+        ${r.one_line ? `<div>${esc(decodeEntities(r.one_line))}</div>` : ""}
       </article>`;
     })
     .join("");
@@ -1202,11 +1212,16 @@ function inboxFeed() {
   const item = (r) => {
     const src = adapters[r.source_id]?.label ?? r.source_id;
     const when = (r.first_seen_at || "").slice(0, 10);
-    const body = (r.body || "").trim();
-    const preview = r.one_line || (body ? body.slice(0, 180) + (body.length > 180 ? "…" : "") : "");
+    const body = decodeEntities((r.body || "").trim());
+    const title = decodeEntities(r.title || "(untitled)");
+    let preview = decodeEntities(r.one_line || "");
+    if (!preview && body) {
+      preview = body.slice(0, 180);
+      if (body.length > 180) { const sp = preview.lastIndexOf(" "); preview = (sp > 120 ? preview.slice(0, sp) : preview) + "…"; }
+    }
     return `<details class="mailitem">
       <summary>
-        <span class="mi-title">${esc(r.title || "(untitled)")}</span>
+        <span class="mi-title">${esc(title)}</span>
         <span class="mi-meta muted">${esc(src)} · ${esc(when)}</span>
         ${preview ? `<span class="mi-prev muted">${esc(preview)}</span>` : ""}
       </summary>
@@ -1450,7 +1465,7 @@ function itemsBody(params, notice) {
       </details>`;
       // Buttons are AJAX (class "act") — they update in place so the page never scrolls back to the top.
       const trackBtn = `<button type="button" class="ghost tiny act${isTracked ? " on" : ""}" data-act="track" data-uid="${esc(r.uid)}" data-on="${isTracked ? "false" : "true"}" title="${isTracked ? "Stop tracking" : "Track: flag future movement in briefs"}">${isTracked ? "📌 tracked" : "📌 track"}</button>`;
-      const fb = (val, emoji) => `<button type="button" class="ghost tiny fb act${r.feedback === val ? " on" : ""}" data-act="feedback" data-uid="${esc(r.uid)}" data-fb="${r.feedback === val ? "" : val}" data-val="${val}" title="${val === "up" ? "Good catch — more like this" : "Not relevant — fewer like this (adds an optional note for the AI)"}">${emoji}</button>`;
+      const fb = (val, emoji) => `<button type="button" class="ghost tiny fb act${r.feedback === val ? " on" : ""}" data-act="feedback" data-uid="${esc(r.uid)}" data-fb="${r.feedback === val ? "" : val}" data-val="${val}" aria-label="${val === "up" ? "Mark relevant" : "Mark not relevant"}" title="${val === "up" ? "Good catch — more like this" : "Not relevant — fewer like this (adds an optional note for the AI)"}">${emoji}</button>`;
       const archiveBtn = viewingArchive
         ? `<button type="button" class="ghost tiny act" data-act="archive" data-uid="${esc(r.uid)}" data-on="false" title="Restore to the main list">♻ restore</button>`
         : `<button type="button" class="ghost tiny act" data-act="archive" data-uid="${esc(r.uid)}" data-on="true" title="Set aside — move to the archive (recoverable)">🗄 set aside</button>`;
@@ -1488,10 +1503,12 @@ ${viewingArchive
   <button>Filter</button>
 </form>
 <p class="muted">👍/👎 teach the AI triage what you consider relevant — corrections are fed into future runs. 📌 tracks an item so new activity is flagged in briefs.</p>
+<div class="tablewrap" style="overflow-x:auto">
 <table class="items">
   <tr><th>Item</th><th>Where / when</th><th>Verdict</th><th>Actions</th></tr>
   ${itemRows || '<tr><td colspan="4" class="muted">Nothing matches these filters.</td></tr>'}
 </table>
+</div>
 <script>
 document.querySelectorAll('details.summary').forEach(function(d){
   d.addEventListener('toggle', function(){
