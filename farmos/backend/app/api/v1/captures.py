@@ -163,6 +163,27 @@ def get_capture(capture_id: uuid.UUID, session: Session = Depends(get_session), 
     return _capture_view(c, session)
 
 
+@router.get("/captures/{capture_id}/proof")
+def get_proof(capture_id: uuid.UUID, session: Session = Depends(get_session), user: AppUser = Depends(auth.current_user)):
+    """Standard OpenTimestamps .ots proof — verifiable by any third party
+    with the stock `ots` client against the artifact file."""
+    from fastapi.responses import Response
+
+    from ...services import timestamping
+
+    c = session.get(CaptureEvent, capture_id)
+    if c is None:
+        raise HTTPException(status_code=404, detail="unknown capture")
+    data = timestamping.proof_bytes(c)
+    if data is None:
+        raise HTTPException(status_code=404, detail="no proof yet — records anchor nightly")
+    return Response(
+        content=data,
+        media_type="application/vnd.opentimestamps",
+        headers={"Content-Disposition": f'attachment; filename="{capture_id}.ots"'},
+    )
+
+
 @router.get("/captures/{capture_id}/artifact")
 def get_artifact(capture_id: uuid.UUID, session: Session = Depends(get_session), user: AppUser = Depends(auth.current_user)):
     c = session.get(CaptureEvent, capture_id)

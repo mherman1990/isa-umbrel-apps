@@ -12,6 +12,32 @@ def nightly_backup(timestamp: int) -> dict:
     return backup.run_backup()
 
 
+@job_app.periodic(cron="0 2 * * *")
+@job_app.task(queue="default", name="nightly_timestamp_stamp")
+def nightly_timestamp_stamp(timestamp: int) -> dict:
+    """Anchor last night's captures (tamper-evident records, spec §2)."""
+    from ..db import session as db_session
+    from ..services import timestamping
+
+    with db_session() as s:
+        result = timestamping.stamp_pending_captures(s)
+        s.commit()
+        return result
+
+
+@job_app.periodic(cron="45 */6 * * *")
+@job_app.task(queue="default", name="upgrade_timestamp_proofs")
+def upgrade_timestamp_proofs(timestamp: int) -> dict:
+    """Poll calendars until pending proofs carry a Bitcoin attestation."""
+    from ..db import session as db_session
+    from ..services import timestamping
+
+    with db_session() as s:
+        result = timestamping.upgrade_pending_proofs(s)
+        s.commit()
+        return result
+
+
 @job_app.periodic(cron="0 3 * * *")
 @job_app.task(queue="default", name="retry_parked_captures")
 def retry_parked_captures(timestamp: int) -> int:

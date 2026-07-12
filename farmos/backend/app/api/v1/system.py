@@ -74,6 +74,13 @@ def privacy(user: AppUser = Depends(auth.current_user)):
                 "payload": "Encrypted backups. The provider stores ciphertext it cannot read.",
                 "when": "Nightly, if configured",
             },
+            {
+                "destination": "Public timestamp calendar servers (OpenTimestamps)",
+                "payload": "A single anonymous HASH per night — no farm data, no filenames, "
+                           "nothing readable. This is what makes your records tamper-evident "
+                           "to an insurance adjuster or program verifier.",
+                "when": "Nightly",
+            },
         ],
         "never": [
             "No telemetry, no analytics, no phoning home.",
