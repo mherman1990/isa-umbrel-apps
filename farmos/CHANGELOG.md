@@ -3,6 +3,19 @@
 (Separate from the repo-root CHANGELOG.md, which tracks Bean Brief.
 Farm OS releases use `farmos-v*` git tags.)
 
+## Unreleased — Accounting expansion
+
+### Added
+- **Schedule F classification** (`GET /financials/schedule-f?year=`): whole-farm
+  income/expense rolled up to IRS Schedule F (Form 1040) lines from a new
+  **versioned tax pack** (`tax_packs/schedule-f-2025.yaml`) carrying
+  `source_url` + `last_verified` + `verify_by` — the same data-not-code
+  discipline as region packs. Only recognized categories land on a line;
+  unknown categories and the default `other` are surfaced as `uncategorized`
+  and **left out of the totals** — the app never guesses a dollar onto a tax
+  line (the financial cousin of "insufficient data"). Money-tab card shows net
+  farm profit, the line detail, and the uncategorized gap.
+
 ## Also unreleased — Phase 5 assistant + sandbox
 
 - **Assistant chat** (`POST /assistant/chat` + Ask box on the capture

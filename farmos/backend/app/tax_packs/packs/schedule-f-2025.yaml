@@ -1,0 +1,135 @@
+# Schedule F (Form 1040) line map — tax year 2025
+#
+# Tax-form mappings are DATA, not code — same discipline as region packs.
+# This file maps the farm's own transaction *categories* onto the numbered
+# lines of IRS Schedule F (Profit or Loss From Farming). It carries a
+# source_url + last_verified + verify_by like every other claim in the app;
+# past verify_by the app labels the map "unverified since <date>" so a stale
+# line map is visible rather than silently trusted.
+#
+# Rules of the road (why this is conservative on purpose):
+# - Only EXPLICIT category synonyms map to a line. An unrecognized category
+#   is surfaced to the farmer as "uncategorized — assign a Schedule F line",
+#   never silently swept into line 32 (Other expenses). The whole product
+#   refuses to fabricate a number; a mis-bucketed tax line is the same sin.
+# - The literal default category "other" is treated as uncategorized (it
+#   means "unclassified", not IRS line 32). Give it a real category to map it.
+# - We map to the GROSS income lines (2, 4a, 6a, ...). Taxable-amount
+#   sub-lines (3b/4b/5c/6b) are the filer's to finalize in tax software; we
+#   only ever sum the actual recorded transactions.
+# - Line numbers follow the standard Schedule F layout, which has been
+#   stable for years. Re-verify against the final 2025 form on release.
+
+form: Schedule F (Form 1040)
+tax_year: 2025
+version: "2025.1"
+source_url: https://www.irs.gov/forms-pubs/about-schedule-f-form-1040
+last_verified: 2026-07-12
+verify_by: 2027-02-15
+notes: >
+  Compiled 2026-07 from the IRS Schedule F form and instructions. Iowa
+  row-crop (corn/soybean) categories are covered first-class; livestock
+  lines are included for completeness. Confirm against the final tax-year
+  2025 Schedule F before filing.
+
+# --------------------------------------------------------------- Part I income
+income_lines:
+  - line: "1c"
+    name: Sales of purchased livestock and other resale items (net of cost)
+    categories: [livestock_resale, purchased_livestock, resale_items]
+  - line: "2"
+    name: Sales of livestock, produce, grains, and other products you raised
+    categories: [grain, grain_sales, crop_sales, crop_sale, sales, produce, corn, soybeans, beans, harvest_sales, grain_income, cash_grain]
+  - line: "3a"
+    name: Cooperative distributions
+    categories: [cooperative, coop, patronage, patronage_dividend, coop_distribution]
+  - line: "4a"
+    name: Agricultural program payments
+    categories: [ag_program, program_payment, arc, plc, farm_program, fsa_payment, government_payment, gov_payment]
+  - line: "5a"
+    name: Commodity Credit Corporation (CCC) loans
+    categories: [ccc_loan, ccc, marketing_loan]
+  - line: "6a"
+    name: Crop insurance proceeds and federal crop disaster payments
+    categories: [crop_insurance_proceeds, insurance_proceeds, crop_insurance_payment, disaster_payment, indemnity]
+  - line: "7"
+    name: Custom hire (machine work) income
+    categories: [custom_hire_income, custom_work_income, custom_work, custom_farming_income]
+  - line: "8"
+    name: Other income (incl. fuel tax credit/refund)
+    categories: [other_income, misc_income, fuel_tax_credit, fuel_tax_refund]
+
+# -------------------------------------------------------------- Part II expenses
+expense_lines:
+  - line: "10"
+    name: Car and truck expenses
+    categories: [car, truck, vehicle, mileage, auto]
+  - line: "11"
+    name: Chemicals
+    categories: [herbicide, insecticide, fungicide, chemical, chemicals, pesticide, crop_protection, crop_protectant, adjuvant]
+  - line: "12"
+    name: Conservation expenses
+    categories: [conservation, conservation_expense]
+  - line: "13"
+    name: Custom hire (machine work)
+    categories: [custom_hire, custom_hire_machine_work, custom_application, custom_spray, custom_harvest, custom_spreading, aerial_application, custom_farming]
+  - line: "14"
+    name: Depreciation and section 179 expense
+    categories: [depreciation, section_179, depr]
+  - line: "15"
+    name: Employee benefit programs
+    categories: [employee_benefits, benefits]
+  - line: "16"
+    name: Feed
+    categories: [feed]
+  - line: "17"
+    name: Fertilizer and lime
+    categories: [fertilizer, lime, fert, nutrient, nutrients, anhydrous, nitrogen, phosphorus, potash]
+  - line: "18"
+    name: Freight and trucking
+    categories: [freight, trucking, hauling, haul, grain_hauling]
+  - line: "19"
+    name: Gasoline, fuel, and oil
+    categories: [fuel, gasoline, diesel, oil, gas, lp, propane, dyed_diesel]
+  - line: "20"
+    name: Insurance (other than health)
+    categories: [insurance, crop_insurance, liability_insurance, farm_insurance, hail_insurance, rp_insurance]
+  - line: "21"
+    name: Interest (mortgage and other)
+    categories: [interest, mortgage_interest, loan_interest, operating_interest, note_interest]
+  - line: "22"
+    name: Labor hired
+    categories: [labor, wages, hired_labor, payroll, seasonal_labor]
+  - line: "23"
+    name: Pension and profit-sharing plans
+    categories: [pension, profit_sharing, retirement]
+  - line: "24a"
+    name: Rent/lease — vehicles, machinery, equipment
+    categories: [equipment_rent, machinery_lease, machinery_rent, equipment_lease, machine_rent]
+  - line: "24b"
+    name: Rent/lease — other (land, animals, etc.)
+    categories: [land_rent, cash_rent, rent, pasture_rent, farm_rent, ground_rent]
+  - line: "25"
+    name: Repairs and maintenance
+    categories: [repairs, maintenance, repair, parts, shop, tiling_repair]
+  - line: "26"
+    name: Seeds and plants
+    categories: [seed, seeds, plants, seed_corn, seed_beans, seed_soybeans]
+  - line: "27"
+    name: Storage and warehousing
+    categories: [storage, warehousing, grain_storage, drying, elevator_storage, commercial_storage]
+  - line: "28"
+    name: Supplies
+    categories: [supplies, supply, twine, misc_supplies, shop_supplies]
+  - line: "29"
+    name: Taxes
+    categories: [taxes, property_tax, real_estate_tax, payroll_tax, farm_tax]
+  - line: "30"
+    name: Utilities
+    categories: [utilities, electric, electricity, water, phone, internet, utility]
+  - line: "31"
+    name: Veterinary, breeding, and medicine
+    categories: [veterinary, vet, breeding, medicine, animal_health]
+  - line: "32"
+    name: Other expenses (specify)
+    categories: [dues, subscriptions, professional_fees, accounting, legal, marketing_fees, drone, software, office]

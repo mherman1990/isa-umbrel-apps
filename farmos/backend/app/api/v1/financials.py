@@ -117,3 +117,14 @@ def summary(
         "fields": financials.field_breakeven(session, year),
         "note": "Breakeven shows only where costs AND harvested bushels exist — missing pieces are listed, never estimated.",
     }
+
+
+@router.get("/financials/schedule-f")
+def schedule_f(
+    year: int,
+    session: Session = Depends(get_session),
+    user: AppUser = Depends(auth.current_user),
+):
+    """Whole-farm transactions rolled up to Schedule F lines (from the
+    versioned tax pack). Uncategorized money is surfaced, never guessed."""
+    return financials.schedule_f(session, year)

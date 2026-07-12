@@ -33,12 +33,14 @@ export default function MoneyScreen() {
   const [busy, setBusy] = useState(false);
 
   const [position, setPosition] = useState<any>(null);
+  const [scheduleF, setScheduleF] = useState<any>(null);
 
   async function refresh() {
     try {
       setSummary(await api.get(`/financials/summary?year=${year}`));
       setTxns(await api.get(`/transactions?year=${year}`));
       setPosition(await api.get(`/grain/position?year=${year}`));
+      setScheduleF(await api.get(`/financials/schedule-f?year=${year}`));
     } catch {
       /* offline */
     }
@@ -166,6 +168,51 @@ export default function MoneyScreen() {
           </div>
         ))}
       </div>
+
+      {scheduleF && (scheduleF.income_lines.length > 0 || scheduleF.expense_lines.length > 0 ||
+        scheduleF.uncategorized.expense.length > 0 || scheduleF.uncategorized.income.length > 0) && (
+        <div className="card">
+          <h3>Schedule F ({scheduleF.form.tax_year})</h3>
+          <div className="crop-row">
+            <strong>Net farm profit</strong>
+            <span className="small">
+              ${scheduleF.totals.net_farm_profit.toLocaleString()} (income $
+              {scheduleF.totals.gross_income.toLocaleString()} − expenses $
+              {scheduleF.totals.total_expenses.toLocaleString()})
+            </span>
+          </div>
+          {!scheduleF.complete && <p className="hint warn-text">{scheduleF.note}</p>}
+          <details>
+            <summary className="small">
+              {scheduleF.income_lines.length + scheduleF.expense_lines.length} lines
+              {scheduleF.uncategorized.expense.length + scheduleF.uncategorized.income.length > 0
+                ? ` · ${scheduleF.uncategorized.expense.length + scheduleF.uncategorized.income.length} uncategorized`
+                : ""}
+            </summary>
+            <ul className="small list">
+              {scheduleF.income_lines.map((l: any) => (
+                <li key={`i${l.line}`}>
+                  <strong>Ln {l.line}</strong> {l.name}: +${l.amount.toLocaleString()}
+                </li>
+              ))}
+              {scheduleF.expense_lines.map((l: any) => (
+                <li key={`e${l.line}`}>
+                  <strong>Ln {l.line}</strong> {l.name}: −${l.amount.toLocaleString()}
+                </li>
+              ))}
+              {[...scheduleF.uncategorized.income, ...scheduleF.uncategorized.expense].map((u: any) => (
+                <li key={`u${u.category}`} className="warn-text">
+                  uncategorized “{u.category}”: ${u.amount.toLocaleString()} — assign a category to include it
+                </li>
+              ))}
+            </ul>
+          </details>
+          <p className="hint">
+            Line map: {scheduleF.form.form} v{scheduleF.form.version}
+            {scheduleF.form.stale ? ` · unverified since ${scheduleF.form.verify_by}` : ""}
+          </p>
+        </div>
+      )}
 
       <div className="card">
         <h3>Add a transaction</h3>

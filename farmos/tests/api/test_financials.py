@@ -98,6 +98,61 @@ def test_summary_and_breakeven(client, auth_headers, app_and_engine):
     assert "no harvest record with yield" in fin50["insufficient_data"]
 
 
+SF_YEAR = 2032  # isolated from the summary/breakeven setup above
+
+
+def _seed_schedule_f_txns(app_and_engine):
+    from datetime import datetime
+
+    from sqlalchemy.orm import Session
+
+    from app.models import MoneyTransaction
+
+    _, engine = app_and_engine
+    with Session(engine, expire_on_commit=False) as s:
+        rows = [
+            ("corn sale", "income", "grain", 50000),  # -> line 2
+            ("seed corn", "expense", "seed", 10000),  # -> line 26
+            ("fall NH3", "expense", "fertilizer", 8000),  # -> line 17
+            ("burndown", "expense", "herbicide", 3000),  # -> line 11
+            ("misc", "expense", "other", 500),  # -> uncategorized (default 'other')
+            ("mystery", "expense", "widgets", 250),  # -> uncategorized (unknown)
+        ]
+        for desc, kind, cat, amt in rows:
+            s.add(MoneyTransaction(occurred_on=datetime(SF_YEAR, 3, 1).date(), description=desc,
+                                   kind=kind, category=cat, amount=amt))
+        s.commit()
+
+
+def test_schedule_f_line_mapping_and_uncategorized(client, auth_headers, app_and_engine):
+    _seed_schedule_f_txns(app_and_engine)
+    r = client.get(f"/api/v1/financials/schedule-f?year={SF_YEAR}", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+
+    # cited tax-pack metadata rides along
+    assert body["form"]["form"].startswith("Schedule F")
+    assert body["form"]["source_url"].startswith("https://")
+
+    income = {ln["line"]: ln["amount"] for ln in body["income_lines"]}
+    expense = {ln["line"]: ln["amount"] for ln in body["expense_lines"]}
+    assert income["2"] == 50000.0
+    assert expense["26"] == 10000.0
+    assert expense["17"] == 8000.0
+    assert expense["11"] == 3000.0
+
+    # totals cover ONLY categorized money; the $750 uncategorized is excluded
+    assert body["totals"]["gross_income"] == 50000.0
+    assert body["totals"]["total_expenses"] == 21000.0
+    assert body["totals"]["net_farm_profit"] == 29000.0
+
+    uncat = {u["category"]: u["amount"] for u in body["uncategorized"]["expense"]}
+    assert uncat == {"other": 500.0, "widgets": 250.0}
+    assert body["uncategorized"]["expense_total"] == 750.0
+    assert body["complete"] is False
+    assert "uncategorized" in body["note"].lower()
+
+
 def test_transaction_crud_and_idempotency(client, auth_headers):
     cid = str(uuid.uuid4())
     body = {"client_id": cid, "occurred_on": f"{YEAR}-05-05", "description": "twine",
