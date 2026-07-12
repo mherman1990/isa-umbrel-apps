@@ -39,6 +39,24 @@ class PackStackingRule(BaseModel):
     verify_by: date
 
 
+class PackEvidenceRequirement(BaseModel):
+    """A specific artifact the program will demand at verification."""
+
+    req_key: str
+    practice_type: str
+    artifact_kind: str = Field(pattern="^(photo|document|operation|any)$")
+    subject: str
+    window_start_md: str | None = None  # 'MM-DD' relative to crop_year + year_offset
+    window_end_md: str | None = None
+    year_offset: int = 0  # 0 = fall before the crop year's spring crop... state explicitly per program
+    verifier_grade_required: bool = False
+    description: str
+    citation: str
+    source_url: str
+    last_verified: date
+    verify_by: date
+
+
 class PackProgram(BaseModel):
     program_key: str
     name: str
@@ -54,6 +72,7 @@ class PackProgram(BaseModel):
     verify_by: date
     unverified: bool = False  # explicit flag for seed data we could not confirm
     rules: list[PackRule] = []
+    evidence_requirements: list[PackEvidenceRequirement] = []
 
 
 class RegionPackFile(BaseModel):

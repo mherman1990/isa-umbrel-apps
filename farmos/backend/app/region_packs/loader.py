@@ -8,7 +8,7 @@ import yaml
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import EligibilityRule, Program, RegionPackRow, StackingRule
+from ..models import EligibilityRule, EvidenceRequirement, Program, RegionPackRow, StackingRule
 from .schema import RegionPackFile
 
 PACKS_DIR = Path(__file__).parent / "packs"
@@ -61,6 +61,25 @@ def load_pack(session: Session, path: Path) -> RegionPackRow:
         )
         session.add(p)
         session.flush()
+        for req in prog.evidence_requirements:
+            session.add(
+                EvidenceRequirement(
+                    program_id=p.id,
+                    req_key=req.req_key,
+                    practice_type=req.practice_type,
+                    artifact_kind=req.artifact_kind,
+                    subject=req.subject,
+                    window_start_md=req.window_start_md,
+                    window_end_md=req.window_end_md,
+                    year_offset=req.year_offset,
+                    verifier_grade_required=req.verifier_grade_required,
+                    description=req.description,
+                    citation=req.citation,
+                    source_url=req.source_url,
+                    last_verified=req.last_verified,
+                    verify_by=req.verify_by,
+                )
+            )
         for rule in prog.rules:
             session.add(
                 EligibilityRule(

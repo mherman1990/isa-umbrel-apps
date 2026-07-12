@@ -555,6 +555,35 @@ class ProgramEnrollment(Base):
     )
 
 
+class EvidenceRequirement(Base):
+    """What a program will DEMAND at verification — region-pack data.
+    'SWOF wants a termination photo of the field between Apr 1 and May 15'
+    is a row here; the MRV readiness report evaluates against it."""
+
+    __tablename__ = "evidence_requirement"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    program_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("program.id", ondelete="CASCADE"), nullable=False)
+    req_key: Mapped[str] = mapped_column(Text, nullable=False)
+    practice_type: Mapped[str] = mapped_column(String(16), nullable=False)  # which practice it attaches to
+    artifact_kind: Mapped[str] = mapped_column(String(16), nullable=False)  # photo | document | operation | any
+    subject: Mapped[str] = mapped_column(Text, nullable=False)  # 'establishment photo', 'seed receipt'...
+    window_start_md: Mapped[str | None] = mapped_column(String(5))  # 'MM-DD', relative to crop_year + offset
+    window_end_md: Mapped[str | None] = mapped_column(String(5))
+    year_offset: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0, server_default="0")
+    verifier_grade_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    citation: Mapped[str] = mapped_column(Text, nullable=False)
+    source_url: Mapped[str] = mapped_column(Text, nullable=False)
+    last_verified: Mapped[date] = mapped_column(Date, nullable=False)
+    verify_by: Mapped[date] = mapped_column(Date, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("program_id", "req_key", name="evidence_requirement_uq"),
+        CheckConstraint("artifact_kind IN ('photo','document','operation','any')", name="evidence_req_kind_ck"),
+    )
+
+
 class StackingRule(Base):
     """Whether two programs can pay on the same acres — encoded as data
     from the region pack, cited, and verify_by-dated like everything else."""

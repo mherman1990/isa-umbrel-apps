@@ -3,7 +3,26 @@
 (Separate from the repo-root CHANGELOG.md, which tracks Bean Brief.
 Farm OS releases use `farmos-v*` git tags.)
 
-## Unreleased — capture complete + Phase 2 core
+## Unreleased — Phase 3: conservation engine
+
+### Added
+- **Practice inventory** with evidence links (captures / documents /
+  operations; tamper-evident status per item) and program enrollments.
+- **Stacking/additionality checker** (`GET /programs/stacking` + Programs
+  UI): pairwise relations from region-pack data (6 Iowa rules incl. the
+  IDALS-discount exclusions, SWOF additionality, WQI+EQIP stackable),
+  exhaustive combination enumeration, best-verified-combo ranking that
+  never names an uncited or stale relation. 7-test rule matrix (HR #18b).
+- **MRV readiness** (`GET /programs/{key}/readiness?crop_year=`):
+  per-requirement, per-practice met / partial / missing with windows,
+  days-left countdown, window-closed flags, and verifier-grade checks
+  (in-app provenance + timestamp proof). Evidence specs are region-pack
+  data (`EvidenceRequirement`); Iowa pack 2026.4 ships SWOF photo
+  requirements and IDALS WQI documentation requirements.
+- Representative `payment_per_acre` on computable programs; migrations
+  0004–0005; restore drill re-verified.
+
+## Earlier unreleased — capture complete + Phase 2 core
 
 ### Added
 - **Photo/document routing** — capture layer complete: vision classify

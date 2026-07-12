@@ -192,6 +192,21 @@ def create_enrollment(body: EnrollmentIn, session: Session = Depends(get_session
 # ------------------------------------------------------------------ stacking
 
 
+@router.get("/programs/{program_key}/readiness")
+def mrv_readiness(
+    program_key: str,
+    crop_year: int,
+    session: Session = Depends(get_session),
+    user: AppUser = Depends(auth.current_user),
+):
+    from ...services import mrv
+
+    try:
+        return mrv.readiness(session, program_key, crop_year)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get("/programs/stacking")
 def stacking_check(
     programs: str = Query(..., description="comma-separated program keys"),

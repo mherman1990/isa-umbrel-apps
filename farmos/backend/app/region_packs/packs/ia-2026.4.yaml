@@ -10,7 +10,7 @@
 # The federal tier is factored so future state packs can inherit it.
 
 region_code: US-IA
-version: "2026.3"
+version: "2026.4"
 description: Iowa corn/soybean row-crop pack (pack #1)
 
 programs:
@@ -113,6 +113,33 @@ programs:
       Water Conservation Districts. First-time users get the higher rate.
     payment_rate: "$30/ac first-time users; $20/ac returning users (spec-provided rates)"
     payment_per_acre: 30.00  # first-time rate; returning users get $20
+    evidence_requirements:
+      - req_key: cover-crop-seed-receipt
+        practice_type: cover_crop
+        artifact_kind: document
+        subject: cover crop seed receipt or seeding invoice
+        window_start_md: null
+        window_end_md: null
+        year_offset: -1
+        verifier_grade_required: false
+        description: Receipt/invoice documenting seed purchase or custom seeding for the enrolled acres.
+        citation: SWCD cost-share claim documentation requirements
+        source_url: https://www.cleanwateriowa.org/costshare
+        last_verified: 2026-07-12
+        verify_by: 2027-03-01
+      - req_key: seeding-record
+        practice_type: cover_crop
+        artifact_kind: operation
+        subject: seeding record with date and rate
+        window_start_md: "08-15"
+        window_end_md: "11-30"
+        year_offset: -1
+        verifier_grade_required: false
+        description: A dated seeding operation record (species, rate, acres) inside the fall window.
+        citation: SWCD cost-share practice requirements
+        source_url: https://www.cleanwateriowa.org/costshare
+        last_verified: 2026-07-12
+        verify_by: 2027-03-01
     signup_deadline: "Apply at county SWCD; funds allocated summer/fall, first-come"
     source_url: https://www.cleanwateriowa.org/costshare
     last_verified: 2026-07-12
@@ -204,6 +231,33 @@ programs:
       practice are typically excluded.
     payment_rate: "~$20-40/ac; 2024 average ~$33/ac (spec-provided)"
     payment_per_acre: 33.00  # 2024 average; actual is outcome-based
+    evidence_requirements:
+      - req_key: cover-crop-establishment-photo
+        practice_type: cover_crop
+        artifact_kind: photo
+        subject: cover crop establishment photo
+        window_start_md: "10-01"
+        window_end_md: "12-15"
+        year_offset: -1   # fall seeding before the enrollment crop year
+        verifier_grade_required: true
+        description: Geotagged photo of the established cover crop stand, taken in the fall seeding window.
+        citation: SWOF verification requirements (typical MRV practice-evidence set)
+        source_url: https://theoutcomesfund.com/farmers
+        last_verified: 2026-07-12
+        verify_by: 2027-03-01
+      - req_key: cover-crop-termination-photo
+        practice_type: cover_crop
+        artifact_kind: photo
+        subject: cover crop termination photo
+        window_start_md: "04-01"
+        window_end_md: "05-15"
+        year_offset: 0
+        verifier_grade_required: true
+        description: Geotagged photo at/after termination ahead of the spring cash crop.
+        citation: SWOF verification requirements (typical MRV practice-evidence set)
+        source_url: https://theoutcomesfund.com/farmers
+        last_verified: 2026-07-12
+        verify_by: 2027-03-01
     signup_deadline: "Enrollment opens summer 2026 for crop year 2027 (spec-provided)"
     source_url: https://theoutcomesfund.com/
     last_verified: 2026-07-12
