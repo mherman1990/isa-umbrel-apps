@@ -85,19 +85,40 @@ export default function CaptureScreen({ onSaved }: { onSaved: () => void }) {
     onSaved();
   }
 
+  async function toJpegIfNeeded(file: File): Promise<{ blob: Blob; mime: string }> {
+    // Server-side routing supports jpeg/png/webp/gif/pdf; iOS camera-roll
+    // picks can be HEIC — re-encode via canvas so nothing dead-ends.
+    const ok = ["image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf"];
+    if (ok.includes(file.type) || !file.type.startsWith("image/")) return { blob: file, mime: file.type };
+    try {
+      const bmp = await createImageBitmap(file);
+      const canvas = document.createElement("canvas");
+      canvas.width = bmp.width;
+      canvas.height = bmp.height;
+      canvas.getContext("2d")!.drawImage(bmp, 0, 0);
+      const blob: Blob = await new Promise((res, rej) =>
+        canvas.toBlob((b) => (b ? res(b) : rej(new Error("encode failed"))), "image/jpeg", 0.85),
+      );
+      return { blob, mime: "image/jpeg" };
+    } catch {
+      return { blob: file, mime: file.type }; // server will fail it honestly
+    }
+  }
+
   async function savePhotoOrFile(file: File, source: "camera" | "roll" | "file") {
     const gps = await currentGps();
+    const { blob, mime } = await toJpegIfNeeded(file);
     await enqueueCapture({
       client_id: newId(),
-      kind: file.type.startsWith("image/") ? "photo" : "file",
-      mime_type: file.type || "application/octet-stream",
+      kind: mime.startsWith("image/") ? "photo" : "file",
+      mime_type: mime || "application/octet-stream",
       captured_at: new Date().toISOString(),
       gps_lat: gps.lat,
       gps_lon: gps.lon,
       // In-app camera capture is verifier-grade; camera-roll/file imports
       // carry editable metadata and are graded honestly (spec: Provenance).
       provenance: source === "camera" ? "captured" : "imported",
-      blob: file,
+      blob,
     });
     setFlash("Saved — will sync and parse");
     setTimeout(() => setFlash(null), 2500);

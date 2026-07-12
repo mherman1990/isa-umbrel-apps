@@ -76,13 +76,13 @@ def create_capture(
 
 
 def _enqueue(capture: CaptureEvent) -> None:
-    from ...jobs.tasks import parse_capture, transcribe_capture
+    from ...jobs.tasks import route_capture, transcribe_capture
 
     try:
         if capture.kind == "voice":
             transcribe_capture.defer(capture_id=str(capture.id))
-        # photo/file routing arrives with the doc pipeline job; captures
-        # still land safely and stay in 'recorded' until then.
+        else:
+            route_capture.defer(capture_id=str(capture.id))
     except Exception:  # noqa: BLE001 — queue down must never lose the capture
         capture.status_detail = "enqueue failed; retry job pending"
 

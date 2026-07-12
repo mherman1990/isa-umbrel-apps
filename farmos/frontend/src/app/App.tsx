@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import CaptureScreen from "../features/capture/CaptureScreen";
+import DocsScreen from "../features/documents/DocsScreen";
 import FieldsScreen from "../features/fields/FieldsScreen";
 import InboxScreen from "../features/inbox/InboxScreen";
 import Onboarding from "../features/onboarding/Onboarding";
@@ -8,7 +9,7 @@ import SettingsScreen from "../features/settings/SettingsScreen";
 import { api, getToken } from "./api";
 import { drainQueue, pendingCount } from "../offline/queue";
 
-type Tab = "capture" | "inbox" | "fields" | "programs" | "settings";
+type Tab = "capture" | "inbox" | "fields" | "docs" | "programs" | "settings";
 
 export default function App() {
   const [ready, setReady] = useState(false);
@@ -72,6 +73,7 @@ export default function App() {
         {tab === "capture" && <CaptureScreen onSaved={checkStatus} />}
         {tab === "inbox" && <InboxScreen />}
         {tab === "fields" && <FieldsScreen />}
+        {tab === "docs" && <DocsScreen />}
         {tab === "programs" && <ProgramsScreen />}
         {tab === "settings" && <SettingsScreen />}
       </main>
@@ -80,6 +82,7 @@ export default function App() {
         <TabButton label="Log" icon="🎙" active={tab === "capture"} onClick={() => setTab("capture")} />
         <TabButton label="Inbox" icon="📥" badge={badges.inbox} active={tab === "inbox"} onClick={() => setTab("inbox")} />
         <TabButton label="Fields" icon="🗺" active={tab === "fields"} onClick={() => setTab("fields")} />
+        <TabButton label="Docs" icon="📄" active={tab === "docs"} onClick={() => setTab("docs")} />
         <TabButton label="Programs" icon="💵" active={tab === "programs"} onClick={() => setTab("programs")} />
         <TabButton label="Settings" icon="⚙️" warn={badges.backupWarn} active={tab === "settings"} onClick={() => setTab("settings")} />
       </nav>

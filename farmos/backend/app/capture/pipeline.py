@@ -75,6 +75,37 @@ def run_parse(session: Session, capture_id: uuid.UUID) -> list[ParseResult]:
     return results
 
 
+def run_route(session: Session, capture_id: uuid.UUID) -> list[ParseResult]:
+    """Photo/file path: classify → vault/document extraction or field-photo
+    parse result → confirmation queue. Voice never comes through here."""
+    from . import route as route_mod
+
+    capture = session.get(CaptureEvent, capture_id)
+    if capture is None or capture.kind not in ("photo", "file") or capture.status not in ("recorded", "parsing"):
+        return []
+    _set_status(session, capture, "parsing")
+    session.commit()
+    try:
+        results = route_mod.route_capture(session, capture, cap_usd=spend_cap(session))
+    except llm.SpendCapExceeded:
+        _set_status(session, capture, "recorded", "spend_cap")
+        session.commit()
+        return []
+    except Exception as exc:  # noqa: BLE001
+        _set_status(session, capture, "failed", f"route: {exc}")
+        session.commit()
+        return []
+
+    _set_status(session, capture, "parsed")
+    session.flush()
+    for r in results:
+        session.add(ConfirmationQueueItem(parse_result_id=r.id))
+    _set_status(session, capture, "queued" if results else "confirmed",
+                None if results else "nothing actionable in capture")
+    session.commit()
+    return results
+
+
 def maybe_finalize_capture(session: Session, capture: CaptureEvent) -> None:
     """Flip a capture to confirmed/rejected once every queue item is resolved."""
     rows = session.scalars(

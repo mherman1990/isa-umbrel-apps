@@ -21,14 +21,15 @@ def retry_parked_captures(timestamp: int) -> int:
 
     from ..db import session as db_session
     from ..models import CaptureEvent
-    from .tasks import parse_capture
+    from .tasks import parse_capture, route_capture
 
     with db_session() as s:
         parked = s.scalars(
-            select(CaptureEvent).where(
-                CaptureEvent.status == "transcribed", CaptureEvent.status_detail == "spend_cap"
-            )
+            select(CaptureEvent).where(CaptureEvent.status_detail == "spend_cap")
         ).all()
         for c in parked:
-            parse_capture.defer(capture_id=str(c.id))
+            if c.kind == "voice":
+                parse_capture.defer(capture_id=str(c.id))
+            else:
+                route_capture.defer(capture_id=str(c.id))
         return len(parked)

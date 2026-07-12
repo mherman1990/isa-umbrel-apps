@@ -89,6 +89,26 @@ def _create_inventory_note(session: Session, capture: CaptureEvent, payload: dic
     return inv
 
 
+def _confirm_document(session: Session, payload: dict):
+    """The vault row already exists (created at routing); confirmation
+    settles its extracted fields and any farmer corrections."""
+    from ..models import Document
+
+    doc_id = payload.get("document_id")
+    if not doc_id:
+        raise HTTPException(status_code=422, detail="document_id missing from payload")
+    doc = session.get(Document, uuid.UUID(str(doc_id)))
+    if doc is None:
+        raise HTTPException(status_code=422, detail="unknown document_id")
+    fields = {k: v for k, v in payload.items() if k not in ("document_id", "doc_type", "title")}
+    doc.extracted = fields
+    if payload.get("title"):
+        doc.title = payload["title"]
+    if payload.get("doc_type"):
+        doc.doc_type = payload["doc_type"]
+    return doc
+
+
 def confirm_item(
     session: Session,
     item: ConfirmationQueueItem,
@@ -113,6 +133,9 @@ def confirm_item(
     elif parse.target_type == "input_inventory":
         inv = _create_inventory_note(session, capture, payload)
         record_type, record_id = "input_inventory", inv.id
+    elif parse.target_type == "document":
+        doc = _confirm_document(session, payload)
+        record_type, record_id = "document", doc.id
     # equipment_issue / note: kept as the confirmed queue item itself in Phase 1
     # (a dedicated table arrives with the maintenance module).
 

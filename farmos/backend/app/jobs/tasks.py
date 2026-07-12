@@ -33,6 +33,16 @@ def parse_capture(capture_id: str) -> None:
         pipeline.run_parse(s, uuid.UUID(capture_id))
 
 
+@job_app.task(queue="default", name="route_capture")
+def route_capture(capture_id: str) -> None:
+    import uuid
+
+    from ..capture import pipeline
+
+    with db_session() as s:
+        pipeline.run_route(s, uuid.UUID(capture_id))
+
+
 @job_app.task(queue="default", name="run_backup")
 def run_backup_task() -> dict:
     from ..services import backup
