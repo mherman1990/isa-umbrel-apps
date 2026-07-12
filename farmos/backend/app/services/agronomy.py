@@ -15,7 +15,7 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import Practice
+from ..models import EvidenceRequirement, Practice, Program
 from ..region_packs import loader
 
 
@@ -188,5 +188,72 @@ def fungicide_roi(
         "note": (
             "Expected-value ROI on a fungicide pass. Response ranges are approximate and depend on "
             "hybrid/variety, disease, growth stage, and weather — confirm the scenario before spending."
+        ),
+    }
+
+
+def _programs_for_practice(session: Session, practice_type: str) -> list[str]:
+    """Program keys whose evidence spec names this practice_type — i.e. programs
+    that pay for doing it."""
+    keys = session.scalars(
+        select(Program.program_key)
+        .join(EvidenceRequirement, EvidenceRequirement.program_id == Program.id)
+        .where(EvidenceRequirement.practice_type == practice_type)
+        .distinct()
+    ).all()
+    return sorted(set(keys))
+
+
+def practice_economics(session: Session, *, practice_type: str, acres: float,
+                       program_keys: list[str] | None = None) -> dict:
+    """Net $/ac of a conservation practice = best verified program payment
+    (via the stacking engine) − the practice's typical cost."""
+    from . import stacking
+
+    pack = _pack()
+    spec = pack.practice_costs if pack else None
+    if spec is None:
+        return {"configured": False, "note": "the loaded region pack has no practice-cost data"}
+
+    gaps: list[str] = []
+    cost_per_ac = spec.costs.get(practice_type)
+    if cost_per_ac is None:
+        gaps.append(f"no cost basis on file for practice '{practice_type}' (structural/cost-shared practices vary)")
+
+    keys = program_keys or _programs_for_practice(session, practice_type)
+    combo, payment_per_ac = None, 0.0
+    if keys:
+        result = stacking.check(session, keys, acres)
+        best = result.get("best_verified_combo")
+        if best:
+            combo = {"programs": best["programs"], "per_acre_usd": best["per_acre_usd"], "total_usd": best["total_usd"]}
+            payment_per_ac = best["per_acre_usd"]
+        else:
+            gaps.append("no fully-verified paying program combination among the programs considered")
+    else:
+        gaps.append(f"no program on file lists a {practice_type} evidence requirement")
+
+    net_per_ac = round(payment_per_ac - cost_per_ac, 2) if cost_per_ac is not None else None
+    return {
+        "configured": True,
+        "practice_type": practice_type,
+        "acres": acres,
+        "practice_cost_per_ac": cost_per_ac,
+        "practice_cost_total": round(cost_per_ac * acres, 2) if cost_per_ac is not None else None,
+        "programs_considered": keys,
+        "best_program_combo": combo,
+        "program_payment_per_ac": round(payment_per_ac, 2),
+        "net_per_ac": net_per_ac,
+        "net_total": round(net_per_ac * acres, 2) if net_per_ac is not None else None,
+        "cost_citation": spec.citation,
+        "cost_source_url": spec.source_url,
+        "cost_last_verified": spec.last_verified.isoformat(),
+        "cost_stale": spec.verify_by < date.today(),
+        "cost_unverified": spec.unverified,
+        "gaps": gaps or None,
+        "note": (
+            "Net $/ac = best VERIFIED program payment (from the stacking engine) − typical practice "
+            "cost. Program $ is cited; costs are typical and approximate. Structural practices whose "
+            "cost is capital/cost-shared show no cost basis rather than a made-up number."
         ),
     }

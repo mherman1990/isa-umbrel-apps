@@ -84,3 +84,45 @@ def test_fungicide_roi_endpoint(client, auth_headers):
     # invalid grain price -> 422, never a bogus ROI
     assert client.post("/api/v1/agronomy/fungicide-roi", headers=auth_headers, json={
         "crop": "corn", "grain_price": 0, "product_cost_per_ac": 28}).status_code == 422
+
+
+def _ensure_pack(app_and_engine):
+    from sqlalchemy import select
+    from sqlalchemy.orm import Session
+
+    from app.models import RegionPackRow
+    from app.region_packs import loader
+
+    _, engine = app_and_engine
+    with Session(engine, expire_on_commit=False) as s:
+        if not s.scalar(select(RegionPackRow).where(RegionPackRow.region_code == "US-IA")):
+            loader.load_pack(s, loader.default_pack_path())
+            s.commit()
+
+
+def test_practice_economics_nets_payment_minus_cost(client, auth_headers, app_and_engine):
+    _ensure_pack(app_and_engine)
+    # explicit single program -> deterministic: SWOF pays $33/ac, cover crop costs $37/ac
+    r = client.get("/api/v1/agronomy/practice-economics?practice_type=cover_crop&acres=100&programs=swof",
+                   headers=auth_headers)
+    assert r.status_code == 200, r.text
+    b = r.json()
+    assert b["practice_cost_per_ac"] == 37.0 and b["practice_cost_total"] == 3700.0
+    assert b["program_payment_per_ac"] == 33.0
+    assert b["net_per_ac"] == -4.0 and b["net_total"] == -400.0
+    assert b["cost_unverified"] is True
+
+
+def test_practice_economics_autodiscovers_and_flags_no_cost(client, auth_headers, app_and_engine):
+    _ensure_pack(app_and_engine)
+    # no programs passed -> auto-discover programs whose evidence spec names cover_crop
+    b = client.get("/api/v1/agronomy/practice-economics?practice_type=cover_crop&acres=100",
+                   headers=auth_headers).json()
+    assert "swof" in b["programs_considered"]
+    assert b["net_per_ac"] is not None
+
+    # a structural practice has no per-acre cost basis -> honest gap, not a made-up number
+    b2 = client.get("/api/v1/agronomy/practice-economics?practice_type=terrace&acres=100",
+                    headers=auth_headers).json()
+    assert b2["practice_cost_per_ac"] is None and b2["net_per_ac"] is None
+    assert b2["gaps"] and any("terrace" in g for g in b2["gaps"])

@@ -76,3 +76,12 @@ def test_fungicide_unknown_crop_is_a_gap():
     r = agronomy.fungicide_roi(crop="wheat", grain_price=6.0, product_cost_per_ac=20)
     assert r["expected_net_roi_per_ac"] is None
     assert r["gaps"] and "wheat" in r["gaps"][0]
+
+
+def test_practice_costs_pack_cited_and_flagged():
+    pack, _ = loader.read_pack(loader.default_pack_path())
+    assert pack.practice_costs is not None
+    pc = pack.practice_costs
+    assert pc.unverified is True and pc.source_url.startswith("https://")
+    assert pc.costs.get("cover_crop") == 37.0
+    assert "terrace" not in pc.costs  # structural practices intentionally omitted

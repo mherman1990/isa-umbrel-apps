@@ -333,6 +333,63 @@ function FungicideCard() {
   );
 }
 
+function PracticeEconCard() {
+  const [practice, setPractice] = useState("cover_crop");
+  const [acres, setAcres] = useState("160");
+  const [result, setResult] = useState<any>(null);
+
+  async function run() {
+    try {
+      setResult(await api.get(`/agronomy/practice-economics?practice_type=${practice}&acres=${Number(acres)}`));
+    } catch (e: any) {
+      setResult({ error: e.message });
+    }
+  }
+
+  return (
+    <div className="card">
+      <h3>Practice economics</h3>
+      <p className="hint">
+        Net $/ac of a conservation practice = best verified program payment − typical cost. Program $
+        comes from the stacking engine; structural practices with no per-acre cost basis say so.
+      </p>
+      <div className="button-row">
+        <label>
+          Practice
+          <select value={practice} onChange={(e) => setPractice(e.target.value)}>
+            <option value="cover_crop">cover crop</option>
+            <option value="nutrient_mgmt">nutrient mgmt</option>
+            <option value="buffer">buffer</option>
+            <option value="terrace">terrace</option>
+          </select>
+        </label>
+        <label>Acres<input inputMode="numeric" value={acres} onChange={(e) => setAcres(e.target.value)} /></label>
+      </div>
+      <button className="primary" disabled={!Number(acres)} onClick={run}>
+        Calculate
+      </button>
+      {result?.error && <div className="error-banner">{result.error}</div>}
+      {result?.configured &&
+        (result.net_per_ac != null ? (
+          <div className="stacking-result">
+            <div className={result.net_per_ac >= 0 ? "flash" : "error-banner"}>
+              <strong>Net ${result.net_per_ac}/ac</strong> — pays ${result.program_payment_per_ac}/ac
+              {result.best_program_combo ? ` (${result.best_program_combo.programs.join(" + ")})` : ""} − $
+              {result.practice_cost_per_ac}/ac cost (${result.net_total?.toLocaleString()} on {result.acres} ac)
+            </div>
+            <p className="small">
+              {result.cost_unverified ? "Approximate costs · " : ""}
+              <a href={result.cost_source_url} target="_blank" rel="noreferrer">cost source</a> · verified{" "}
+              {result.cost_last_verified}
+            </p>
+          </div>
+        ) : (
+          <p className="small warn-text">{(result.gaps ?? []).join("; ")}</p>
+        ))}
+    </div>
+  );
+}
+
 export default function ProgramsScreen() {
   const [data, setData] = useState<{ disclaimer: string; pack_health: any; programs: ProgramView[] } | null>(null);
   const [nudges, setNudges] = useState<any[]>([]);
@@ -368,6 +425,7 @@ export default function ProgramsScreen() {
       <StackingChecker programs={data.programs} />
       <NRateCard />
       <FungicideCard />
+      <PracticeEconCard />
       {data.programs.map((p) => (
         <div className={`card ${p.excluded_by_rule ? "muted" : ""}`} key={p.program_key}>
           <div className="card-head">

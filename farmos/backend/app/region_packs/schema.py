@@ -132,6 +132,15 @@ class PackFungicideRoi(BaseModel):
     crops: dict[str, PackFungicideCrop]
 
 
+class PackPracticeCosts(BaseModel):
+    citation: str
+    source_url: str
+    last_verified: date
+    verify_by: date
+    unverified: bool = False
+    costs: dict[str, float]  # practice_type -> typical annual cost $/ac
+
+
 class RegionPackFile(BaseModel):
     region_code: str  # 'US-IA'
     version: str  # '2026.1'
@@ -141,3 +150,4 @@ class RegionPackFile(BaseModel):
     compliance: PackCompliance | None = None
     mrtn: PackMrtn | None = None
     fungicide_roi: PackFungicideRoi | None = None
+    practice_costs: PackPracticeCosts | None = None

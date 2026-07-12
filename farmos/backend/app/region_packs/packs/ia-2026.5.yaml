@@ -461,3 +461,21 @@ fungicide_roi:
         low: 1.0
         moderate: 3.0
         high: 5.0
+
+# --------------------------------------------------- agronomy: practice economics
+# Typical ANNUAL per-acre cost of a conservation practice, for netting against
+# program payments. Only practices with a meaningful recurring $/ac cost are
+# listed; structural/capital practices (buffers, waterways, terraces, bioreactors)
+# are cost-shared and vary too much for a single $/ac, so they are intentionally
+# omitted and surface as "no cost basis on file".
+# HONESTY FLAG: unverified: true — typical figures; confirm against current NRCS
+# schedules and local custom rates.
+practice_costs:
+  citation: "NRCS EQIP practice payment schedules & ISU/Practical Farmers of Iowa cover-crop cost surveys (typical Iowa annual costs)"
+  source_url: https://www.nrcs.usda.gov/programs-initiatives/eqip-environmental-quality-incentives
+  last_verified: 2026-07-12
+  verify_by: 2027-03-01
+  unverified: true
+  costs:
+    cover_crop: 37.0      # seed + seeding, typical drilled cereal rye
+    nutrient_mgmt: 8.0    # inhibitor / split-application incremental cost

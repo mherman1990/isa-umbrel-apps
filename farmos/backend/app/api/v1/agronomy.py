@@ -65,3 +65,17 @@ def fungicide_roi(
         application_cost_per_ac=body.application_cost_per_ac,
         pressure=body.pressure,
     )
+
+
+@router.get("/practice-economics")
+def practice_economics(
+    practice_type: str,
+    acres: float = Query(gt=0),
+    programs: str | None = Query(default=None, description="optional comma-separated program keys"),
+    session: Session = Depends(get_session),
+    user: AppUser = Depends(auth.current_user),
+):
+    """Net $/ac of a conservation practice = best verified program payment −
+    typical practice cost. Programs auto-discovered from evidence specs if not given."""
+    keys = [k.strip() for k in programs.split(",") if k.strip()] if programs else None
+    return agronomy.practice_economics(session, practice_type=practice_type, acres=acres, program_keys=keys)

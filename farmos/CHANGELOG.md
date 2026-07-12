@@ -74,6 +74,13 @@ Farm OS releases use `farmos-v*` git tags.)
   pays-for-itself flag per scenario. Response ranges ship as a new cited
   region-pack `fungicide_roi` section (`unverified: true`); the tool refuses to
   massage a losing pass into a winner. Programs-tab card.
+- **Practice economics** (`GET /agronomy/practice-economics`): net $/ac of a
+  conservation practice = **best verified program payment (via the stacking
+  engine)** − typical practice cost. Paying programs are auto-discovered from
+  their evidence specs (or passed explicitly); costs ship as a new cited
+  region-pack `practice_costs` section. Structural/cost-shared practices with no
+  clean per-acre cost (buffers, terraces, waterways) return "no cost basis"
+  rather than a fabricated number. Programs-tab card.
 ## Also unreleased — Phase 5 assistant + sandbox
 
 - **Assistant chat** (`POST /assistant/chat` + Ask box on the capture
