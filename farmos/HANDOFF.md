@@ -35,7 +35,8 @@
 - **Branch:** dev on `claude/farmos-expansion-plan-qj1muj` (this expansion);
   releases fast-forward to `main`, then a `farmos-v*` tag triggers the build.
 - **Phase status:** 1 Foundation ✅ · 2 Timestamping + Agronomy + Accounting ✅
-  (**Accounting deepened 0.2.0** — see §7) · 3 FSA packet + Conservation engine ✅
+  (**Accounting AND Agronomy deepened 0.2.0** — see §7) · 3 FSA packet +
+  Conservation engine ✅
   (core) · 4 Grain position (records slice) ✅ / grain advice still deferred (§6,
   but the framing that blocked it is now resolved) · 5 Assistant + sandbox ✅ ·
   6 Lightning ⬜ (fork ready) · 7 Native app ⬜.
@@ -188,6 +189,26 @@ Settings → Rules; he already loosened it enough to create tags via Releases.
 - **Lender packet format.** Ships as print-to-PDF HTML (no new dep, per D3). Revisit
   if a native PDF is wanted — only with a confirmed pure-Python arm64 wheel.
 
+### New open decisions from the 0.2.0 agronomy expansion
+- **Agronomy coefficients are `unverified: true` and MUST be human-verified.** The
+  MRTN response coefficients, fungicide yield-response ranges, and practice costs
+  in `ia-2026.5.yaml` were **compiled from general knowledge to reproduce published
+  figures** — they carry citations + `verify_by` but need a human to confirm against
+  the primary sources (ISU CNRC, Crop Protection Network, NRCS schedules) and clear
+  the flag. Same cadence/owner question as program `verify_by`. **Do not present
+  these as authoritative until verified.** The app already labels every output and
+  links the source.
+- **`find_programs` does not filter by region** (latent bug, harmless with one Iowa
+  pack). Before adding a second region pack (§8 "more region packs"), add a
+  `state_code` filter or a second state's programs will show to an Iowa farm.
+- **CI-score (GREET-lite) deliberately NOT built.** Dropped from the 0.2.0 agronomy
+  scope (owner call): the 45Z credit-dollar risk is too high without a registered
+  methodology. Revisit when a real CI methodology can be wired (estimate + citation,
+  and decide then whether to assert credit $).
+- **N "applied" has no canonical source.** The MRTN comparison reads a `nutrient_mgmt`
+  practice's `rate`; it does NOT yet derive N from `fertilize` operations' product
+  analyses. Fine as a v1 gap, but note it if deepening.
+
 ## 7. What to do next
 
 0. **DONE (0.1.3):** the tag is cut and the build is green (see §1). Still confirm
@@ -206,16 +227,24 @@ Settings → Rules; he already loosened it enough to create tags via Releases.
      Schedule F uncategorized gap
    - Operating-mode scenarios (`POST /financials/scenarios`) + wired Lease
      (`/leases`); comparative verdict allowed (§6 resolution)
-   - New migrations 0008–0009; restore drill re-verified.
+   - **Agronomy decision support** (new `/agronomy` router, all schema-free —
+     cited pack sections read at compute time like `compliance`): N-rate/MRTN
+     (`/agronomy/n-rate`), fungicide-ROI (`/agronomy/fungicide-roi`), practice
+     economics (`/agronomy/practice-economics`, reuses the stacking engine).
+     Every coefficient ships `unverified: true` — confirm against the primary
+     source before acting (§6).
+   - New migrations 0008–0009 (accounting only); restore drill re-verified.
 2. **On-Pi validation:** `seed-demo` (now ships an operating line + two leases),
    walk capture→inbox→confirm, upload the sample files, and check the Money tab's
-   new cards (Schedule F, lender packet, cash flow, operating line, tenure).
+   new cards (Schedule F, lender packet, cash flow, operating line, tenure) and
+   the Programs tab's agronomy cards (N-rate, fungicide ROI, practice economics).
 3. **whisper-under-bitcoind timing:** confirm a 45s transcription stays polite
    (nice'd, ≤2 threads) while Bitcoin Core + LND share the 4 cores.
 4. **USB restore drill on real hardware** (CI covers it in a container; prove it
    on the Pi's actual USB path once).
-5. Then pick the next §8 domain to deepen — GIS boundary editor, agronomy
-   CI-score, more region packs, or the now-unblocked grain-marketing advice (§6).
+5. Then pick the next §8 domain to deepen — GIS boundary editor, the deferred
+   agronomy CI-score (GREET-lite), more region packs (needs the region filter
+   fix — see §6), or the now-unblocked grain-marketing advice (§6).
 
 ## 8. Roadmap beyond current
 

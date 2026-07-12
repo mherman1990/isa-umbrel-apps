@@ -31,10 +31,12 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  Accounting expansion: Schedule F line classification and a printable
-  lender packet, a cash-flow projection with operating-line tracking,
-  tap-to-allocate transactions, and own-vs-cash-rent-vs-crop-share
-  scenarios. Every figure comes from your own records — gaps are shown,
-  never guessed.
+  Accounting + agronomy expansion. Accounting: Schedule F line
+  classification, a printable lender packet, a cash-flow projection with
+  operating-line tracking, tap-to-allocate transactions, and
+  own-vs-cash-rent-vs-crop-share scenarios. Agronomy: an economically
+  optimal nitrogen rate (MRTN), fungicide-pass ROI, and net practice
+  economics. Every figure comes from your own records and cited data —
+  gaps are shown, never guessed.
 submitter: ISA
 submission: https://github.com/mherman1990/isa-umbrel-apps
