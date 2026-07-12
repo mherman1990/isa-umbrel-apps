@@ -3,6 +3,27 @@
 (Separate from the repo-root CHANGELOG.md, which tracks Bean Brief.
 Farm OS releases use `farmos-v*` git tags.)
 
+## Also unreleased — Phase 5 assistant + sandbox
+
+- **Assistant chat** (`POST /assistant/chat` + Ask box on the capture
+  screen): one metered reasoning-tier call per question over a structured
+  snapshot of the farm's actual records; cites record ids; instructed to
+  say "I don't have that recorded" rather than fabricate; marketing
+  questions get data, never recommendations. Client holds history
+  (stateless server, native-client-ready).
+- **Sandbox mode**: `FARMOS_DEV_FAKE_LLM=1` swaps in a $0 local stub
+  (every output labeled "[sandbox model]") and `python -m app.manage
+  seed-demo` builds a full demo farm — 6 fields, rotation, operations,
+  inventory, money, contracts, scale tickets, practices with tamper-
+  evident evidence, an enrollment, and a 3-record voice capture waiting
+  in the inbox — so the whole product is exercisable with zero real data
+  and no API key.
+- **Two production bugs found by sandboxing**: the web process never
+  opened the job-queue connector (deferred jobs failed until the nightly
+  retry) — now opened in the FastAPI lifespan; and the worker crashed at
+  boot because run_worker needs an async connector — now swapped in via
+  replace_connector. Captures degraded safely in both cases, as designed.
+
 ## Unreleased — Phase 3: conservation engine
 
 ### Added
@@ -114,24 +135,3 @@ Farm OS releases use `farmos-v*` git tags.)
 - **Umbrel packaging**: `isa-farmos` app (port 8585) with web/worker/db
   services, memory limits sized for an 8GB Pi 5 sharing RAM with Bitcoin
   Core + LND; multi-arch images on `farmos-v*` tags.
-
-## Also unreleased — Phase 5 assistant + sandbox
-
-- **Assistant chat** (`POST /assistant/chat` + Ask box on the capture
-  screen): one metered reasoning-tier call per question over a structured
-  snapshot of the farm's actual records; cites record ids; instructed to
-  say "I don't have that recorded" rather than fabricate; marketing
-  questions get data, never recommendations. Client holds history
-  (stateless server, native-client-ready).
-- **Sandbox mode**: `FARMOS_DEV_FAKE_LLM=1` swaps in a $0 local stub
-  (every output labeled "[sandbox model]") and `python -m app.manage
-  seed-demo` builds a full demo farm — 6 fields, rotation, operations,
-  inventory, money, contracts, scale tickets, practices with tamper-
-  evident evidence, an enrollment, and a 3-record voice capture waiting
-  in the inbox — so the whole product is exercisable with zero real data
-  and no API key.
-- **Two production bugs found by sandboxing**: the web process never
-  opened the job-queue connector (deferred jobs failed until the nightly
-  retry) — now opened in the FastAPI lifespan; and the worker crashed at
-  boot because run_worker needs an async connector — now swapped in via
-  replace_connector. Captures degraded safely in both cases, as designed.
