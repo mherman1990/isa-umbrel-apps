@@ -233,11 +233,19 @@ Settings → Rules; he already loosened it enough to create tags via Releases.
      economics (`/agronomy/practice-economics`, reuses the stacking engine).
      Every coefficient ships `unverified: true` — confirm against the primary
      source before acting (§6).
+   - **Leaflet boundary editor** (Farm tab): draw/edit field outlines
+     (`PUT /fields/{id}/boundary`, `POST /fields`; validated GeoJSON, acres
+     recomputed EPSG:5070, `source='manual'`). Aerial imagery is **opt-in, OFF
+     by default** (offline blank canvas otherwise; disclosed in
+     `/system/privacy`). New frontend deps `leaflet` + `@geoman-io/leaflet-geoman-free`
+     (npm, bundled/precached — no arm64 concern). **Verified end-to-end in a
+     headless browser** against the demo farm.
    - New migrations 0008–0009 (accounting only); restore drill re-verified.
 2. **On-Pi validation:** `seed-demo` (now ships an operating line + two leases),
    walk capture→inbox→confirm, upload the sample files, and check the Money tab's
-   new cards (Schedule F, lender packet, cash flow, operating line, tenure) and
-   the Programs tab's agronomy cards (N-rate, fungicide ROI, practice economics).
+   new cards (Schedule F, lender packet, cash flow, operating line, tenure), the
+   Programs tab's agronomy cards (N-rate, fungicide ROI, practice economics), and
+   the Farm tab's boundary editor (tap a field, drag a vertex, Save).
 3. **whisper-under-bitcoind timing:** confirm a 45s transcription stays polite
    (nice'd, ≤2 threads) while Bitcoin Core + LND share the 4 cores.
 4. **USB restore drill on real hardware** (CI covers it in a container; prove it

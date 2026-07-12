@@ -36,7 +36,8 @@ releaseNotes: >-
   operating-line tracking, tap-to-allocate transactions, and
   own-vs-cash-rent-vs-crop-share scenarios. Agronomy: an economically
   optimal nitrogen rate (MRTN), fungicide-pass ROI, and net practice
-  economics. Every figure comes from your own records and cited data —
-  gaps are shown, never guessed.
+  economics. Fields: a map-based boundary editor to draw and adjust field
+  outlines (offline; aerial imagery is opt-in). Every figure comes from
+  your own records and cited data — gaps are shown, never guessed.
 submitter: ISA
 submission: https://github.com/mherman1990/isa-umbrel-apps
