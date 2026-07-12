@@ -30,11 +30,13 @@ export default function FieldsScreen() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [ops, setOps] = useState<any[]>([]);
+  const [rotation, setRotation] = useState<any>(null);
 
   async function refresh() {
     try {
       setFields(await api.get("/fields"));
       setOps(await api.get("/operations"));
+      setRotation(await api.get("/rotation"));
     } catch {
       /* offline */
     }
@@ -165,6 +167,39 @@ export default function FieldsScreen() {
           ))}
         </ul>
       </div>
+
+      {rotation && rotation.years.length > 0 && (
+        <div className="card">
+          <h3>Rotation</h3>
+          <div style={{ overflowX: "auto" }}>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Field</th>
+                  {rotation.years.map((y: number) => (
+                    <th key={y}>{y}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rotation.fields
+                  .filter((f: any) => Object.values(f.crops).some(Boolean))
+                  .map((f: any) => (
+                    <tr key={f.field_id}>
+                      <td>
+                        {f.field_name}
+                        {f.acres ? <span className="small"> {f.acres}ac</span> : null}
+                      </td>
+                      {rotation.years.map((y: number) => (
+                        <td key={y}>{f.crops[String(y)] ?? "—"}</td>
+                      ))}
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       <div className="card">
         <h3>Recent operations</h3>

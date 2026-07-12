@@ -148,6 +148,7 @@ def _crop_year_view(c: CropYear) -> dict:
 def list_crop_years(
     year: int | None = None,
     field_id: uuid.UUID | None = None,
+    format: str | None = None,
     session: Session = Depends(get_session),
     user: AppUser = Depends(auth.current_user),
 ):
@@ -156,7 +157,80 @@ def list_crop_years(
         q = q.where(CropYear.crop_year == year)
     if field_id:
         q = q.where(CropYear.field_id == field_id)
-    return [_crop_year_view(c) for c in session.scalars(q.order_by(CropYear.crop_year.desc()))]
+    rows = list(session.scalars(q.order_by(CropYear.crop_year.desc())))
+    if format != "fsa578":
+        return [_crop_year_view(c) for c in rows]
+
+    # FSA-578-shaped view: every row keyed by FarmNumber/TractNumber/
+    # FieldNumber with the CART/NIEM-named reporting fields, plus an
+    # honest completeness check — flag gaps BEFORE the county office does.
+    from ...models import Farm, Field as FieldModel
+
+    out = []
+    for c in rows:
+        field = session.get(FieldModel, c.field_id)
+        farm = session.get(Farm, field.farm_id) if field else None
+        missing = []
+        if not c.original_planted_date and not c.prevented_planted:
+            missing.append("planting date")
+        if field is None or field.clu_identifier is None:
+            missing.append("CLU identifier (import from farmers.gov)")
+        if farm is None or farm.farm_number in (None, "unknown"):
+            missing.append("FSA farm number")
+        out.append(
+            {
+                "CropYear": c.crop_year,
+                "StateANSICode": farm.state_ansi_code if farm else None,
+                "CountyANSICode": farm.county_ansi_code if farm else None,
+                "FarmNumber": farm.farm_number if farm else None,
+                "TractNumber": field.tract_number if field else None,
+                "FieldNumber": field.field_number if field else None,
+                "CLUIdentifier": field.clu_identifier if field else None,
+                "CropCode": c.crop_code,
+                "CropName": c.crop_name,
+                "CropTypeCode": c.crop_type_code,
+                "Variety": c.variety,
+                "IntendedUse": c.intended_use_code,
+                "ReportedAcreage": float(c.reported_acres),
+                "OriginalPlantedDate": c.original_planted_date.isoformat() if c.original_planted_date else None,
+                "FinalPlantedDate": c.final_planted_date.isoformat() if c.final_planted_date else None,
+                "PlantingPattern": c.planting_pattern,
+                "ProducerShare": float(c.producer_share),
+                "IrrigationPractice": c.irrigation_practice_code,
+                "PreventedPlanted": c.prevented_planted,
+                "FailedAcreage": float(c.failed_acres),
+                "incomplete": missing or None,
+            }
+        )
+    return out
+
+
+@router.get("/rotation")
+def rotation(
+    session: Session = Depends(get_session),
+    user: AppUser = Depends(auth.current_user),
+):
+    """Field × year crop matrix — rotation position drives agronomy."""
+    fields = session.scalars(select(Field).where(Field.archived_at.is_(None))).all()
+    crop_years = session.scalars(select(CropYear)).all()
+    by_field: dict = {}
+    years: set[int] = set()
+    for c in crop_years:
+        by_field.setdefault(c.field_id, {})[c.crop_year] = c.crop_name
+        years.add(c.crop_year)
+    ordered_years = sorted(years)
+    return {
+        "years": ordered_years,
+        "fields": [
+            {
+                "field_id": str(f.id),
+                "field_name": f.name or f"T{f.tract_number}/F{f.field_number}",
+                "acres": float(f.clu_calculated_acres or f.gis_acres or 0) or None,
+                "crops": {str(y): by_field.get(f.id, {}).get(y) for y in ordered_years},
+            }
+            for f in fields
+        ],
+    }
 
 
 @router.post("/crop-years", status_code=201)
