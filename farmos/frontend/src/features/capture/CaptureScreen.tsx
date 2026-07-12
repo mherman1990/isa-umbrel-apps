@@ -3,6 +3,7 @@
 // the app. Photos and files land through the same screen.
 
 import { useEffect, useRef, useState } from "react";
+import { api } from "../../app/api";
 import { enqueueCapture, pendingCount } from "../../offline/queue";
 
 const MAX_SECONDS = 45;
@@ -175,6 +176,38 @@ export default function CaptureScreen({ onSaved }: { onSaved: () => void }) {
         </label>
       </div>
       {flash && <div className="flash">{flash}</div>}
+      <MorningBrief />
+    </div>
+  );
+}
+
+function MorningBrief() {
+  const [brief, setBrief] = useState<any>(null);
+  const [show, setShow] = useState(false);
+
+  useEffect(() => {
+    api.get("/brief/latest").then(setBrief).catch(() => {});
+  }, []);
+
+  if (!brief?.available) return null;
+  return (
+    <div className="card brief-card">
+      <button className="linkish" onClick={() => setShow(!show)}>
+        ☀️ {show ? "Hide" : "Show"} morning brief ({brief.brief_date})
+      </button>
+      {show && (
+        <div className="brief-body">
+          {brief.body_md.split("\n").map((line: string, i: number) =>
+            line.startsWith("#") ? (
+              <strong key={i} style={{ display: "block", marginTop: 8 }}>
+                {line.replace(/^#+\s*/, "")}
+              </strong>
+            ) : (
+              <div key={i}>{line}</div>
+            ),
+          )}
+        </div>
+      )}
     </div>
   );
 }

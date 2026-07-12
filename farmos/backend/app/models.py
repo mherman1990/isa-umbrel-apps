@@ -716,6 +716,20 @@ class GrainContract(Base):
     )
 
 
+class DailyBrief(Base):
+    """The morning readout: composed nightly from actual records (nudges,
+    grain position, inbox, spend) — never fabricated farm facts."""
+
+    __tablename__ = "daily_brief"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    brief_date: Mapped[date] = mapped_column(Date, nullable=False, unique=True)
+    body_md: Mapped[str] = mapped_column(Text, nullable=False)
+    inputs: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    model_used: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = created_at_col()
+
+
 # --------------------------------------------------------------------------- metering / audit
 
 

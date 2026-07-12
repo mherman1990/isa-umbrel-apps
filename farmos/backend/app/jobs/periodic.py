@@ -38,6 +38,24 @@ def upgrade_timestamp_proofs(timestamp: int) -> dict:
         return result
 
 
+@job_app.periodic(cron="30 5 * * *")
+@job_app.task(queue="default", name="daily_brief")
+def daily_brief(timestamp: int) -> str:
+    from .. import llm
+    from ..db import session as db_session
+    from ..services import brief
+
+    with db_session() as s:
+        try:
+            row = brief.generate(s)
+            s.commit()
+            return str(row.brief_date)
+        except llm.SpendCapExceeded:
+            return "skipped: spend cap"
+        except RuntimeError:
+            return "skipped: no API key"
+
+
 @job_app.periodic(cron="15 3 * * *")
 @job_app.task(queue="default", name="weather_backfill")
 def weather_backfill(timestamp: int) -> int:

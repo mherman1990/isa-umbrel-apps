@@ -57,6 +57,23 @@ def backup_run(user: AppUser = Depends(auth.require_owner)):
     return {"queued": True}
 
 
+@router.get("/brief/latest")
+def latest_brief(session: Session = Depends(get_session), user: AppUser = Depends(auth.current_user)):
+    from sqlalchemy import select as sa_select
+
+    from ...models import DailyBrief
+
+    row = session.scalars(sa_select(DailyBrief).order_by(DailyBrief.brief_date.desc()).limit(1)).first()
+    if row is None:
+        return {"available": False, "note": "The brief generates each morning once an API key is set."}
+    return {
+        "available": True,
+        "brief_date": row.brief_date.isoformat(),
+        "body_md": row.body_md,
+        "model_used": row.model_used,
+    }
+
+
 @router.get("/system/privacy")
 def privacy(user: AppUser = Depends(auth.current_user)):
     """What leaves this box, and where it goes. Stated plainly (Principle 1)."""
