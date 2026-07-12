@@ -1,0 +1,119 @@
+from __future__ import annotations
+
+import uuid
+from datetime import date
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field as PField
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from ... import auth
+from ...db import get_session
+from ...models import AppUser, AuditLog, BudgetLine, Field, MoneyTransaction
+from ...services import financials
+
+router = APIRouter(tags=["financials"])
+
+
+def _txn_view(t: MoneyTransaction) -> dict:
+    return {
+        "id": str(t.id),
+        "occurred_on": t.occurred_on.isoformat(),
+        "description": t.description,
+        "kind": t.kind,
+        "category": t.category,
+        "amount": float(t.amount),
+        "crop": t.crop,
+        "field_id": str(t.field_id) if t.field_id else None,
+        "document_id": str(t.document_id) if t.document_id else None,
+        "imported": t.source is not None,
+    }
+
+
+class TransactionIn(BaseModel):
+    client_id: uuid.UUID | None = None
+    occurred_on: date
+    description: str
+    kind: str = PField(default="expense", pattern="^(expense|income)$")
+    category: str = "other"
+    amount: float = PField(gt=0)
+    crop: str | None = None
+    field_id: uuid.UUID | None = None
+    crop_year: int | None = None
+    document_id: uuid.UUID | None = None
+
+
+@router.get("/transactions")
+def list_transactions(
+    year: int | None = None,
+    session: Session = Depends(get_session),
+    user: AppUser = Depends(auth.current_user),
+):
+    q = select(MoneyTransaction).order_by(MoneyTransaction.occurred_on.desc()).limit(500)
+    if year:
+        q = q.where(
+            MoneyTransaction.occurred_on >= date(year, 1, 1),
+            MoneyTransaction.occurred_on <= date(year, 12, 31),
+        )
+    return [_txn_view(t) for t in session.scalars(q)]
+
+
+@router.post("/transactions", status_code=201)
+def create_transaction(
+    body: TransactionIn,
+    session: Session = Depends(get_session),
+    user: AppUser = Depends(auth.current_user),
+):
+    if body.client_id is not None:
+        existing = session.scalar(select(MoneyTransaction).where(MoneyTransaction.client_id == body.client_id))
+        if existing is not None:
+            return _txn_view(existing)
+    if body.field_id is not None and session.get(Field, body.field_id) is None:
+        raise HTTPException(status_code=422, detail="unknown field_id")
+    t = MoneyTransaction(
+        client_id=body.client_id,
+        occurred_on=body.occurred_on,
+        description=body.description,
+        kind=body.kind,
+        category=body.category,
+        amount=body.amount,
+        crop=body.crop.lower() if body.crop else None,
+        field_id=body.field_id,
+        crop_year=body.crop_year,
+        document_id=body.document_id,
+    )
+    session.add(t)
+    session.flush()
+    session.add(AuditLog(user_id=user.id, action="transaction.create", entity_type="money_transaction", entity_id=t.id))
+    return _txn_view(t)
+
+
+@router.get("/budget")
+def list_budget(
+    year: int,
+    session: Session = Depends(get_session),
+    user: AppUser = Depends(auth.current_user),
+):
+    rows = session.scalars(
+        select(BudgetLine).where(BudgetLine.crop_year == year).order_by(BudgetLine.crop, BudgetLine.category)
+    ).all()
+    return [
+        {"id": str(b.id), "crop": b.crop, "category": b.category,
+         "amount_per_acre": float(b.amount_per_acre), "imported": b.source is not None}
+        for b in rows
+    ]
+
+
+@router.get("/financials/summary")
+def summary(
+    year: int,
+    session: Session = Depends(get_session),
+    user: AppUser = Depends(auth.current_user),
+):
+    return {
+        "year": year,
+        "crops": financials.crop_summary(session, year),
+        "fields": financials.field_breakeven(session, year),
+        "note": "Breakeven shows only where costs AND harvested bushels exist — missing pieces are listed, never estimated.",
+    }

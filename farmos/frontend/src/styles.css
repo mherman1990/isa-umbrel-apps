@@ -138,6 +138,14 @@ fieldset { border: 1px solid #ddd; border-radius: 10px; margin: 10px 0; }
 .table th, .table td { text-align: left; padding: 6px 4px; border-bottom: 1px solid #eee; }
 .table tr.warn { background: #fff8e1; }
 
+/* --- money / segmented --------------------------------------------- */
+.segmented { display: flex; gap: 0; margin-bottom: 12px; border: 2px solid #ccc; border-radius: 10px; overflow: hidden; }
+.segmented button { flex: 1; border: none; border-radius: 0; min-height: 44px; background: var(--card); }
+.segmented button.active { background: var(--green); color: #fff; }
+.crop-row { display: flex; flex-direction: column; padding: 8px 0; border-bottom: 1px solid #eee; }
+.mapping-tab { border-top: 1px solid #eee; padding: 8px 0; }
+.mapping-review h4 { margin: 10px 0 4px; }
+
 /* --- onboarding ---------------------------------------------------- */
 .onboarding { max-width: 480px; margin: 0 auto; padding: 24px 16px; }
 .onboarding h1 { text-align: center; }

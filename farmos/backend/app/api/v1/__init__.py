@@ -1,6 +1,18 @@
 from fastapi import APIRouter
 
-from . import auth_routes, captures, documents, fields, inbox, programs, records, sync, system, workbooks
+from . import (
+    auth_routes,
+    captures,
+    documents,
+    fields,
+    financials,
+    inbox,
+    programs,
+    records,
+    sync,
+    system,
+    workbooks,
+)
 
 router = APIRouter(prefix="/api/v1")
 router.include_router(auth_routes.router)
@@ -12,4 +24,5 @@ router.include_router(inbox.router)
 router.include_router(documents.router)
 router.include_router(programs.router)
 router.include_router(workbooks.router)
+router.include_router(financials.router)
 router.include_router(system.router)
