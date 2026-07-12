@@ -30,7 +30,21 @@ def procrastinate_schema() -> None:
     print("procrastinate schema applied")
 
 
-COMMANDS = {"load-pack": load_pack, "procrastinate-schema": procrastinate_schema}
+def seed_demo() -> None:
+    from .db import session
+    from .seed_demo import seed
+
+    with session() as s:
+        result = seed(s)
+        s.commit()
+    if result.get("owner_token"):
+        print(f"demo farm seeded ({result['fields']} fields)")
+        print(f"owner bearer token (sandbox only): {result['owner_token']}")
+    else:
+        print(result.get("note", "done"))
+
+
+COMMANDS = {"load-pack": load_pack, "procrastinate-schema": procrastinate_schema, "seed-demo": seed_demo}
 
 
 def main() -> None:

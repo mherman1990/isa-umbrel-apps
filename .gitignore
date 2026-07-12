@@ -22,3 +22,4 @@ __pycache__/
 .pytest_cache/
 farmos/backend/*.egg-info/
 farmos/tests/eval/recorded_live.json
+farmos/backend/static/

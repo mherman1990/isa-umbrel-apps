@@ -19,7 +19,27 @@ FRONTEND_DIST = Path(__file__).resolve().parent.parent / "static"
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Farm OS", version="0.1.0", docs_url="/api/docs", openapi_url="/api/openapi.json")
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        # The job-queue connector must be open for task.defer() to work
+        # from request handlers. A down queue must never take the API
+        # down with it — captures degrade and the nightly retry recovers.
+        from .db import job_app
+
+        try:
+            job_app.open()
+        except Exception:  # noqa: BLE001
+            pass
+        yield
+        try:
+            job_app.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+    app = FastAPI(title="Farm OS", version="0.1.0", docs_url="/api/docs",
+                  openapi_url="/api/openapi.json", lifespan=lifespan)
     app.include_router(v1_router)
 
     @app.get("/healthz")

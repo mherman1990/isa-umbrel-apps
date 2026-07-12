@@ -177,6 +177,62 @@ export default function CaptureScreen({ onSaved }: { onSaved: () => void }) {
       </div>
       {flash && <div className="flash">{flash}</div>}
       <MorningBrief />
+      <AskBox />
+    </div>
+  );
+}
+
+function AskBox() {
+  const [open, setOpen] = useState(false);
+  const [question, setQuestion] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [thread, setThread] = useState<{ role: string; content: string }[]>([]);
+
+  async function ask() {
+    const q = question.trim();
+    if (!q) return;
+    setBusy(true);
+    setQuestion("");
+    const history = thread;
+    setThread([...history, { role: "user", content: q }]);
+    try {
+      const res = await api.post("/assistant/chat", { question: q, history });
+      setThread((t) => [...t, { role: "assistant", content: res.answer }]);
+    } catch (e: any) {
+      setThread((t) => [...t, { role: "assistant", content: `⚠️ ${e.message}` }]);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card ask-card">
+      <button className="linkish" onClick={() => setOpen(!open)}>
+        💬 {open ? "Hide" : "Ask about your farm"}
+      </button>
+      {open && (
+        <div>
+          <p className="hint">
+            Answers come from your own records, with sources — and an honest "not recorded" when it isn't.
+          </p>
+          {thread.map((m, i) => (
+            <div key={i} className={m.role === "user" ? "chat-user" : "chat-assistant"}>
+              {m.content}
+            </div>
+          ))}
+          <label>
+            <input
+              value={question}
+              placeholder="What did we spray on the home eighty?"
+              onChange={(e) => setQuestion(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && !busy && ask()}
+            />
+          </label>
+          <button className="primary" disabled={busy || !question.trim()} onClick={ask}>
+            {busy ? "Thinking…" : "Ask"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -8,11 +8,16 @@ concurrency on a worker that serves cpu_heavy.
 """
 from __future__ import annotations
 
-from ..db import job_app
+import procrastinate
+
+from ..db import _psycopg_dsn, job_app
 
 
 def main() -> None:
-    with job_app.open():
+    # The app is defined with a sync connector (right for the web process);
+    # the worker loop is async and needs the async connector swapped in.
+    async_connector = procrastinate.PsycopgConnector(conninfo=_psycopg_dsn())
+    with job_app.replace_connector(async_connector):
         job_app.run_worker(queues=["default", "cpu_heavy"], concurrency=1)
 
 

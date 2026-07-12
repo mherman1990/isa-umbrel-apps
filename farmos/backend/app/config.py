@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     # Default monthly LLM spend hard cap (USD); farmer can change it in Settings.
     default_spend_cap_usd: float = 20.0
 
+    # SANDBOX ONLY: replaces the LLM with a canned local stub (clearly
+    # labeled "[sandbox model]" in every output, $0 metered). Never enable
+    # in production — it exists so a demo box can exercise the full
+    # capture→parse→inbox and chat loops without an API key.
+    dev_fake_llm: bool = False
+
     @property
     def artifacts_dir(self) -> Path:
         return self.data_dir / "artifacts"
