@@ -30,6 +30,73 @@ interface ProgramView {
   rules: RuleView[];
 }
 
+function ReadinessPanel({ programKey }: { programKey: string }) {
+  const [report, setReport] = useState<any>(null);
+  const [show, setShow] = useState(false);
+  const year = new Date().getFullYear() + 1; // next crop year is what you're preparing evidence for
+
+  async function load() {
+    if (!show && !report) {
+      try {
+        setReport(await api.get(`/programs/${programKey}/readiness?crop_year=${year}`));
+      } catch {
+        setReport({ requirements: [] });
+      }
+    }
+    setShow(!show);
+  }
+
+  return (
+    <div>
+      <button className="linkish" onClick={load}>
+        {show ? "Hide" : "Check"} record readiness ({year})
+      </button>
+      {show && report && (
+        <div>
+          {report.requirements.length === 0 && (
+            <p className="small">{report.note ?? "No evidence spec on file for this program yet."}</p>
+          )}
+          {report.requirements.map((req: any) => (
+            <div key={req.req_key} className="rule rule-unknown">
+              <span className="rule-verdict">📋</span>
+              <div>
+                <div>
+                  <strong>{req.subject}</strong>
+                  {req.verifier_grade_required ? " (verifier-grade photo required)" : ""}
+                </div>
+                {req.no_matching_practices && (
+                  <div className="small warn-text">
+                    No {req.practice_type.replace("_", " ")} practice recorded for {year} — log the practice first.
+                  </div>
+                )}
+                {req.practices.map((c: any) => (
+                  <div key={c.practice_id} className="small">
+                    {c.field_name}:{" "}
+                    {c.status === "met" ? (
+                      <span>✓ have it{c.detail?.tamper_evident ? " (tamper-evident)" : ""}</span>
+                    ) : c.window_closed ? (
+                      <span className="warn-text">✕ missing — window closed {c.window[1]}</span>
+                    ) : c.days_left != null ? (
+                      <span className="warn-text">
+                        needed by {c.window[1]} — {c.days_left} days left{c.status === "partial" ? ` (${c.detail?.reason})` : ""}
+                      </span>
+                    ) : (
+                      <span className="warn-text">missing{c.status === "partial" ? ` (${c.detail?.reason})` : ""}</span>
+                    )}
+                  </div>
+                ))}
+                <div className="small">
+                  {req.citation} · verified {req.last_verified}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StackingChecker({ programs }: { programs: ProgramView[] }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [acres, setAcres] = useState("160");
@@ -173,6 +240,7 @@ export default function ProgramsScreen() {
               {open === p.program_key ? "Hide" : "Show"} eligibility notes ({p.rules.length})
             </button>
           )}
+          <ReadinessPanel programKey={p.program_key} />
           {open === p.program_key &&
             p.rules.map((r) => (
               <div key={r.rule_key} className={`rule rule-${r.verdict}`}>
