@@ -129,6 +129,54 @@ def parse_upload(filename: str, content: bytes) -> list[CluRow]:
         return rows
 
 
+def export_shapefile_zip(rows: list[dict]) -> bytes:
+    """Write field boundaries as a zipped ESRI shapefile (EPSG:4326) —
+    the format farmers.gov imports back. `rows`: dicts with geometry_wkt
+    and the FSA attribute set."""
+    import io
+    import zipfile
+
+    from shapely import wkt as shp_wkt
+    from shapely.geometry import mapping
+
+    schema = {
+        "geometry": "MultiPolygon",
+        "properties": {
+            "FARM_NBR": "str:10",
+            "TRACT_NBR": "str:10",
+            "CLU_NBR": "str:10",
+            "CLUID": "str:36",
+            "ACRES": "float",
+            "NAME": "str:80",
+        },
+    }
+    with tempfile.TemporaryDirectory() as td:
+        shp_path = Path(td) / "farmos-fields.shp"
+        with fiona.open(shp_path, "w", driver="ESRI Shapefile", crs="EPSG:4326", schema=schema) as dst:
+            for r in rows:
+                geom = shp_wkt.loads(r["geometry_wkt"])
+                if geom.geom_type == "Polygon":
+                    geom = MultiPolygon([geom])
+                dst.write(
+                    {
+                        "geometry": mapping(geom),
+                        "properties": {
+                            "FARM_NBR": r.get("farm_number") or "",
+                            "TRACT_NBR": r.get("tract_number") or "",
+                            "CLU_NBR": r.get("field_number") or "",
+                            "CLUID": r.get("clu_identifier") or "",
+                            "ACRES": float(r.get("acres") or 0),
+                            "NAME": r.get("name") or "",
+                        },
+                    }
+                )
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for sidecar in Path(td).glob("farmos-fields.*"):
+                zf.write(sidecar, sidecar.name)
+        return buf.getvalue()
+
+
 def _s(v) -> str | None:
     if v is None:
         return None

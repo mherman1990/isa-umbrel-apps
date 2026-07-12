@@ -64,3 +64,22 @@ def test_rotation_matrix(client, auth_headers, app_and_engine):
     assert 2032 in body["years"]
     row = next(f for f in body["fields"] if f["field_name"] == "FSA 80")
     assert row["crops"]["2032"] == "corn"
+
+
+def test_shapefile_export_roundtrip(client, auth_headers, app_and_engine):
+    """Export the registry as a zipped shapefile, then re-parse it through
+    our own CLU importer — proves the farmers.gov round-trip format."""
+    _ensure_field_with_crop(app_and_engine)
+    import io
+
+    r = client.get("/api/v1/fields/export", headers=auth_headers)
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/zip"
+
+    from app.services.clu_import import parse_upload
+
+    rows = parse_upload("farmos-fields.zip", r.content)
+    exported = next(x for x in rows if x.tract_number == "5501")
+    assert exported.farm_number == "5500"
+    assert exported.field_number == "1"
+    assert exported.gis_acres and exported.gis_acres > 0

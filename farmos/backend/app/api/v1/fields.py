@@ -78,6 +78,37 @@ def patch_field(
     return _field_view(f)
 
 
+@router.get("/fields/export")
+def export_fields(session: Session = Depends(get_session), user: AppUser = Depends(auth.current_user)):
+    """Zipped ESRI shapefile of the field registry (EPSG:4326) — importable
+    back into farmers.gov, or handed to an agronomist/FSA office."""
+    from fastapi.responses import Response
+    from geoalchemy2.shape import to_shape as g2shape
+
+    fields = session.scalars(select(Field).where(Field.archived_at.is_(None))).all()
+    if not fields:
+        raise HTTPException(status_code=404, detail="no fields to export")
+    farms = {f.id: f for f in session.scalars(select(Farm))}
+    rows = [
+        {
+            "geometry_wkt": g2shape(f.boundary).wkt,
+            "farm_number": farms[f.farm_id].farm_number if f.farm_id in farms else None,
+            "tract_number": f.tract_number,
+            "field_number": f.field_number,
+            "clu_identifier": f.clu_identifier,
+            "acres": float(f.clu_calculated_acres or f.gis_acres or 0),
+            "name": f.name,
+        }
+        for f in fields
+    ]
+    data = clu_import.export_shapefile_zip(rows)
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="farmos-fields.zip"'},
+    )
+
+
 @router.post("/fields/import")
 async def import_preview(
     file: UploadFile = File(...),

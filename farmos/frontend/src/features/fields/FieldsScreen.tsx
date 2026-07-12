@@ -1,7 +1,7 @@
 // Field registry + CLU import (preview → apply) + recent operations.
 
 import { useEffect, useState } from "react";
-import { api } from "../../app/api";
+import { api, getToken } from "../../app/api";
 
 interface FieldRow {
   id: string;
@@ -76,6 +76,54 @@ export default function FieldsScreen() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function downloadShapefile() {
+    const res = await fetch("/api/v1/fields/export", { headers: { Authorization: `Bearer ${getToken()}` } });
+    if (!res.ok) {
+      setMessage("Nothing to export yet");
+      return;
+    }
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "farmos-fields.zip";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function print578(year: number) {
+    let rows: any[];
+    try {
+      rows = await api.get(`/crop-years?year=${year}&format=fsa578`);
+    } catch (e: any) {
+      setMessage(e.message);
+      return;
+    }
+    if (!rows.length) {
+      setMessage(`No ${year} crop records yet — add crop years or import your crop plan.`);
+      return;
+    }
+    const cols = ["FarmNumber", "TractNumber", "FieldNumber", "CropName", "IntendedUse",
+                  "ReportedAcreage", "OriginalPlantedDate", "ProducerShare", "IrrigationPractice"];
+    const w = window.open("", "_blank");
+    if (!w) return;
+    w.document.write(`<!doctype html><title>Acreage report ${year}</title>
+      <style>body{font-family:sans-serif;font-size:12px}table{border-collapse:collapse;width:100%}
+      th,td{border:1px solid #999;padding:4px 6px;text-align:left}h1{font-size:18px}
+      .warn{color:#b00;font-size:11px}</style>
+      <h1>Acreage report worksheet — crop year ${year}</h1>
+      <p>Prepared with Farm OS for the FSA-578. Rows flagged below need attention before filing.</p>
+      <table><tr>${cols.map((c) => `<th>${c}</th>`).join("")}<th>Needs attention</th></tr>
+      ${rows
+        .map(
+          (r) =>
+            `<tr>${cols.map((c) => `<td>${r[c] ?? ""}</td>`).join("")}<td class="warn">${(r.incomplete ?? []).join("; ")}</td></tr>`,
+        )
+        .join("")}</table>
+      <p>Generated ${new Date().toLocaleString()} — worksheet only; official certification happens with FSA.</p>`);
+    w.document.close();
+    w.print();
   }
 
   async function rename(f: FieldRow) {
@@ -166,6 +214,19 @@ export default function FieldsScreen() {
             </li>
           ))}
         </ul>
+      </div>
+
+      <div className="card">
+        <h3>Acreage report (FSA-578 prep)</h3>
+        <p className="hint">
+          A print-ready summary of what you'd report — flags anything the county office would ask
+          about before you're sitting at the desk. Also exports your boundaries as a shapefile
+          farmers.gov can import back.
+        </p>
+        <div className="button-row">
+          <button onClick={() => print578(new Date().getFullYear())}>Print {new Date().getFullYear()} report</button>
+          <button onClick={downloadShapefile}>Export boundaries (.zip)</button>
+        </div>
       </div>
 
       {rotation && rotation.years.length > 0 && (
