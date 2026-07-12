@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api, getToken } from "../../app/api";
+import PracticesSection from "./PracticesSection";
 
 interface FieldRow {
   id: string;
@@ -263,6 +264,8 @@ export default function FieldsScreen() {
           </div>
         </div>
       )}
+
+      <PracticesSection fields={fields} />
 
       {inventory.length > 0 && (
         <div className="card">
