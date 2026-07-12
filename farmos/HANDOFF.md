@@ -12,25 +12,32 @@
 
 ---
 
-## 1. Current deploy state (as of 0.1.3)
+## 1. Current deploy state (released 0.1.3; 0.2.0 accounting expansion staged, not tagged)
 
-- **Latest version:** `0.1.3`. Set in three places that must always agree:
-  `isa-farmos/umbrel-app.yml` (`version: "0.1.3"`, port 8585),
-  `isa-farmos/docker-compose.yml` (image tags `ghcr.io/mherman1990/farmos:0.1.3`
-  for web+worker, `ghcr.io/mherman1990/farmos-db:0.1.3` for db), and
-  `farmos/backend/pyproject.toml` (`version = "0.1.3"`).
+- **Latest released version:** `0.1.3`. **CORRECTION (verified against GitHub
+  2026-07-12):** `farmos-v0.1.3` **is** tagged and released — the tag exists, the
+  GitHub Release "Farm OS 0.1.3" is published (16:06 UTC), and
+  `build-farmos-image.yml` run #4 on that tag went **green** (16:06→16:21 UTC).
+  The earlier claim here that the tag was "not cut yet" was stale on arrival.
+  Remaining manual, off-GitHub steps to confirm: both GHCR packages set
+  **public** (§3 step 5 / §4), and the on-Pi Update + validation (§7).
 - **`main` holds the 0.1.3 db fix** (commit `9b9842b`): multi-arch database image
-  + fixed internal DB password. This is the fix that makes the Pi's db container
-  actually come up on arm64 (see §4).
-- **Build status:** 0.1.2 built and pushed images successfully; 0.1.3's code is on
-  `main` but the **`farmos-v0.1.3` tag has not been cut yet** — until it is, GHCR
-  still serves the 0.1.2 db image (the crash-looping one). *Next physical step is
-  cutting that tag* (§3).
-- **Branch:** active development is on `claude/farm-os-platform-dwg85i`; releases
-  fast-forward to `main`, then a `farmos-v*` tag triggers the image build.
-- **Phase status:** 1 Foundation ✅ · 2 Timestamping + Agronomy + Accounting ✅ ·
-  3 FSA packet + Conservation engine ✅ (core) · 4 Grain position (records slice)
-  ✅ / advice features **deferred** (§6) · 5 Assistant + sandbox ✅ ·
+  + fixed internal DB password — the fix that makes the Pi's db come up on arm64.
+- **Accounting expansion (targets `0.2.0`)** is built on
+  `claude/farmos-expansion-plan-qj1muj`: Schedule F classification + lender-packet
+  export, cash-flow projection + operating-line tracking, enterprise allocation,
+  and operating-mode scenarios (Lease wired). The 3-file version bump to `0.2.0`
+  is **staged but the tag is NOT cut** (tags are manual — §3). Full local suite
+  green + restore drill re-verified (migrations 0008–0009).
+- **The 3 version files that must always agree:** `isa-farmos/umbrel-app.yml`
+  (`version`, port 8585), `isa-farmos/docker-compose.yml` (image tags
+  `ghcr.io/mherman1990/farmos[-db]:<v>`), `farmos/backend/pyproject.toml`.
+- **Branch:** dev on `claude/farmos-expansion-plan-qj1muj` (this expansion);
+  releases fast-forward to `main`, then a `farmos-v*` tag triggers the build.
+- **Phase status:** 1 Foundation ✅ · 2 Timestamping + Agronomy + Accounting ✅
+  (**Accounting deepened 0.2.0** — see §7) · 3 FSA packet + Conservation engine ✅
+  (core) · 4 Grain position (records slice) ✅ / grain advice still deferred (§6,
+  but the framing that blocked it is now resolved) · 5 Assistant + sandbox ✅ ·
   6 Lightning ⬜ (fork ready) · 7 Native app ⬜.
 
 ## 2. How the deploy pipeline actually works
@@ -113,6 +120,12 @@ Settings → Rules; he already loosened it enough to create tags via Releases.
 - **Terminal reminders for the farmer:** docker on the Pi needs `sudo`; the
   seed command is `python -m app.manage seed-demo` (no trailing comma — a stray
   `seed-demo,` just prints usage).
+- **API tests share ONE session-scoped DB** (`app_and_engine` builds tables once;
+  rows accumulate across tests, never reset). New `tests/api` cases MUST use their
+  own isolated `crop_year` and unique `farm_number`/`tract_number`/field name, or
+  they collide with sibling tests (a `field_fsa_uq` UniqueViolation or a summed
+  total that's off by another test's data). This bit the 0.2.0 cash-flow tests
+  twice; grep existing `YEAR =` / `farm_number=` before picking values.
 
 ## 5. Sandbox & sample data (for demoing / testing without real data or a key)
 
@@ -150,24 +163,59 @@ Settings → Rules; he already loosened it enough to create tags via Releases.
 - **Bitcorn permission before Phase 6.** Fork is authorized (written agreement via
   text) for the Lightning integration, standalone core stays independent. Confirm
   scope/licensing again in writing before building against the fork.
-- **Phase 4 advice framing** (same root as the grain decision): where's the line
-  between "here are your numbers" and "here's what to do"? Applies to financials
-  scenarios too.
+- **Phase 4 / financials advice framing — RESOLVED 2026-07-12 (owner).** The owner
+  decided there is **no education-not-advice limit on this app**. Financials may
+  draw plain comparative conclusions from real numbers (0.2.0 operating-mode
+  scenarios ship a comparative verdict). The one hard rule that still stands is
+  separate and unchanged: **never fabricate a number** — surface gaps instead.
+  This same decision unblocks the **grain-marketing** deferral above (store-vs-sell,
+  marketing scorecard), but `services/grain.py` was **not** touched in 0.2.0; that
+  is a clean future workstream now that the framing is settled.
+
+### New open decisions from the 0.2.0 accounting expansion (don't silently resolve)
+- **Release version number.** Staged as `0.2.0` (a feature expansion, not a patch).
+  Change to `0.1.4` before cutting the tag if you prefer to continue the patch line.
+- **Schedule F "other" handling.** The default category `other` and any unrecognized
+  category are treated as **uncategorized** (surfaced, excluded from totals) rather
+  than swept into IRS line 32. Deliberate (maximizes honesty; WS4 lets the farmer
+  reclassify), but confirm you don't want a first-class path to line 32.
+- **Cash-flow timing pack ownership.** `cashflow_packs/ia-cashflow-2026.yaml` is a
+  cited *typical* Iowa calendar with a `verify_by` — like region packs, it needs a
+  human to re-verify on cadence. Also open: should the farmer be able to override
+  per-category timing (currently pack-only)?
+- **Operating-line interest.** Interest is a manually-entered ledger event; there is
+  no auto-accrual from the APR field. Confirm manual entry is sufficient.
+- **Lender packet format.** Ships as print-to-PDF HTML (no new dep, per D3). Revisit
+  if a native PDF is wanted — only with a confirmed pure-Python arm64 wheel.
 
 ## 7. What to do next
 
-1. **Cut `farmos-v0.1.3`** (§3) → verify the build is green → confirm both GHCR
-   packages are public → Update on the Pi → **the db container should now come up
-   healthy** (this is the whole point of 0.1.3). First real end-to-end install
-   validation.
-2. **On-Pi validation once it's up:** run `seed-demo`, walk capture→inbox→confirm,
-   upload the two sample files, check the Money/Programs/Farm tabs populate.
+0. **DONE (0.1.3):** the tag is cut and the build is green (see §1). Still confirm
+   the two GHCR packages are **public** and do the on-Pi Update — the db container
+   should come up healthy on arm64 (the whole point of 0.1.3).
+1. **Ship the 0.2.0 accounting expansion.** Built + tested on
+   `claude/farmos-expansion-plan-qj1muj`; the 3-file bump to `0.2.0` is staged.
+   To release: fast-forward `main`, then cut `farmos-v0.2.0` via the Releases UI
+   (§3). What shipped (all API-first, offline-safe, LLM-free, gap-honest):
+   - Schedule F classification (`/financials/schedule-f`) from a versioned tax pack
+   - Lender-packet export (`/financials/lender-packet`, print-to-PDF HTML; no
+     balance sheet — disclosed, not faked)
+   - Cash-flow projection (`/financials/cash-flow`) + operating-line ledger
+     (`/operating-loans`, balance derived from draws/paydowns)
+   - Enterprise allocation (`PATCH /transactions/{id}`) — reclassify closes the
+     Schedule F uncategorized gap
+   - Operating-mode scenarios (`POST /financials/scenarios`) + wired Lease
+     (`/leases`); comparative verdict allowed (§6 resolution)
+   - New migrations 0008–0009; restore drill re-verified.
+2. **On-Pi validation:** `seed-demo` (now ships an operating line + two leases),
+   walk capture→inbox→confirm, upload the sample files, and check the Money tab's
+   new cards (Schedule F, lender packet, cash flow, operating line, tenure).
 3. **whisper-under-bitcoind timing:** confirm a 45s transcription stays polite
    (nice'd, ≤2 threads) while Bitcoin Core + LND share the 4 cores.
 4. **USB restore drill on real hardware** (CI covers it in a container; prove it
    on the Pi's actual USB path once).
-5. Then pick a domain to deepen from **START.md §8** — accounting exports,
-   GIS boundary editor, agronomy CI-score, more region packs, etc.
+5. Then pick the next §8 domain to deepen — GIS boundary editor, agronomy
+   CI-score, more region packs, or the now-unblocked grain-marketing advice (§6).
 
 ## 8. Roadmap beyond current
 

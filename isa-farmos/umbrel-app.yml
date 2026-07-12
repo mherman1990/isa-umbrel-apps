@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-farmos
 category: automation
 name: Farm OS
-version: "0.1.3"
+version: "0.2.0"
 tagline: Self-hosted farm records — voice capture, fields, FSA paperwork prep, program finder
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-farmos/icon.png
 description: >-
@@ -31,9 +31,10 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  First release: capture layer (voice/photo/file with offline queue),
-  confirmation inbox, field registry with farmers.gov CLU import, field
-  operations log, Iowa program finder, AI spend meter with hard cap,
-  nightly encrypted backups with tested restore.
+  Accounting expansion: Schedule F line classification and a printable
+  lender packet, a cash-flow projection with operating-line tracking,
+  tap-to-allocate transactions, and own-vs-cash-rent-vs-crop-share
+  scenarios. Every figure comes from your own records — gaps are shown,
+  never guessed.
 submitter: ISA
 submission: https://github.com/mherman1990/isa-umbrel-apps

@@ -3,7 +3,7 @@
 (Separate from the repo-root CHANGELOG.md, which tracks Bean Brief.
 Farm OS releases use `farmos-v*` git tags.)
 
-## Unreleased — Accounting expansion
+## 0.2.0 — Accounting expansion
 
 ### Added
 - **Schedule F classification** (`GET /financials/schedule-f?year=`): whole-farm
