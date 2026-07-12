@@ -128,3 +128,65 @@ def n_rate(
             "Calculator (source_url) before applying."
         ),
     }
+
+
+def fungicide_roi(
+    *,
+    crop: str,
+    grain_price: float,
+    product_cost_per_ac: float,
+    application_cost_per_ac: float = 0.0,
+    pressure: str = "moderate",
+) -> dict:
+    """Expected-value ROI on a foliar fungicide pass, from cited response ranges."""
+    pack = _pack()
+    spec = pack.fungicide_roi if pack else None
+    if spec is None:
+        return {"configured": False, "note": "the loaded region pack has no fungicide ROI data"}
+    crop_spec = spec.crops.get(crop.lower())
+    if crop_spec is None:
+        return {
+            "configured": True,
+            "crop": crop,
+            "expected_net_roi_per_ac": None,
+            "available_crops": sorted(spec.crops),
+            "gaps": [f"no fungicide response on file for crop '{crop}'"],
+        }
+
+    total_cost = round(product_cost_per_ac + application_cost_per_ac, 2)
+    responses = crop_spec.responses
+    scenarios = [
+        {
+            "pressure": level,
+            "response_bu": resp,
+            "expected_revenue_per_ac": round(resp * grain_price, 2),
+            "net_roi_per_ac": round(resp * grain_price - total_cost, 2),
+            "pays_for_itself": resp * grain_price > total_cost,
+        }
+        for level, resp in responses.items()
+    ]
+    chosen = next((s for s in scenarios if s["pressure"] == pressure), None)
+    gaps = None if chosen else [f"unknown pressure '{pressure}' — using none; pick one of {sorted(responses)}"]
+
+    return {
+        "configured": True,
+        "crop": crop.lower(),
+        "grain_price": grain_price,
+        "cost_per_ac": total_cost,
+        "breakeven_response_bu": round(total_cost / grain_price, 1) if grain_price else None,
+        "pressure": pressure,
+        "expected_response_bu": chosen["response_bu"] if chosen else None,
+        "expected_net_roi_per_ac": chosen["net_roi_per_ac"] if chosen else None,
+        "roi_ratio": round(chosen["expected_revenue_per_ac"] / total_cost, 2) if chosen and total_cost else None,
+        "scenarios": scenarios,
+        "citation": spec.citation,
+        "source_url": spec.source_url,
+        "last_verified": spec.last_verified.isoformat(),
+        "stale": spec.verify_by < date.today(),
+        "unverified": spec.unverified,
+        "gaps": gaps,
+        "note": (
+            "Expected-value ROI on a fungicide pass. Response ranges are approximate and depend on "
+            "hybrid/variety, disease, growth stage, and weather — confirm the scenario before spending."
+        ),
+    }

@@ -6,6 +6,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel, Field as PField
 from sqlalchemy.orm import Session
 
 from ... import auth
@@ -38,4 +39,29 @@ def n_rate(
         applied_n=applied_n,
         field_id=field_id,
         crop_year=crop_year,
+    )
+
+
+class FungicideRoiIn(BaseModel):
+    crop: str = "corn"
+    grain_price: float = PField(gt=0)
+    product_cost_per_ac: float = PField(ge=0)
+    application_cost_per_ac: float = PField(default=0.0, ge=0)
+    pressure: str = PField(default="moderate")
+
+
+@router.post("/fungicide-roi")
+def fungicide_roi(
+    body: FungicideRoiIn,
+    session: Session = Depends(get_session),
+    user: AppUser = Depends(auth.current_user),
+):
+    """Expected-value ROI on a fungicide pass from grain price, costs, and cited
+    yield-response ranges by disease pressure."""
+    return agronomy.fungicide_roi(
+        crop=body.crop,
+        grain_price=body.grain_price,
+        product_cost_per_ac=body.product_cost_per_ac,
+        application_cost_per_ac=body.application_cost_per_ac,
+        pressure=body.pressure,
     )

@@ -118,6 +118,20 @@ class PackMrtn(BaseModel):
     rotations: dict[str, PackMrtnRotation]
 
 
+class PackFungicideCrop(BaseModel):
+    unit: str = "bu/ac"
+    responses: dict[str, float]  # disease-pressure level -> expected yield response
+
+
+class PackFungicideRoi(BaseModel):
+    citation: str
+    source_url: str
+    last_verified: date
+    verify_by: date
+    unverified: bool = False
+    crops: dict[str, PackFungicideCrop]
+
+
 class RegionPackFile(BaseModel):
     region_code: str  # 'US-IA'
     version: str  # '2026.1'
@@ -126,3 +140,4 @@ class RegionPackFile(BaseModel):
     stacking_rules: list[PackStackingRule] = []
     compliance: PackCompliance | None = None
     mrtn: PackMrtn | None = None
+    fungicide_roi: PackFungicideRoi | None = None

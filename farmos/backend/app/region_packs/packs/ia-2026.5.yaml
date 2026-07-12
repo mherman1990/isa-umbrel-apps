@@ -435,3 +435,29 @@ mrtn:
       marginal_bu_per_lb: 1.00
       curvature: 0.00250
       agronomic_max_lb: 200
+
+# ------------------------------------------------------- agronomy: fungicide ROI
+# Expected foliar-fungicide yield response (bu/ac) by disease-pressure scenario.
+# HONESTY FLAG: unverified: true. Approximate ranges from public efficacy/yield-
+# response summaries; actual response depends on hybrid/variety susceptibility,
+# disease, growth stage, and weather. The app frames it as expected-value ROI
+# and says "confirm the scenario before spending."
+fungicide_roi:
+  citation: "Crop Protection Network & ISU foliar fungicide efficacy / yield-response summaries"
+  source_url: https://cropprotectionnetwork.org/publications
+  last_verified: 2026-07-12
+  verify_by: 2027-03-01
+  unverified: true
+  crops:
+    corn:
+      unit: "bu/ac"
+      responses:
+        low: 2.0
+        moderate: 6.0
+        high: 12.0
+    soybeans:
+      unit: "bu/ac"
+      responses:
+        low: 1.0
+        moderate: 3.0
+        high: 5.0

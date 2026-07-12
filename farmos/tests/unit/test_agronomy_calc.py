@@ -56,3 +56,23 @@ def test_applied_n_comparison_flags_over_application():
     assert c["delta_vs_mrtn_lb"] > 0  # over the optimum
     assert c["net_left_on_table_per_ac"] > 0
     assert c["within_profitable_range"] is False
+
+
+def test_fungicide_pack_cited_and_roi_math():
+    pack, _ = loader.read_pack(loader.default_pack_path())
+    assert pack.fungicide_roi is not None and pack.fungicide_roi.unverified is True
+    r = agronomy.fungicide_roi(crop="corn", grain_price=4.5, product_cost_per_ac=28,
+                               application_cost_per_ac=8, pressure="high")
+    assert r["cost_per_ac"] == 36.0
+    assert r["breakeven_response_bu"] == 8.0  # 36 / 4.5
+    assert r["expected_net_roi_per_ac"] == 18.0  # 12 bu * 4.5 - 36
+    assert r["scenarios"][0]["pressure"] == "low"  # dict order preserved
+    assert any(s["pressure"] == "high" and s["pays_for_itself"] for s in r["scenarios"])
+    # at moderate pressure the pass does NOT pay — honest, not massaged
+    assert next(s for s in r["scenarios"] if s["pressure"] == "moderate")["pays_for_itself"] is False
+
+
+def test_fungicide_unknown_crop_is_a_gap():
+    r = agronomy.fungicide_roi(crop="wheat", grain_price=6.0, product_cost_per_ac=20)
+    assert r["expected_net_roi_per_ac"] is None
+    assert r["gaps"] and "wheat" in r["gaps"][0]

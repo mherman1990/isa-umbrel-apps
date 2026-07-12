@@ -70,3 +70,17 @@ def test_n_rate_endpoint_compares_to_recorded_practice(client, auth_headers, app
 
     # invalid price -> 422 (never a bogus rate)
     assert client.get("/api/v1/agronomy/n-rate?corn_price=0&n_price_per_lb=0.5", headers=auth_headers).status_code == 422
+
+
+def test_fungicide_roi_endpoint(client, auth_headers):
+    r = client.post("/api/v1/agronomy/fungicide-roi", headers=auth_headers, json={
+        "crop": "corn", "grain_price": 4.5, "product_cost_per_ac": 28,
+        "application_cost_per_ac": 8, "pressure": "high"})
+    assert r.status_code == 200, r.text
+    b = r.json()
+    assert b["breakeven_response_bu"] == 8.0
+    assert b["expected_net_roi_per_ac"] == 18.0
+    assert b["unverified"] is True
+    # invalid grain price -> 422, never a bogus ROI
+    assert client.post("/api/v1/agronomy/fungicide-roi", headers=auth_headers, json={
+        "crop": "corn", "grain_price": 0, "product_cost_per_ac": 28}).status_code == 422

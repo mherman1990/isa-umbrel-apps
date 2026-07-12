@@ -253,6 +253,86 @@ function NRateCard() {
   );
 }
 
+function FungicideCard() {
+  const [crop, setCrop] = useState("corn");
+  const [grainPrice, setGrainPrice] = useState("4.50");
+  const [productCost, setProductCost] = useState("28");
+  const [appCost, setAppCost] = useState("8");
+  const [pressure, setPressure] = useState("moderate");
+  const [result, setResult] = useState<any>(null);
+
+  async function run() {
+    try {
+      setResult(
+        await api.post("/agronomy/fungicide-roi", {
+          crop,
+          grain_price: Number(grainPrice),
+          product_cost_per_ac: Number(productCost),
+          application_cost_per_ac: Number(appCost),
+          pressure,
+        }),
+      );
+    } catch (e: any) {
+      setResult({ error: e.message });
+    }
+  }
+
+  return (
+    <div className="card">
+      <h3>Fungicide ROI</h3>
+      <p className="hint">
+        Expected-value return on a fungicide pass. Response ranges are approximate and depend on
+        hybrid, disease, and weather — confirm before spending.
+      </p>
+      <div className="button-row">
+        <label>
+          Crop
+          <select value={crop} onChange={(e) => setCrop(e.target.value)}>
+            <option value="corn">corn</option>
+            <option value="soybeans">soybeans</option>
+          </select>
+        </label>
+        <label>Grain $/bu<input inputMode="decimal" value={grainPrice} onChange={(e) => setGrainPrice(e.target.value)} /></label>
+        <label>Product $/ac<input inputMode="decimal" value={productCost} onChange={(e) => setProductCost(e.target.value)} /></label>
+        <label>Applic. $/ac<input inputMode="decimal" value={appCost} onChange={(e) => setAppCost(e.target.value)} /></label>
+        <label>
+          Pressure
+          <select value={pressure} onChange={(e) => setPressure(e.target.value)}>
+            <option value="low">low</option>
+            <option value="moderate">moderate</option>
+            <option value="high">high</option>
+          </select>
+        </label>
+      </div>
+      <button className="primary" disabled={!Number(grainPrice)} onClick={run}>
+        Calculate
+      </button>
+      {result?.error && <div className="error-banner">{result.error}</div>}
+      {result?.scenarios && (
+        <div className="stacking-result">
+          <div className={result.expected_net_roi_per_ac >= 0 ? "flash" : "error-banner"}>
+            <strong>
+              {result.pressure} pressure: ${result.expected_net_roi_per_ac}/ac net
+            </strong>{" "}
+            — break-even needs {result.breakeven_response_bu} bu/ac
+          </div>
+          {result.scenarios.map((s: any) => (
+            <div key={s.pressure} className="small">
+              {s.pressure}: {s.response_bu} bu → ${s.net_roi_per_ac}/ac {s.pays_for_itself ? "✓" : "✕"}
+            </div>
+          ))}
+          <p className="small">
+            {result.unverified ? "Approximate ranges · " : ""}
+            <a href={result.source_url} target="_blank" rel="noreferrer">source</a> · verified{" "}
+            {result.last_verified}
+          </p>
+        </div>
+      )}
+      {result?.gaps && <p className="small warn-text">{result.gaps.join("; ")}</p>}
+    </div>
+  );
+}
+
 export default function ProgramsScreen() {
   const [data, setData] = useState<{ disclaimer: string; pack_health: any; programs: ProgramView[] } | null>(null);
   const [nudges, setNudges] = useState<any[]>([]);
@@ -287,6 +367,7 @@ export default function ProgramsScreen() {
       </p>
       <StackingChecker programs={data.programs} />
       <NRateCard />
+      <FungicideCard />
       {data.programs.map((p) => (
         <div className={`card ${p.excluded_by_rule ? "muted" : ""}`} key={p.program_key}>
           <div className="card-head">

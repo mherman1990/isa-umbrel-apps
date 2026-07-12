@@ -67,6 +67,13 @@ Farm OS releases use `farmos-v*` git tags.)
   region-pack `mrtn` section** read at compute time (no DB/migration), flagged
   `unverified: true` — the output links the ISU calculator and says "confirm
   before applying." Programs-tab card.
+- **Fungicide-ROI decision support** (`POST /agronomy/fungicide-roi`):
+  expected-value return on a foliar fungicide pass from grain price, product +
+  application cost, and cited yield-response ranges by disease-pressure
+  scenario (low/moderate/high), with the break-even response and a
+  pays-for-itself flag per scenario. Response ranges ship as a new cited
+  region-pack `fungicide_roi` section (`unverified: true`); the tool refuses to
+  massage a losing pass into a winner. Programs-tab card.
 ## Also unreleased — Phase 5 assistant + sandbox
 
 - **Assistant chat** (`POST /assistant/chat` + Ask box on the capture
