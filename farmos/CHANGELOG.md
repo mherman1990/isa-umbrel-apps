@@ -81,6 +81,18 @@ Farm OS releases use `farmos-v*` git tags.)
   region-pack `practice_costs` section. Structural/cost-shared practices with no
   clean per-acre cost (buffers, terraces, waterways) return "no cost basis"
   rather than a fabricated number. Programs-tab card.
+
+### Added — GIS / fields
+- **Leaflet boundary editor** (Farm tab): a map of every field boundary you can
+  edit by dragging vertices, or draw a new field with the polygon tool. Backed
+  by `PUT /fields/{id}/boundary` (edit) and `POST /fields` (create-by-draw),
+  both validating the drawn GeoJSON (rejecting self-intersecting/out-of-range/
+  degenerate outlines — never silently repaired) and recomputing acres on the
+  equal-area EPSG:5070 projection; an edited field becomes `source='manual'`.
+  The **aerial-imagery basemap is opt-in and OFF by default** — the editor works
+  fully offline on a blank canvas, and turning on Esri imagery (external tiles
+  that reveal the field location) is disclosed in Settings → "what leaves this
+  box". Verified end-to-end in a headless browser against the demo farm.
 ## Also unreleased — Phase 5 assistant + sandbox
 
 - **Assistant chat** (`POST /assistant/chat` + Ask box on the capture

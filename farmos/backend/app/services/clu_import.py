@@ -170,6 +170,29 @@ def parse_upload(filename: str, content: bytes) -> list[CluRow]:
         return rows
 
 
+def geometry_to_field(geom_dict: dict) -> tuple[str, float]:
+    """Validate a hand-drawn/edited GeoJSON polygon and return (WKT, recomputed
+    acres). Raises ValueError on anything that isn't a clean, valid, sane
+    WGS84 lon/lat polygon — the editor never silently repairs a boundary."""
+    if not isinstance(geom_dict, dict) or geom_dict.get("type") not in ("Polygon", "MultiPolygon"):
+        raise ValueError("geometry must be a GeoJSON Polygon or MultiPolygon")
+    try:
+        geom = _to_multipolygon(geom_dict)
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError(f"unreadable geometry: {exc}") from exc
+    if geom.is_empty:
+        raise ValueError("geometry is empty")
+    if not geom.is_valid:
+        raise ValueError("geometry is invalid (self-intersecting or malformed) — fix the outline")
+    minx, miny, maxx, maxy = geom.bounds
+    if not (-180 <= minx and maxx <= 180 and -90 <= miny and maxy <= 90):
+        raise ValueError("coordinates out of range — expected WGS84 lon/lat degrees")
+    acres = _acres_4326(geom)
+    if not (0 < acres <= 200_000):
+        raise ValueError(f"implausible field area ({acres} ac) — check the outline and CRS")
+    return geom.wkt, acres
+
+
 def export_shapefile_zip(rows: list[dict]) -> bytes:
     """Write field boundaries as a zipped ESRI shapefile (EPSG:4326) — the
     format farmers.gov imports back. `rows`: dicts with geometry_wkt and the

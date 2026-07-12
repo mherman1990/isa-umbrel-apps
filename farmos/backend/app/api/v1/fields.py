@@ -78,6 +78,84 @@ def patch_field(
     return _field_view(f)
 
 
+class BoundaryIn(BaseModel):
+    geometry: dict  # a GeoJSON Polygon / MultiPolygon
+
+
+@router.put("/fields/{field_id}/boundary")
+def update_boundary(
+    field_id: uuid.UUID,
+    body: BoundaryIn,
+    session: Session = Depends(get_session),
+    user: AppUser = Depends(auth.current_user),
+):
+    """Replace a field's boundary with a hand-drawn/edited outline. Acres are
+    recomputed (EPSG:5070); the field becomes source='manual' and the imported
+    CLU acreage is cleared (it no longer describes this polygon)."""
+    f = session.get(Field, field_id)
+    if f is None:
+        raise HTTPException(status_code=404, detail="unknown field")
+    try:
+        wkt, acres = clu_import.geometry_to_field(body.geometry)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    old_acres = float(f.clu_calculated_acres or f.gis_acres or 0)
+    f.boundary = f"SRID=4326;{wkt}"
+    f.gis_acres = acres
+    f.clu_calculated_acres = None
+    f.source = "manual"
+    session.add(AuditLog(user_id=user.id, action="field.boundary", entity_type="field", entity_id=f.id,
+                         detail={"old_acres": round(old_acres, 2), "new_acres": acres}))
+    session.flush()
+    session.refresh(f)  # EWKT str -> WKBElement so _field_view can to_shape it
+    return _field_view(f)
+
+
+class FieldCreateIn(BaseModel):
+    farm_id: uuid.UUID
+    tract_number: str
+    field_number: str
+    name: str | None = None
+    geometry: dict
+
+
+@router.post("/fields", status_code=201)
+def create_field(
+    body: FieldCreateIn,
+    session: Session = Depends(get_session),
+    user: AppUser = Depends(auth.current_user),
+):
+    """Create a field by drawing it (source='manual')."""
+    if session.get(Farm, body.farm_id) is None:
+        raise HTTPException(status_code=422, detail="unknown farm_id")
+    try:
+        wkt, acres = clu_import.geometry_to_field(body.geometry)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if session.scalar(
+        select(Field).where(
+            Field.farm_id == body.farm_id,
+            Field.tract_number == body.tract_number,
+            Field.field_number == body.field_number,
+        )
+    ):
+        raise HTTPException(status_code=409, detail="a field with that tract/field number already exists")
+    f = Field(
+        farm_id=body.farm_id,
+        tract_number=body.tract_number,
+        field_number=body.field_number,
+        name=body.name,
+        boundary=f"SRID=4326;{wkt}",
+        gis_acres=acres,
+        source="manual",
+    )
+    session.add(f)
+    session.flush()
+    session.refresh(f)  # EWKT str -> WKBElement so _field_view can to_shape it
+    session.add(AuditLog(user_id=user.id, action="field.create", entity_type="field", entity_id=f.id))
+    return _field_view(f)
+
+
 @router.get("/fields/export")
 def export_fields(session: Session = Depends(get_session), user: AppUser = Depends(auth.current_user)):
     """Zipped ESRI shapefile of the field registry (EPSG:4326) — importable

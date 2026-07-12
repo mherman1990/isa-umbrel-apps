@@ -3,14 +3,17 @@
 import { useEffect, useState } from "react";
 import { api, getToken } from "../../app/api";
 import PracticesSection from "./PracticesSection";
+import FieldMap from "./FieldMap";
 
 interface FieldRow {
   id: string;
+  farm_id: string;
   name: string | null;
   tract_number: string;
   field_number: string;
   acres: number | null;
   source: string;
+  boundary: any;
 }
 
 interface PreviewRow {
@@ -218,6 +221,8 @@ export default function FieldsScreen() {
           ))}
         </ul>
       </div>
+
+      {fields.length > 0 && <FieldMap fields={fields} onChange={refresh} />}
 
       <div className="card">
         <h3>Acreage report (FSA-578 prep)</h3>

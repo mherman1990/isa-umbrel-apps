@@ -98,6 +98,13 @@ def privacy(user: AppUser = Depends(auth.current_user)):
                            "to an insurance adjuster or program verifier.",
                 "when": "Nightly",
             },
+            {
+                "destination": "Esri aerial imagery tiles — ONLY if you turn on the field-map basemap",
+                "payload": "Map-tile requests for the area you're viewing, which reveal your field "
+                           "location to the tile server. Off by default; no farm records are sent. "
+                           "Turn it off and the boundary editor works fully offline.",
+                "when": "Only while the field-map imagery toggle is on",
+            },
         ],
         "never": [
             "No telemetry, no analytics, no phoning home.",
