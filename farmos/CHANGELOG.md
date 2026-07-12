@@ -55,6 +55,21 @@ Farm OS releases use `farmos-v*` git tags.)
 - Migrations 0002 (money/workbooks/soil tests) + 0003 (deadline dates);
   restore drill re-verified across both. API test suite now 20 tests.
 
+## Also unreleased — compliance, grain, brief
+
+- **RUP compliance** (`GET /compliance/rup`): spray operations using
+  EPA-registered products graded against the pack's legal required-field
+  list (7 U.S.C. 136i-1; pack 2026.5), missing fields named per record.
+- **Grain position ledger** (`GET /grain/position` + Money card) derived
+  from harvest records, confirmed scale tickets, and contracts, with
+  storage posture from the profile and named gaps; offline-idempotent
+  contract tracker with delivery application. No advice — deferred per
+  the framing decision.
+- **Daily brief** (05:30 job + `GET /brief/latest` + capture-screen card):
+  reasoning-model summary composed ONLY from stored facts (inputs saved
+  beside the output for traceability); skips cleanly without a key or at
+  the spend cap. Migrations 0006–0007.
+
 ## 0.1.0 — Phase 1 foundation: capture, fields, programs, backups
 
 ### Added
@@ -99,18 +114,3 @@ Farm OS releases use `farmos-v*` git tags.)
 - **Umbrel packaging**: `isa-farmos` app (port 8585) with web/worker/db
   services, memory limits sized for an 8GB Pi 5 sharing RAM with Bitcoin
   Core + LND; multi-arch images on `farmos-v*` tags.
-
-## Also unreleased — compliance, grain, brief
-
-- **RUP compliance** (`GET /compliance/rup`): spray operations using
-  EPA-registered products graded against the pack's legal required-field
-  list (7 U.S.C. 136i-1; pack 2026.5), missing fields named per record.
-- **Grain position ledger** (`GET /grain/position` + Money card) derived
-  from harvest records, confirmed scale tickets, and contracts, with
-  storage posture from the profile and named gaps; offline-idempotent
-  contract tracker with delivery application. No advice — deferred per
-  the framing decision.
-- **Daily brief** (05:30 job + `GET /brief/latest` + capture-screen card):
-  reasoning-model summary composed ONLY from stored facts (inputs saved
-  beside the output for traceability); skips cleanly without a key or at
-  the spend cap. Migrations 0006–0007.
