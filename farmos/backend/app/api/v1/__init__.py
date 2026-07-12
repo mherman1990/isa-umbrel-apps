@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from . import (
     auth_routes,
     captures,
+    conservation,
     documents,
     fields,
     financials,
@@ -24,6 +25,7 @@ router.include_router(sync.router)
 router.include_router(inbox.router)
 router.include_router(documents.router)
 router.include_router(programs.router)
+router.include_router(conservation.router)
 router.include_router(workbooks.router)
 router.include_router(financials.router)
 router.include_router(nudges.router)

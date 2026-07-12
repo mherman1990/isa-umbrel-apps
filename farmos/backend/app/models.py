@@ -450,6 +450,7 @@ class Program(Base):
     tier: Mapped[str] = mapped_column(String(16), nullable=False, default="state", server_default="state")
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     payment_rate: Mapped[str | None] = mapped_column(Text)  # human-readable; rates too varied for numeric
+    payment_per_acre: Mapped[float | None] = mapped_column(Numeric(10, 2))  # representative $/ac where computable
     signup_deadline: Mapped[str | None] = mapped_column(Text)  # may be a window, not a date
     signup_deadline_date: Mapped[date | None] = mapped_column(Date)  # machine-readable, for nudges
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
@@ -477,6 +478,105 @@ class EligibilityRule(Base):
     verify_by: Mapped[date] = mapped_column(Date, nullable=False)
 
     __table_args__ = (UniqueConstraint("program_id", "rule_key", name="eligibility_rule_uq"),)
+
+
+# --------------------------------------------------------------------------- conservation (Phase 3)
+
+PRACTICE_TYPES = (
+    "tillage",  # attributes: {"class": "no-till|strip|reduced|conventional"}
+    "cover_crop",  # {"species", "seeding_date", "termination_date", "termination_method"}
+    "nutrient_mgmt",  # {"rate", "timing", "source", "inhibitor", "split"}
+    "edge_of_field",  # {"structure": "bioreactor|saturated_buffer|wetland"}
+    "buffer",
+    "waterway",
+    "terrace",
+    "other",
+)
+
+
+class Practice(Base):
+    """What was actually done on which acres, which is what programs pay
+    for. Every practice carries its evidence (captures/documents), and via
+    the capture layer, timestamp proofs."""
+
+    __tablename__ = "practice"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    field_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("field.id"), nullable=False)
+    crop_year: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    practice_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    acres: Mapped[float | None] = mapped_column(Numeric(10, 2))  # NULL = whole field
+    attributes: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    created_at: Mapped[datetime] = created_at_col()
+    updated_at: Mapped[datetime] = updated_at_col()
+
+    __table_args__ = (
+        CheckConstraint("practice_type IN " + repr(PRACTICE_TYPES).replace('"', "'"), name="practice_type_ck"),
+        Index("practice_field_year_ix", "field_id", "crop_year"),
+    )
+
+
+class PracticeEvidence(Base):
+    __tablename__ = "practice_evidence"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    practice_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("practice.id", ondelete="CASCADE"), nullable=False)
+    capture_event_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("capture_event.id"))
+    document_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("document.id"))
+    field_operation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("field_operation.id"))
+    note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = created_at_col()
+
+    __table_args__ = (
+        CheckConstraint(
+            "capture_event_id IS NOT NULL OR document_id IS NOT NULL OR field_operation_id IS NOT NULL",
+            name="practice_evidence_target_ck",
+        ),
+    )
+
+
+class ProgramEnrollment(Base):
+    """Which program the farm is in (or weighing) on which acres — the
+    stacking checker's 'already enrolled' input."""
+
+    __tablename__ = "program_enrollment"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    program_key: Mapped[str] = mapped_column(Text, nullable=False)
+    crop_year: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    field_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("field.id"))  # NULL = whole-operation
+    acres: Mapped[float | None] = mapped_column(Numeric(10, 2))
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="enrolled", server_default="enrolled")
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = created_at_col()
+
+    __table_args__ = (
+        CheckConstraint("status IN ('enrolled','considering','declined')", name="program_enrollment_status_ck"),
+    )
+
+
+class StackingRule(Base):
+    """Whether two programs can pay on the same acres — encoded as data
+    from the region pack, cited, and verify_by-dated like everything else."""
+
+    __tablename__ = "stacking_rule"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    region_pack_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("region_pack.id", ondelete="CASCADE"), nullable=False)
+    rule_key: Mapped[str] = mapped_column(Text, nullable=False)
+    program_a: Mapped[str] = mapped_column(Text, nullable=False)  # program_key
+    program_b: Mapped[str] = mapped_column(Text, nullable=False)
+    relation: Mapped[str] = mapped_column(String(16), nullable=False)  # exclusive | stackable
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    citation: Mapped[str] = mapped_column(Text, nullable=False)
+    source_url: Mapped[str] = mapped_column(Text, nullable=False)
+    last_verified: Mapped[date] = mapped_column(Date, nullable=False)
+    verify_by: Mapped[date] = mapped_column(Date, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("region_pack_id", "rule_key", name="stacking_rule_uq"),
+        CheckConstraint("relation IN ('exclusive','stackable')", name="stacking_relation_ck"),
+    )
 
 
 # --------------------------------------------------------------------------- money & agronomy (Phase 2)

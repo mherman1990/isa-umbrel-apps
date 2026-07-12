@@ -10,7 +10,7 @@
 # The federal tier is factored so future state packs can inherit it.
 
 region_code: US-IA
-version: "2026.2"
+version: "2026.3"
 description: Iowa corn/soybean row-crop pack (pack #1)
 
 programs:
@@ -112,6 +112,7 @@ programs:
       State cost-share for seeding cover crops, administered through Soil &
       Water Conservation Districts. First-time users get the higher rate.
     payment_rate: "$30/ac first-time users; $20/ac returning users (spec-provided rates)"
+    payment_per_acre: 30.00  # first-time rate; returning users get $20
     signup_deadline: "Apply at county SWCD; funds allocated summer/fall, first-come"
     source_url: https://www.cleanwateriowa.org/costshare
     last_verified: 2026-07-12
@@ -143,6 +144,7 @@ programs:
       programs are NOT eligible — this program and IDALS/EQIP cost-share
       are mutually exclusive on the same acres.
     payment_rate: "$5/ac premium reduction"
+    payment_per_acre: 5.00
     signup_deadline: "Signup approximately Dec 1 - Jan 23 (spec-provided window; confirm annually)"
     signup_deadline_date: 2027-01-23
     source_url: https://iowaagriculture.gov/CropInsuranceDiscount
@@ -201,6 +203,7 @@ programs:
       applies: acres already receiving public cost-share for the same
       practice are typically excluded.
     payment_rate: "~$20-40/ac; 2024 average ~$33/ac (spec-provided)"
+    payment_per_acre: 33.00  # 2024 average; actual is outcome-based
     signup_deadline: "Enrollment opens summer 2026 for crop year 2027 (spec-provided)"
     source_url: https://theoutcomesfund.com/
     last_verified: 2026-07-12
@@ -222,6 +225,7 @@ programs:
       Practice-based payments for reduced tillage and cover crops, with
       historical-practice payments available for recent adopters.
     payment_rate: "~$6/ac reduced-till + ~$6/ac cover crop; up to ~$48/ac one-time historical (spec-provided; confirm current program terms)"
+    payment_per_acre: 12.00  # both practices
     signup_deadline: "Rolling enrollment"
     source_url: https://www.bayerforground.com/
     last_verified: 2026-07-12
@@ -242,3 +246,84 @@ programs:
     last_verified: 2026-07-12
     verify_by: 2027-03-01
     rules: []
+
+# ---------------------------------------------------------------- stacking
+# Whether two programs can pay on the SAME ACRES for the same crop year.
+# Pairs with no rule on file are reported as "unknown — confirm with the
+# administering agencies", never asserted either way.
+stacking_rules:
+  - rule_key: idals-discount-excludes-wqi
+    program_a: idals-rma-insurance-discount
+    program_b: idals-wqi-cover-crop
+    relation: exclusive
+    description: >
+      The $5/ac crop insurance discount excludes acres receiving other
+      state or federal cover crop cost-share — IDALS WQI cost-share on the
+      same acres disqualifies them from the discount.
+    citation: IDALS Crop Insurance Discount Program eligibility terms
+    source_url: https://iowaagriculture.gov/CropInsuranceDiscount
+    last_verified: 2026-07-12
+    verify_by: 2027-01-15
+
+  - rule_key: idals-discount-excludes-eqip
+    program_a: idals-rma-insurance-discount
+    program_b: eqip
+    relation: exclusive
+    description: >
+      EQIP cover-crop payments are federal cost-share; acres receiving them
+      are not eligible for the insurance discount in the same crop year.
+    citation: IDALS Crop Insurance Discount Program eligibility terms
+    source_url: https://iowaagriculture.gov/CropInsuranceDiscount
+    last_verified: 2026-07-12
+    verify_by: 2027-01-15
+
+  - rule_key: swof-additionality-wqi
+    program_a: swof
+    program_b: idals-wqi-cover-crop
+    relation: exclusive
+    description: >
+      SWOF outcome payments require additionality; acres taking public
+      cover-crop cost-share for the same practice are typically excluded.
+    citation: SWOF enrollment terms (additionality)
+    source_url: https://theoutcomesfund.com/farmers
+    last_verified: 2026-07-12
+    verify_by: 2027-03-01
+
+  - rule_key: swof-additionality-eqip
+    program_a: swof
+    program_b: eqip
+    relation: exclusive
+    description: >
+      SWOF additionality: acres in EQIP cost-share for the same practice
+      are typically excluded from outcome payments.
+    citation: SWOF enrollment terms (additionality)
+    source_url: https://theoutcomesfund.com/farmers
+    last_verified: 2026-07-12
+    verify_by: 2027-03-01
+
+  - rule_key: wqi-stacks-with-eqip
+    program_a: idals-wqi-cover-crop
+    program_b: eqip
+    relation: stackable
+    description: >
+      Federal and state cost-share can combine on the same acres where
+      combined payments stay within program caps (spec-provided; confirm
+      the current-year combined-rate cap with the county SWCD).
+    citation: IDALS WQI cost-share guidance
+    source_url: https://www.cleanwateriowa.org/costshare
+    last_verified: 2026-07-12
+    verify_by: 2027-03-01
+
+  - rule_key: discount-stacks-with-swof
+    program_a: idals-rma-insurance-discount
+    program_b: swof
+    relation: stackable
+    description: >
+      The insurance discount excludes COST-SHARE programs; SWOF is an
+      outcome-based payment, not cost-share, so the combination is
+      permitted under current terms (confirm annually — this is the
+      highest-value pairing and the first one a rule change would break).
+    citation: IDALS Crop Insurance Discount Program terms; SWOF enrollment terms
+    source_url: https://iowaagriculture.gov/CropInsuranceDiscount
+    last_verified: 2026-07-12
+    verify_by: 2027-01-15

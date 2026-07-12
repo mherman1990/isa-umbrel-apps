@@ -8,7 +8,7 @@ import yaml
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import EligibilityRule, Program, RegionPackRow
+from ..models import EligibilityRule, Program, RegionPackRow, StackingRule
 from .schema import RegionPackFile
 
 PACKS_DIR = Path(__file__).parent / "packs"
@@ -54,6 +54,7 @@ def load_pack(session: Session, path: Path) -> RegionPackRow:
             payment_rate=prog.payment_rate,
             signup_deadline=prog.signup_deadline,
             signup_deadline_date=prog.signup_deadline_date,
+            payment_per_acre=prog.payment_per_acre,
             source_url=prog.source_url,
             last_verified=prog.last_verified,
             verify_by=prog.verify_by,
@@ -73,6 +74,24 @@ def load_pack(session: Session, path: Path) -> RegionPackRow:
                     verify_by=rule.verify_by,
                 )
             )
+    known_keys = {p.program_key for p in pack.programs}
+    for rule in pack.stacking_rules:
+        if rule.program_a not in known_keys or rule.program_b not in known_keys:
+            raise ValueError(f"stacking rule {rule.rule_key} references an unknown program key")
+        session.add(
+            StackingRule(
+                region_pack_id=row.id,
+                rule_key=rule.rule_key,
+                program_a=rule.program_a,
+                program_b=rule.program_b,
+                relation=rule.relation,
+                description=rule.description,
+                citation=rule.citation,
+                source_url=rule.source_url,
+                last_verified=rule.last_verified,
+                verify_by=rule.verify_by,
+            )
+        )
     return row
 
 

@@ -25,6 +25,20 @@ class PackRule(BaseModel):
     predicate: dict | None = None
 
 
+class PackStackingRule(BaseModel):
+    """Whether program_a and program_b can pay on the same acres."""
+
+    rule_key: str
+    program_a: str
+    program_b: str
+    relation: str = Field(pattern="^(exclusive|stackable)$")
+    description: str
+    citation: str
+    source_url: str
+    last_verified: date
+    verify_by: date
+
+
 class PackProgram(BaseModel):
     program_key: str
     name: str
@@ -32,6 +46,7 @@ class PackProgram(BaseModel):
     tier: str = Field(pattern="^(federal|state|private)$")
     summary: str
     payment_rate: str | None = None
+    payment_per_acre: float | None = None  # representative $/ac where honestly computable
     signup_deadline: str | None = None
     signup_deadline_date: date | None = None  # machine-readable, drives deadline nudges
     source_url: str
@@ -46,3 +61,4 @@ class RegionPackFile(BaseModel):
     version: str  # '2026.1'
     description: str = ""
     programs: list[PackProgram]
+    stacking_rules: list[PackStackingRule] = []
