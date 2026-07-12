@@ -32,10 +32,13 @@ export default function MoneyScreen() {
   const [tabs, setTabs] = useState<MappingTab[]>([]);
   const [busy, setBusy] = useState(false);
 
+  const [position, setPosition] = useState<any>(null);
+
   async function refresh() {
     try {
       setSummary(await api.get(`/financials/summary?year=${year}`));
       setTxns(await api.get(`/transactions?year=${year}`));
+      setPosition(await api.get(`/grain/position?year=${year}`));
     } catch {
       /* offline */
     }
@@ -106,6 +109,28 @@ export default function MoneyScreen() {
           ))}
         </select>
       </label>
+
+      {position?.crops?.length > 0 && (
+        <div className="card">
+          <h3>Grain position</h3>
+          {position.crops.map((c: any) => (
+            <div key={c.crop} className="crop-row">
+              <strong>{c.crop}</strong>
+              {c.produced_bu != null ? (
+                <span className="small">
+                  {c.produced_bu.toLocaleString()} bu produced · {c.in_bin_bu.toLocaleString()} in bin ·{" "}
+                  {c.delivered_bu.toLocaleString()} delivered · {c.contracted_bu.toLocaleString()} contracted (
+                  {c.priced_bu.toLocaleString()} priced) · {c.unpriced_bu.toLocaleString()} unpriced
+                </span>
+              ) : (
+                <span className="small warn-text">{(c.gaps ?? []).join("; ")}</span>
+              )}
+              {c.posture && <span className="small">{c.posture}</span>}
+            </div>
+          ))}
+          <p className="hint">{position.note}</p>
+        </div>
+      )}
 
       <div className="card">
         <h3>Budget vs actual</h3>

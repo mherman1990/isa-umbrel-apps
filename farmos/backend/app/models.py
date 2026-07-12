@@ -682,6 +682,40 @@ class WorkbookMapping(Base):
     created_at: Mapped[datetime] = created_at_col()
 
 
+# --------------------------------------------------------------------------- grain marketing (Phase 4 records)
+
+
+class GrainContract(Base):
+    """A cash grain contract — a RECORD, not advice. The position ledger
+    derives contracted/priced/unpriced from these."""
+
+    __tablename__ = "grain_contract"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    client_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), unique=True)
+    crop: Mapped[str] = mapped_column(Text, nullable=False)  # 'corn', 'soybeans'
+    crop_year: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    contract_type: Mapped[str] = mapped_column(String(16), nullable=False)  # cash | hta | basis | futures | options
+    bushels: Mapped[float] = mapped_column(Numeric(12, 1), nullable=False)
+    price_per_bu: Mapped[float | None] = mapped_column(Numeric(8, 4))  # NULL = unpriced leg (HTA/basis open)
+    basis: Mapped[float | None] = mapped_column(Numeric(6, 4))
+    elevator: Mapped[str | None] = mapped_column(Text)
+    contract_number: Mapped[str | None] = mapped_column(Text)
+    delivery_start: Mapped[date | None] = mapped_column(Date)
+    delivery_end: Mapped[date | None] = mapped_column(Date)
+    delivered_bushels: Mapped[float] = mapped_column(Numeric(12, 1), nullable=False, default=0, server_default="0")
+    document_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("document.id"))  # the paper contract
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = created_at_col()
+    updated_at: Mapped[datetime] = updated_at_col()
+
+    __table_args__ = (
+        CheckConstraint("contract_type IN ('cash','hta','basis','futures','options')", name="grain_contract_type_ck"),
+        CheckConstraint("bushels > 0", name="grain_contract_bushels_ck"),
+        Index("grain_contract_crop_ix", "crop", "crop_year"),
+    )
+
+
 # --------------------------------------------------------------------------- metering / audit
 
 
