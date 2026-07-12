@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "farmos-backend"
-version = "0.1.1"
+version = "0.1.2"
 description = "Farm OS — self-hosted farm records for row-crop operations (Umbrel app)"
 requires-python = ">=3.11"
 dependencies = [
@@ -16,10 +16,10 @@ dependencies = [
     "alembic>=1.13",
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
-    "procrastinate[psycopg2]>=2.9",
+    "procrastinate>=2.9",  # uses the psycopg3 connector we already depend on; no psycopg2 (source build)
     "anthropic>=0.40",
     "shapely>=2.0",
-    "fiona>=1.9",
+    "pyshp>=2.3",  # pure-Python shapefile I/O — no GDAL, arm64-wheel-free
     "pyproj>=3.6",
     "python-multipart>=0.0.9",
     "pyyaml>=6.0",

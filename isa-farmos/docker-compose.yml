@@ -19,7 +19,7 @@ services:
       APP_PORT: 8585
 
   web:
-    image: ghcr.io/mherman1990/farmos:0.1.1
+    image: ghcr.io/mherman1990/farmos:0.1.2
     restart: on-failure
     stop_grace_period: 30s
     environment: &app_env
@@ -37,7 +37,7 @@ services:
           memory: 768M
 
   worker:
-    image: ghcr.io/mherman1990/farmos:0.1.1
+    image: ghcr.io/mherman1990/farmos:0.1.2
     command: ["worker"]
     restart: on-failure
     stop_grace_period: 30s
@@ -52,7 +52,7 @@ services:
           memory: 1024M # whisper.cpp base.en transient ~800MB
 
   db:
-    image: ghcr.io/mherman1990/farmos-db:0.1.1
+    image: ghcr.io/mherman1990/farmos-db:0.1.2
     restart: on-failure
     stop_grace_period: 1m
     command:
