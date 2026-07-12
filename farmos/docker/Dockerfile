@@ -16,8 +16,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /w
 # Pinned release so builds are reproducible.
 RUN git clone --depth 1 --branch v1.7.4 https://github.com/ggml-org/whisper.cpp.git
-RUN cmake -S whisper.cpp -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
-    && cmake --build build -j"$(nproc)" --target whisper-cli
+# GGML_NATIVE=OFF: never bake the build host's -march=native into an image that
+#   ships to a Cortex-A76 Pi (would risk SIGILL), and it's the flag that breaks
+#   the ggml compile under QEMU-emulated arm64.
+# -j2 (not $(nproc)): emulated g++ on the big ggml sources OOM-kills at -j4 on a
+#   hosted runner, which surfaces as a bare `exit code: 2`.
+# tests/server off so only the whisper-cli dependency graph compiles.
+RUN cmake -S whisper.cpp -B build \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DBUILD_SHARED_LIBS=OFF \
+      -DGGML_NATIVE=OFF \
+      -DWHISPER_BUILD_TESTS=OFF \
+      -DWHISPER_BUILD_SERVER=OFF \
+      -DWHISPER_BUILD_EXAMPLES=ON \
+    && cmake --build build -j2 --target whisper-cli
 RUN mkdir -p /opt/whisper \
     && curl -fL -o /opt/whisper/ggml-base.en.bin \
        https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin

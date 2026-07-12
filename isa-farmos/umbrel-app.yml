@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-farmos
 category: automation
 name: Farm OS
-version: "0.1.0"
+version: "0.1.1"
 tagline: Self-hosted farm records — voice capture, fields, FSA paperwork prep, program finder
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-farmos/icon.png
 description: >-
