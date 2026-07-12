@@ -478,6 +478,80 @@ class EligibilityRule(Base):
     __table_args__ = (UniqueConstraint("program_id", "rule_key", name="eligibility_rule_uq"),)
 
 
+# --------------------------------------------------------------------------- money & agronomy (Phase 2)
+
+
+class MoneyTransaction(Base):
+    """A farm transaction. Enterprise allocation (field/crop) is optional —
+    unallocated is honest; fabricated allocation is not."""
+
+    __tablename__ = "money_transaction"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    client_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), unique=True)
+    occurred_on: Mapped[date] = mapped_column(Date, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    kind: Mapped[str] = mapped_column(String(8), nullable=False, default="expense", server_default="expense")
+    category: Mapped[str] = mapped_column(Text, nullable=False, default="other", server_default="other")
+    amount: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)  # positive; kind carries direction
+    crop: Mapped[str | None] = mapped_column(Text)  # enterprise: 'corn', 'soybeans'
+    field_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("field.id"))
+    crop_year: Mapped[int | None] = mapped_column(SmallInteger)
+    document_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("document.id"))  # the receipt
+    source: Mapped[dict | None] = mapped_column(JSONB)  # {workbook_sha, sheet, row} for imports
+    created_at: Mapped[datetime] = created_at_col()
+
+    __table_args__ = (
+        CheckConstraint("kind IN ('expense','income')", name="money_transaction_kind_ck"),
+        CheckConstraint("amount >= 0", name="money_transaction_amount_ck"),
+        Index("money_transaction_date_ix", "occurred_on"),
+    )
+
+
+class BudgetLine(Base):
+    __tablename__ = "budget_line"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    crop_year: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    crop: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(Text, nullable=False)
+    amount_per_acre: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
+    source: Mapped[dict | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = created_at_col()
+
+    __table_args__ = (UniqueConstraint("crop_year", "crop", "category", name="budget_line_uq"),)
+
+
+class SoilTest(Base):
+    __tablename__ = "soil_test"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    field_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("field.id"), nullable=False)
+    sampled_on: Mapped[date | None] = mapped_column(Date)
+    lab: Mapped[str | None] = mapped_column(Text)
+    results: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    document_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("document.id"))
+    created_at: Mapped[datetime] = created_at_col()
+
+
+class WorkbookMapping(Base):
+    """A workbook's confirmed tab/column mapping, keyed by content hash so
+    re-importing next month's copy of the same book is one tap."""
+
+    __tablename__ = "workbook_mapping"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    filename: Mapped[str] = mapped_column(Text, nullable=False)
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    file_path: Mapped[str] = mapped_column(Text, nullable=False)
+    proposal: Mapped[dict | None] = mapped_column(JSONB)  # model-proposed mapping
+    mapping: Mapped[dict | None] = mapped_column(JSONB)  # farmer-confirmed mapping
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    imported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    import_result: Mapped[dict | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = created_at_col()
+
+
 # --------------------------------------------------------------------------- metering / audit
 
 
