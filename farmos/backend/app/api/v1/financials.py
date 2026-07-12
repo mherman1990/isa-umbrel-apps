@@ -11,8 +11,16 @@ from sqlalchemy.orm import Session
 
 from ... import auth
 from ...db import get_session
-from ...models import AppUser, AuditLog, BudgetLine, Field, MoneyTransaction
-from ...services import financials, lender_packet as lender_packet_svc
+from ...models import (
+    AppUser,
+    AuditLog,
+    BudgetLine,
+    Field,
+    MoneyTransaction,
+    OperatingLoan,
+    OperatingLoanEvent,
+)
+from ...services import cashflow, financials, lender_packet as lender_packet_svc
 
 router = APIRouter(tags=["financials"])
 
@@ -145,3 +153,112 @@ def lender_packet(
     if format == "html":
         return HTMLResponse(content=lender_packet_svc.render_html(packet))
     return packet
+
+
+# --------------------------------------------------------------- cash flow / operating line
+
+
+class OperatingLoanIn(BaseModel):
+    client_id: uuid.UUID | None = None
+    name: str
+    lender: str | None = None
+    credit_limit_usd: float = PField(ge=0)
+    interest_rate_pct: float | None = None
+    crop_year: int | None = None
+    opened_on: date | None = None
+    notes: str | None = None
+
+
+class LoanEventIn(BaseModel):
+    client_id: uuid.UUID | None = None
+    occurred_on: date
+    event_type: str = PField(pattern="^(draw|paydown|interest)$")
+    amount: float = PField(gt=0)
+    description: str | None = None
+
+
+def _loan_view(loan: OperatingLoan) -> dict:
+    return {
+        "id": str(loan.id),
+        "name": loan.name,
+        "lender": loan.lender,
+        "credit_limit_usd": float(loan.credit_limit_usd),
+        "interest_rate_pct": float(loan.interest_rate_pct) if loan.interest_rate_pct is not None else None,
+        "crop_year": loan.crop_year,
+        "opened_on": loan.opened_on.isoformat() if loan.opened_on else None,
+        "notes": loan.notes,
+    }
+
+
+@router.get("/operating-loans")
+def list_operating_loans(
+    year: int | None = None,
+    session: Session = Depends(get_session),
+    user: AppUser = Depends(auth.current_user),
+):
+    return cashflow.operating_line(session, year or date.today().year)
+
+
+@router.post("/operating-loans", status_code=201)
+def create_operating_loan(
+    body: OperatingLoanIn,
+    session: Session = Depends(get_session),
+    user: AppUser = Depends(auth.current_user),
+):
+    if body.client_id is not None:
+        existing = session.scalar(select(OperatingLoan).where(OperatingLoan.client_id == body.client_id))
+        if existing is not None:
+            return _loan_view(existing)
+    loan = OperatingLoan(
+        client_id=body.client_id,
+        name=body.name,
+        lender=body.lender,
+        credit_limit_usd=body.credit_limit_usd,
+        interest_rate_pct=body.interest_rate_pct,
+        crop_year=body.crop_year,
+        opened_on=body.opened_on,
+        notes=body.notes,
+    )
+    session.add(loan)
+    session.flush()
+    session.add(AuditLog(user_id=user.id, action="operating_loan.create", entity_type="operating_loan", entity_id=loan.id))
+    return _loan_view(loan)
+
+
+@router.post("/operating-loans/{loan_id}/events", status_code=201)
+def add_loan_event(
+    loan_id: uuid.UUID,
+    body: LoanEventIn,
+    session: Session = Depends(get_session),
+    user: AppUser = Depends(auth.current_user),
+):
+    loan = session.get(OperatingLoan, loan_id)
+    if loan is None:
+        raise HTTPException(status_code=404, detail="unknown loan")
+    if body.client_id is not None:
+        existing = session.scalar(select(OperatingLoanEvent).where(OperatingLoanEvent.client_id == body.client_id))
+        if existing is not None:
+            return {"id": str(existing.id), "loan_id": str(existing.loan_id)}
+    event = OperatingLoanEvent(
+        client_id=body.client_id,
+        loan_id=loan.id,
+        occurred_on=body.occurred_on,
+        event_type=body.event_type,
+        amount=body.amount,
+        description=body.description,
+    )
+    session.add(event)
+    session.flush()
+    session.add(AuditLog(user_id=user.id, action="operating_loan.event", entity_type="operating_loan_event", entity_id=event.id))
+    return {"id": str(event.id), "loan_id": str(event.loan_id), "event_type": event.event_type, "amount": float(event.amount)}
+
+
+@router.get("/financials/cash-flow")
+def cash_flow(
+    year: int,
+    session: Session = Depends(get_session),
+    user: AppUser = Depends(auth.current_user),
+):
+    """Monthly projected cash position: budget-derived outflow (typical timing),
+    priced-contract inflow, actuals, and the operating-line balance. Gaps named."""
+    return cashflow.cash_flow(session, year)

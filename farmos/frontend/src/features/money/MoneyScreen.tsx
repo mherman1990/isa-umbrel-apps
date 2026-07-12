@@ -34,6 +34,14 @@ export default function MoneyScreen() {
 
   const [position, setPosition] = useState<any>(null);
   const [scheduleF, setScheduleF] = useState<any>(null);
+  const [cashFlow, setCashFlow] = useState<any>(null);
+
+  // operating-line add forms
+  const [loanName, setLoanName] = useState("");
+  const [loanLimit, setLoanLimit] = useState("");
+  const [evLoan, setEvLoan] = useState("");
+  const [evType, setEvType] = useState("draw");
+  const [evAmount, setEvAmount] = useState("");
 
   async function refresh() {
     try {
@@ -41,9 +49,33 @@ export default function MoneyScreen() {
       setTxns(await api.get(`/transactions?year=${year}`));
       setPosition(await api.get(`/grain/position?year=${year}`));
       setScheduleF(await api.get(`/financials/schedule-f?year=${year}`));
+      setCashFlow(await api.get(`/financials/cash-flow?year=${year}`));
     } catch {
       /* offline */
     }
+  }
+
+  async function addLoan() {
+    await api.post("/operating-loans", {
+      client_id: crypto.randomUUID(),
+      name: loanName,
+      credit_limit_usd: Number(loanLimit),
+      crop_year: year,
+    });
+    setLoanName("");
+    setLoanLimit("");
+    await refresh();
+  }
+
+  async function addLoanEvent() {
+    await api.post(`/operating-loans/${evLoan}/events`, {
+      client_id: crypto.randomUUID(),
+      occurred_on: new Date().toISOString().slice(0, 10),
+      event_type: evType,
+      amount: Number(evAmount),
+    });
+    setEvAmount("");
+    await refresh();
   }
   useEffect(() => {
     void refresh();
@@ -236,6 +268,121 @@ export default function MoneyScreen() {
           Export lender packet ({year})
         </button>
       </div>
+
+      {cashFlow && (
+        <div className="card">
+          <h3>Cash-flow projection ({year})</h3>
+          <div className="crop-row">
+            <strong>Peak operating need</strong>
+            <span className="small">
+              ${cashFlow.peak_operating_need_usd.toLocaleString()} · planned out $
+              {cashFlow.planned_outflow_total.toLocaleString()} · planned in $
+              {cashFlow.planned_inflow_total.toLocaleString()}
+            </span>
+          </div>
+          <table className="cashflow">
+            <thead>
+              <tr>
+                <th>Mo</th>
+                <th className="num">Plan net</th>
+                <th className="num">Cumulative</th>
+                <th className="num">Actual net</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cashFlow.months
+                .filter((m: any) => m.planned_in || m.planned_out || m.actual_in || m.actual_out)
+                .map((m: any) => (
+                  <tr key={m.month}>
+                    <td>{m.label}</td>
+                    <td className="num">{m.planned_net.toLocaleString()}</td>
+                    <td className={"num" + (m.cumulative_planned_net < 0 ? " warn-text" : "")}>
+                      {m.cumulative_planned_net.toLocaleString()}
+                    </td>
+                    <td className="num">{m.actual_net ? m.actual_net.toLocaleString() : "—"}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+          {cashFlow.gaps && (
+            <ul className="small warn-text">
+              {cashFlow.gaps.map((g: string, i: number) => (
+                <li key={i}>{g}</li>
+              ))}
+            </ul>
+          )}
+          <p className="hint">
+            Outflow spreads your budget by typical Iowa timing (pack {cashFlow.timing_pack.version}
+            {cashFlow.timing_pack.stale ? `, unverified since ${cashFlow.timing_pack.verify_by}` : ""}); inflow
+            counts only priced contracts. {cashFlow.even_spread_categories.length > 0
+              ? `Even-spread (no timing): ${cashFlow.even_spread_categories.join(", ")}.`
+              : ""}
+          </p>
+        </div>
+      )}
+
+      {cashFlow && (
+        <div className="card">
+          <h3>Operating line</h3>
+          {cashFlow.operating_line.loans.length === 0 && (
+            <p className="hint">No operating line recorded for {year}. Add one to track draws vs. the projected need.</p>
+          )}
+          {cashFlow.operating_line.loans.map((l: any) => (
+            <div key={l.id} className="crop-row">
+              <strong>{l.name}</strong>
+              <span className={"small" + (l.over_limit ? " warn-text" : "")}>
+                ${l.outstanding_balance_usd.toLocaleString()} drawn of $
+                {l.credit_limit_usd.toLocaleString()} · ${l.available_usd.toLocaleString()} available
+                {l.over_limit ? " · OVER LIMIT" : ""}
+              </span>
+            </div>
+          ))}
+          <div className="button-row">
+            <label style={{ flex: 1 }}>
+              New line name
+              <input value={loanName} onChange={(e) => setLoanName(e.target.value)} placeholder="FCS operating line" />
+            </label>
+            <label>
+              Limit $
+              <input inputMode="decimal" value={loanLimit} onChange={(e) => setLoanLimit(e.target.value)} />
+            </label>
+            <button className="primary" disabled={!loanName || !Number(loanLimit)} onClick={addLoan}>
+              Add line
+            </button>
+          </div>
+          {cashFlow.operating_line.loans.length > 0 && (
+            <div className="button-row">
+              <label style={{ flex: 1 }}>
+                Line
+                <select value={evLoan} onChange={(e) => setEvLoan(e.target.value)}>
+                  <option value="">—</option>
+                  {cashFlow.operating_line.loans.map((l: any) => (
+                    <option key={l.id} value={l.id}>
+                      {l.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Type
+                <select value={evType} onChange={(e) => setEvType(e.target.value)}>
+                  <option value="draw">draw</option>
+                  <option value="paydown">paydown</option>
+                  <option value="interest">interest</option>
+                </select>
+              </label>
+              <label>
+                Amount $
+                <input inputMode="decimal" value={evAmount} onChange={(e) => setEvAmount(e.target.value)} />
+              </label>
+              <button className="primary" disabled={!evLoan || !Number(evAmount)} onClick={addLoanEvent}>
+                Record
+              </button>
+            </div>
+          )}
+          <p className="hint">Balances are derived from the draw/paydown ledger, never entered directly.</p>
+        </div>
+      )}
 
       <div className="card">
         <h3>Add a transaction</h3>

@@ -31,8 +31,8 @@ def seed(session: Session) -> dict:
     from .models import (
         AppUser, BudgetLine, CaptureEvent, ConfirmationQueueItem, CropYear, DailyBrief,
         Document, Farm, FarmProfile, Field, FieldOperation, GrainContract, InputInventory,
-        MoneyTransaction, OperationProduct, ParseResult, Practice, PracticeEvidence,
-        Product, ProgramEnrollment,
+        MoneyTransaction, OperatingLoan, OperatingLoanEvent, OperationProduct, ParseResult,
+        Practice, PracticeEvidence, Product, ProgramEnrollment,
     )
 
     existing = session.scalar(select(FarmProfile).where(FarmProfile.operation_name == DEMO_NAME))
@@ -159,6 +159,16 @@ def seed(session: Session) -> dict:
                               delivery_start=date(year, 10, 1), delivery_end=date(year, 11, 15)))
     session.add(GrainContract(crop="soybeans", crop_year=year, contract_type="hta", bushels=8000,
                               elevator="Heartland Co-op"))
+
+    # operating line with a draw/paydown ledger (balance is derived, not stored)
+    loan = OperatingLoan(name="Heartland FCS operating line", lender="Farm Credit Services",
+                         credit_limit_usd=350000, interest_rate_pct=7.75, crop_year=year,
+                         opened_on=date(year, 1, 15))
+    session.add(loan)
+    session.flush()
+    for etype, amt, when in (("draw", 120000, date(year, 4, 5)), ("draw", 60000, date(year, 6, 10)),
+                             ("paydown", 90000, date(year - 1, 11, 20))):
+        session.add(OperatingLoanEvent(loan_id=loan.id, event_type=etype, amount=amt, occurred_on=when))
 
     # documents incl. a scale ticket that feeds the position ledger
     session.add(Document(doc_type="scale_ticket", title="Heartland ticket 5512 (demo)",

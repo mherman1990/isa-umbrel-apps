@@ -23,6 +23,20 @@ Farm OS releases use `farmos-v*` git tags.)
   uncategorized money exists. The `html` format is a self-contained,
   dependency-free printable page (every dynamic value HTML-escaped) that the
   PWA opens and prints to PDF; Money-tab "Export lender packet" button.
+- **Cash-flow projection** (`GET /financials/cash-flow?year=`): month-by-month
+  planned cash position — outflow spreads the farmer's OWN budget total across
+  the year by a new **cited timing pack** (`cashflow_packs/ia-cashflow-2026.yaml`,
+  ISU Ag Decision Maker, `verify_by`); inflow counts ONLY priced grain
+  contracts placed in their delivery window. The deepest cumulative deficit is
+  the **peak operating need**. Everything unprojectable — unpriced contracts,
+  uncontracted production, budgeted crops with no acres — is listed as a gap,
+  never estimated. Money-tab card with the monthly table + gaps.
+- **Operating-line tracking** (`GET/POST /operating-loans`,
+  `POST /operating-loans/{id}/events`): a draw / paydown / interest ledger per
+  line of credit; the outstanding balance and available credit are **derived
+  from the ledger, never entered** (`client_id` idempotent, over-limit
+  flagged). Surfaced in the cash-flow view and Money-tab card; demo seed ships
+  a sample line. Migration 0008 (new tables); restore drill re-verified.
 
 ## Also unreleased — Phase 5 assistant + sandbox
 

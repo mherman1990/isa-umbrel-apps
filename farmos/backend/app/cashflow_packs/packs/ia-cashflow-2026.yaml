@@ -1,0 +1,42 @@
+# Iowa cash-flow TIMING pack — v2026.1
+#
+# Data, not code (same discipline as region/tax packs). This maps each
+# expense category to the fraction of its annual total that TYPICALLY falls
+# in each calendar month for an Iowa corn/soybean operation. It is used to
+# spread the farmer's OWN budget total across the year for a cash-flow
+# projection — it is a typical calendar, NOT a farm record, and the
+# projection labels it as such. Weights per category sum to 1.0. Categories
+# not listed fall back to an even 1/12 spread (also labeled "even").
+#
+# Confirm against your operation and your lender's assumptions; adjust the
+# pack (bump the version) rather than hand-editing projections.
+
+region_code: US-IA
+version: "2026.1"
+source_url: https://www.extension.iastate.edu/agdm/crops/html/a1-20.html
+last_verified: 2026-07-12
+verify_by: 2027-03-01
+notes: >
+  Typical monthly timing for Iowa row-crop cash operating costs, compiled
+  2026-07 from ISU Ag Decision Maker crop-budget and cash-rent timing
+  references. Typical calendar only — not a claim about any one operation.
+
+expense_timing:
+  seed:        {3: 0.25, 4: 0.75}
+  fertilizer:  {3: 0.15, 4: 0.40, 10: 0.30, 11: 0.15}
+  chemical:    {4: 0.15, 5: 0.40, 6: 0.30, 7: 0.15}
+  herbicide:   {4: 0.15, 5: 0.40, 6: 0.30, 7: 0.15}
+  insecticide: {6: 0.40, 7: 0.60}
+  fungicide:   {7: 0.60, 8: 0.40}
+  fuel:        {4: 0.15, 5: 0.15, 6: 0.10, 7: 0.10, 9: 0.15, 10: 0.25, 11: 0.10}
+  custom_hire: {5: 0.35, 10: 0.45, 11: 0.20}
+  cash_rent:   {3: 0.50, 11: 0.50}
+  land_rent:   {3: 0.50, 11: 0.50}
+  rent:        {3: 0.50, 11: 0.50}
+  labor:       {4: 0.15, 5: 0.15, 6: 0.15, 7: 0.10, 8: 0.10, 9: 0.10, 10: 0.15, 11: 0.10}
+  repairs:     {2: 0.20, 3: 0.20, 4: 0.15, 8: 0.15, 9: 0.15, 10: 0.15}
+  insurance:   {3: 0.50, 10: 0.50}
+  interest:    {3: 0.25, 6: 0.25, 9: 0.25, 12: 0.25}
+  supplies:    {4: 0.20, 5: 0.20, 6: 0.20, 9: 0.20, 10: 0.20}
+  storage:     {10: 0.50, 11: 0.50}
+  drying:      {10: 0.50, 11: 0.50}

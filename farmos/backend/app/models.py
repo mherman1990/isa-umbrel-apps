@@ -652,6 +652,52 @@ class BudgetLine(Base):
     __table_args__ = (UniqueConstraint("crop_year", "crop", "category", name="budget_line_uq"),)
 
 
+class OperatingLoan(Base):
+    """An operating line of credit: its limit and its draw/paydown ledger.
+    The cash-flow view shows outstanding balance vs. the projected need. The
+    balance is DERIVED from the event ledger, never stored — records, not a
+    fabricated figure."""
+
+    __tablename__ = "operating_loan"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    client_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), unique=True)  # offline idempotency
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    lender: Mapped[str | None] = mapped_column(Text)
+    credit_limit_usd: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
+    interest_rate_pct: Mapped[float | None] = mapped_column(Numeric(6, 3))
+    crop_year: Mapped[int | None] = mapped_column(SmallInteger)  # NULL = not tied to one year
+    opened_on: Mapped[date | None] = mapped_column(Date)
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = created_at_col()
+    updated_at: Mapped[datetime] = updated_at_col()
+
+    __table_args__ = (CheckConstraint("credit_limit_usd >= 0", name="operating_loan_limit_ck"),)
+
+
+class OperatingLoanEvent(Base):
+    """A draw, paydown, or interest charge on an operating loan."""
+
+    __tablename__ = "operating_loan_event"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    client_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), unique=True)  # offline idempotency
+    loan_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("operating_loan.id", ondelete="CASCADE"), nullable=False
+    )
+    occurred_on: Mapped[date] = mapped_column(Date, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(12), nullable=False)  # draw | paydown | interest
+    amount: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)  # positive; type carries direction
+    description: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = created_at_col()
+
+    __table_args__ = (
+        CheckConstraint("event_type IN ('draw','paydown','interest')", name="operating_loan_event_type_ck"),
+        CheckConstraint("amount > 0", name="operating_loan_event_amount_ck"),
+        Index("operating_loan_event_loan_ix", "loan_id", "occurred_on"),
+    )
+
+
 class SoilTest(Base):
     __tablename__ = "soil_test"
 
