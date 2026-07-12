@@ -19,7 +19,8 @@ NEW_TABLES = ["practice", "practice_evidence", "program_enrollment", "stacking_r
 def upgrade() -> None:
     from app.models import Base
 
-    op.add_column("program", sa.Column("payment_per_acre", sa.Numeric(10, 2), nullable=True))
+    # idempotent: fresh DBs get this column from the 0001 metadata baseline
+    op.execute("ALTER TABLE program ADD COLUMN IF NOT EXISTS payment_per_acre NUMERIC(10,2)")
     tables = [Base.metadata.tables[name] for name in NEW_TABLES]
     Base.metadata.create_all(bind=op.get_bind(), tables=tables)
 

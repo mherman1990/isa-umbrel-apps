@@ -14,7 +14,11 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("program", sa.Column("signup_deadline_date", sa.Date(), nullable=True))
+    # IF NOT EXISTS: the 0001 baseline creates tables from CURRENT model
+    # metadata, so a fresh database already has this column when it reaches
+    # this migration. Every ALTER-based migration in this repo must be
+    # idempotent for that reason.
+    op.execute("ALTER TABLE program ADD COLUMN IF NOT EXISTS signup_deadline_date DATE")
 
 
 def downgrade() -> None:
