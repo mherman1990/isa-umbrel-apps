@@ -75,16 +75,27 @@ docker exec -it isa-farmos_web_1 farmos-restore --repo /backup-usb/farmos
 The restore drill (seed → backup → wipe → restore → verify byte-identical)
 runs in CI and must pass on real hardware before Phase 1 sign-off.
 
-## Phase 1 status
+## Status
 
-Shipped: capture (voice/photo/file + offline queue + inbox), device-pair
-auth, onboarding wizard, field registry + farmers.gov CLU import
-(shapefile/GeoJSON), field operations log, products/inventory, crop years
-with FSA-578/CART-standard columns, Iowa region pack + thin Program
-Finder, spend meter + hard cap, encrypted backup + tested restore, parser
-eval harness (26 transcripts) in CI.
+**Phase 1 complete (code-side)**: capture — voice AND photo/file with
+vision routing to the document vault or nearest field — offline queue,
+confirmation inbox, device-pair auth, onboarding wizard, field registry +
+farmers.gov CLU import AND shapefile export (round-trip tested), field
+operations log, products/inventory with automatic draw-down, crop years
+with FSA-578/CART columns + printable 578 worksheet with completeness
+flags, Iowa region pack (2026.2) + Program Finder + deadline nudges,
+spend meter + hard cap, encrypted backup + CI-tested restore, 26-case
+parser eval gate.
 
-Not yet (per plan): photo/document OCR routing job, OpenTimestamps
-anchoring (Phase 2 — `timestamp_proof` column already exists), spreadsheet
-importer (Phase 2), FSA-578 packet generation (Phase 3), marketing/
-accounting (Phases 2/4), assistant (Phase 5), Lightning module (Phase 6).
+**Phase 2 shipped**: OpenTimestamps anchoring (standard .ots proofs,
+nightly batch + attestation upgrade), mapping-assisted spreadsheet
+importer, transactions/budget/breakeven with honest insufficient-data
+handling, weather auto-attach (Open-Meteo), soil-test records, rotation
+matrix.
+
+**Still ahead**: hardware acceptance on a real Pi 5 (first `farmos-v*`
+tag → install → whisper-under-bitcoind test → restore drill on USB),
+document vault semantic search (pgvector), full conservation engine +
+stacking checker (Phase 3), grain position (Phase 4), assistant
+(Phase 5), Lightning module (Phase 6 — builds against the Bitcorn fork's
+HTTP API with a regtest/mock-treasury harness).

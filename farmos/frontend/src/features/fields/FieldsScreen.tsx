@@ -31,12 +31,14 @@ export default function FieldsScreen() {
   const [message, setMessage] = useState<string | null>(null);
   const [ops, setOps] = useState<any[]>([]);
   const [rotation, setRotation] = useState<any>(null);
+  const [inventory, setInventory] = useState<any[]>([]);
 
   async function refresh() {
     try {
       setFields(await api.get("/fields"));
       setOps(await api.get("/operations"));
       setRotation(await api.get("/rotation"));
+      setInventory(await api.get("/inventory"));
     } catch {
       /* offline */
     }
@@ -259,6 +261,23 @@ export default function FieldsScreen() {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {inventory.length > 0 && (
+        <div className="card">
+          <h3>Input inventory</h3>
+          <ul className="list">
+            {inventory.map((i: any) => (
+              <li key={i.id}>
+                <strong>{i.product}</strong>
+                <span className="small">
+                  {i.quantity} {i.unit} on hand · {i.category}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="hint">Drawn down automatically when you confirm applications with totals.</p>
         </div>
       )}
 
