@@ -51,7 +51,7 @@ program
 
 program
   .command("memo <preset>")
-  .description("Generate an on-demand memo across all streams: weekly | monthly | farmer")
+  .description("Generate an on-demand memo across all streams: weekly | monthly | education | analyst")
   .action(async (preset) => {
     const { runMemo } = await import("./pipeline.js");
     await runMemo(preset, process.env);
@@ -114,7 +114,7 @@ program
 
 program
   .command("market-cards")
-  .description("Generate the farmer market-education cards from the active condition triggers")
+  .description("Generate the internal market signal cards from the active condition triggers")
   .action(async () => {
     const { generateMarketCards } = await import("./pipeline.js");
     const c = await generateMarketCards(process.env);

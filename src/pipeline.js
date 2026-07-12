@@ -21,7 +21,8 @@ import { weatherRiskText } from "./weather.js";
 import { upcomingReportsText, upcomingReports } from "./calendar.js";
 import { fetchDocumentText } from "./summarize.js";
 import { evaluateTriggers, triggersText } from "./triggers.js";
-import { scanBanned, COMPLIANCE_RULES, EDUCATION_FOOTER } from "./compliance.js";
+// compliance.js is intentionally NOT imported here — it's decoupled (platform split 2026-07-11)
+// and reserved for the future farmer-facing tool. Bean Brief's internal outputs run un-muzzled.
 import { mapPool } from "./util.js";
 
 // How many market adapters to refresh at once — independent hosts, so the phase is the slowest
@@ -447,29 +448,37 @@ export async function answerQuery(question, env) {
 
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   const model = env.BRIEF_MODEL || "claude-sonnet-5";
-  const response = await client.messages.create({
-    model,
-    // Headroom for Sonnet 5's default adaptive thinking (it counts against max_tokens) plus a cited,
-    // multi-stream answer — so a reasoning-heavy question can't truncate the reply.
-    max_tokens: 3500,
-    system:
-      "You are the research assistant for a professional at the Iowa Soybean Association whose remit is BOTH policy and demand/markets. Answer using ONLY the stored monitoring data provided below, which spans three streams: (1) LAWS/RULES/DECISIONS + NEWS items, (2) MARKET DATA (soybean price, crush, stocks, biofuel feedstock share, basis, fund positioning, exports, barge freight, crop condition, weather), and (3) recent BRIEFS, plus tracked items and comment deadlines. The market data carries trend context per series — change vs. prior, year-over-year, the historical range with the latest value's percentile, and a seasonal read (vs. the same month across years). USE that context to explain trends and whether a value is seasonally normal or unusual, not just the latest number. Synthesize across streams when it helps — e.g. connect a policy or trade development to the market numbers. Cite item titles as markdown links when a URL is available; when you cite a market figure, name the series and its period (e.g. \"U.S. crush 210M bu, Apr 2026\"). Use plain, professional English. If the stored data doesn't answer the question, say so plainly rather than guessing.",
-    messages: [
-      {
-        role: "user",
-        content:
-          `Question: ${question}\n\n` +
-          `=== MARKET DATA (latest value, change vs prior, recent trail) ===\n${marketBlock || "(no market data stored yet)"}\n\n` +
-          (weatherRiskText() ? `=== CROP-WEATHER READ (anomaly vs. normal → supply/price) ===\n${weatherRiskText()}\n\n` : "") +
-          `=== LAWS/RULES/DECISIONS + NEWS items (JSON) ===\n${JSON.stringify(compactHits, null, 1)}\n\n` +
-          `=== TRACKED ITEMS (pinned) ===\n${tracked.length ? tracked.map((t) => `- ${t.title}${t.jurisdiction ? ` (${t.jurisdiction})` : ""}${t.url ? ` ${t.url}` : ""}`).join("\n") : "(none)"}\n\n` +
-          `=== UPCOMING COMMENT DEADLINES ===\n${deadlines.length ? deadlines.map((d) => `- ${d.comment_deadline}: ${d.title}${d.url ? ` ${d.url}` : ""}`).join("\n") : "(none)"}\n\n` +
-          `=== RECENT BRIEFS ===\n${briefTexts.join("\n\n") || "(none)"}`,
-      },
-    ],
-  });
-  store.recordUsage(model, "query", response.usage.input_tokens, response.usage.output_tokens);
-  return { answer: response.content.find((b) => b.type === "text")?.text ?? "(no answer)", hits: merged };
+  const system =
+    "You are the senior market-and-policy analyst for an Iowa Soybean Association professional whose remit is BOTH policy and demand/markets. This is an INTERNAL analysis tool for staff — give a sharp, direct answer, not a hedged briefing. Draw on the stored monitoring data provided below, which spans three streams: (1) LAWS/RULES/DECISIONS + NEWS items, (2) MARKET DATA (soybean price, crush, stocks, biofuel feedstock share, basis, fund positioning, exports, barge freight, crop condition, weather), and (3) recent BRIEFS, plus tracked items and comment deadlines. The market data carries trend context per series — change vs. prior, year-over-year, the historical range with the latest value's percentile, and a seasonal read (vs. the same month across years). USE that context to explain trends and whether a value is seasonally normal or unusual, not just the latest number. Synthesize across streams — connect policy/trade developments to the market MECHANISM and the numbers, go second-order, and where the data supports it give a directional read: the most likely interpretation, the risk to it, and the report or data that would confirm or kill it. Distinguish FACT from your INTERPRETATION, and be honest about confidence rather than hedging into mush. Cite item titles as markdown links when a URL is available; when you cite a market figure, name the series and its period (e.g. \"U.S. crush 210M bu, Apr 2026\"). Plain, professional English. You also have a WEB SEARCH tool — lean on the stored monitoring data first, but use the web to fill what it doesn't cover: the latest futures/cash prices, breaking news, or a figure or date worth verifying — anything more current than the last pipeline run. Reach for it when it makes the answer materially better or more current, not reflexively. Cite any web source inline as a markdown link so staff can tell web-sourced facts from the internal streams. Don't invent numbers — pull them.";
+  const userContent =
+    `Question: ${question}\n\n` +
+    `=== MARKET DATA (latest value, change vs prior, recent trail) ===\n${marketBlock || "(no market data stored yet)"}\n\n` +
+    (weatherRiskText() ? `=== CROP-WEATHER READ (anomaly vs. normal → supply/price) ===\n${weatherRiskText()}\n\n` : "") +
+    `=== LAWS/RULES/DECISIONS + NEWS items (JSON) ===\n${JSON.stringify(compactHits, null, 1)}\n\n` +
+    `=== TRACKED ITEMS (pinned) ===\n${tracked.length ? tracked.map((t) => `- ${t.title}${t.jurisdiction ? ` (${t.jurisdiction})` : ""}${t.url ? ` ${t.url}` : ""}`).join("\n") : "(none)"}\n\n` +
+    `=== UPCOMING COMMENT DEADLINES ===\n${deadlines.length ? deadlines.map((d) => `- ${d.comment_deadline}: ${d.title}${d.url ? ` ${d.url}` : ""}`).join("\n") : "(none)"}\n\n` +
+    `=== RECENT BRIEFS ===\n${briefTexts.join("\n\n") || "(none)"}`;
+  const messages = [{ role: "user", content: userContent }];
+  // Web search is an Anthropic SERVER-side tool: the API runs the search loop and returns the final
+  // answer — no client tool loop. A long server loop can stop with stop_reason "pause_turn"; re-send
+  // to continue, bounded so it can't spin. web_search_20260209 needs Sonnet 5 / Opus 4.x (our
+  // BRIEF_MODEL) and takes NO beta header. A search error returns as a result block, never a throw.
+  let response;
+  for (let turn = 0; turn < 4; turn++) {
+    response = await client.messages.create({
+      model,
+      max_tokens: 4500, // headroom for Sonnet 5 adaptive thinking + a web-augmented, cited answer
+      system,
+      tools: env.WEB_SEARCH === "off" ? undefined : [{ type: "web_search_20260209", name: "web_search", max_uses: 5 }], // WEB_SEARCH=off → stored-data-only
+      messages,
+    });
+    store.recordUsage(model, "query", response.usage.input_tokens, response.usage.output_tokens);
+    if (response.stop_reason !== "pause_turn") break;
+    messages.push({ role: "assistant", content: response.content }); // echo blocks back unchanged to resume
+  }
+  // Web-augmented answers can span several text blocks (interleaved with search-result blocks) — join them.
+  const answer = response.content.filter((b) => b.type === "text").map((b) => b.text).join("").trim() || "(no answer)";
+  return { answer, hits: merged };
 }
 
 export async function runQuery(question, env) {
@@ -527,24 +536,6 @@ One line each.
 
 Rules: never invent items or numbers; keep every markdown link; cite a market figure with its series + period; plain professional English; omit empty sections.`,
   },
-  farmer: {
-    label: "Farmer update",
-    edition: "farmer",
-    scopeDays: 7,
-    maxTokens: 3000,
-    system: (dateLabel) => `You write "The Bean Brief for Farmers" — a plain-language, strictly NONPARTISAN update for Iowa Soybean Association farmer-members (not policy insiders). Use ONLY the stored monitoring data. Explain what each development MEANS for a soybean farmer's bottom line — prices, demand, input costs, rules that touch their operation. Structure exactly:
-
-## The Bean Brief for Farmers — ${dateLabel}
-
-### 💵 Markets: what your beans are worth
-Cash price + basis (name the number and date), crush/demand direction, biofuel demand — in plain terms.
-### 🏛️ Policy you should know about
-2–4 items max, plain English, why it matters to your farm.
-### 📅 Dates to know
-Comment deadlines or decisions that affect farmers.
-
-Rules: never invent items or numbers; keep markdown links; nonpartisan and informational ONLY — no advocacy, no "contact your legislator," no partisan framing; keep it short — a farmer reads this in two minutes.`,
-  },
   education: {
     label: "Market-education brief",
     edition: "education",
@@ -554,7 +545,7 @@ Rules: never invent items or numbers; keep markdown links; nonpartisan and infor
     // The stable "teach, don't tell" identity (§1) + the daily-brief task structure (§3).
     system: (dateLabel) => `${EDUCATION_SYSTEM_PROMPT}
 
-TASK: Write today's BeanBrief daily market-education brief for Iowa soybean and corn farmers, using ONLY the data context provided. Structure exactly:
+TASK: Write today's BeanBrief daily market-education brief for Iowa Soybean Association staff who aren't grain-market experts, using ONLY the data context provided. Structure exactly:
 
 ## BeanBrief — Market Education, ${dateLabel}
 
@@ -565,11 +556,11 @@ TASK: Write today's BeanBrief daily market-education brief for Iowa soybean and 
 ### Understanding today's market
 One short paragraph teaching the assigned CONCEPT (provided below), tied to something in today's data so the lesson lands in context. Treat this as the most valuable part.
 ### Worth watching
-1–2 bullets: what a farmer can now watch for themselves — the next report, a weather window, an export pace. "Here's what to watch and why," never "here's what to do."
+1–2 bullets: what a staffer can now watch — the next report, a weather window, an export pace — and the read on which way it's likely to break and why.
 ### Today's terms
 A one-line plain definition for any market term you used (draw from the glossary provided). Omit this block entirely if you introduced no term.
 
-Length: scannable in ~90 seconds (250–400 words). No preamble, no sign-off. Start at the lead. Remember the hard guardrails — explain, never advise.`,
+Length: scannable in ~90 seconds (250–400 words). No preamble, no sign-off. Start at the lead. Teach the mechanism, then give the read.`,
   },
   analyst: {
     label: "Analyst Note",
@@ -585,7 +576,8 @@ Length: scannable in ~90 seconds (250–400 words). No preamble, no sign-off. St
     thinking: { type: "adaptive" },
     effort: "high",
     injectSignals: true,
-    system: (dateLabel) => `You are the senior market-and-policy analyst for the Iowa Soybean Association's demand & policy team — an INTERNAL audience (sharp, no hand-holding, wants to see around the corner). Write a forward-looking ANALYST NOTE using ONLY the stored data provided (the market signal board, full-history trend stats, laws/rules/decisions + news, the release calendar, tracked items, recent briefs).
+    web: true,
+    system: (dateLabel) => `You are the senior market-and-policy analyst for the Iowa Soybean Association's demand & policy team — an INTERNAL audience (sharp, no hand-holding, wants to see around the corner). Write a forward-looking ANALYST NOTE grounded in the stored data provided (the market signal board, full-history trend stats, laws/rules/decisions + news, the release calendar, tracked items, recent briefs). You also have a WEB SEARCH tool: when the stored data leaves a gap that matters to the read — a very recent development, a number more current than the last pipeline run, or a fact worth verifying — search for it, and cite any web source inline as a markdown link so it stands apart from the internal streams. Lean on the stored data first; reach for the web only when it sharpens the analysis.
 
 Do NOT summarize the period. Do the analysis a headline can't give:
 - Connect across streams — tie a policy/trade development to the market MECHANISM and the numbers (name the series, period, percentile, YoY, seasonal read).
@@ -608,31 +600,6 @@ The policy/regulatory items that actually move the demand or price mechanism —
 The imminent releases worth positioning attention around, and the specific thing to watch in each.
 
 Rules: never invent numbers or items; cite series + period for every figure; keep every markdown link; omit an empty section. This is analysis, not advice — lay out setups and risks, but do not tell anyone to buy or sell.`,
-  },
-  pulse: {
-    label: "Market Pulse",
-    edition: "pulse",
-    scopeDays: 4,
-    maxTokens: 3000, // headroom for Sonnet 5's default adaptive thinking + the note
-    injectSignals: true,
-    system: (dateLabel) => `You write "The Bean Brief — Market Pulse," a SHORT, time-sensitive read for Iowa soybean farmer-members who are thinking about marketing their grain. This is decision SUPPORT, not a lesson and not advice. Lead with what's happening now; teaching is secondary. Use ONLY the stored data.
-
-THE HARD LINE (never cross it): explain what the data shows and the factors a marketer weighs — NEVER tell a farmer what to do with their grain (no "sell," "hold," "wait," "hedge," or any personalized call). Point decisions to their own grain marketer or broker.
-
-Structure exactly:
-
-## The Bean Brief — Market Pulse, ${dateLabel}
-
-### Which way the wind's blowing
-1–2 sentences from the signal board — the overall tilt and the one or two signals doing the most.
-### What changed
-3–5 bullets: the cash price / basis / demand / weather / positioning that MOVED recently — each with the number, its source + date, and whether it's unusual (use the percentile / seasonal / YoY context). Plain language.
-### What a marketer is weighing
-2–3 short factors a grain marketer would be thinking about right now given the above — framed as considerations, never a recommendation.
-### Coming up
-The next report or two on the calendar that could move things, and by when.
-
-Rules: never invent numbers; cite the source + date of every figure; nonpartisan; keep it to a two-minute read. End with one line: this is market education, not marketing advice — decisions belong with your own marketer or broker.`,
   },
 };
 
@@ -737,9 +704,19 @@ export async function generateMemo(presetId, env) {
   // rejects the old budget_tokens knob.
   if (preset.thinking) request.thinking = preset.thinking;
   if (preset.effort) request.output_config = { effort: preset.effort };
-  const response = await client.messages.create(request);
-  store.recordUsage(model, "memo", response.usage.input_tokens, response.usage.output_tokens);
-  const markdown = response.content.find((b) => b.type === "text")?.text?.trim() ?? "";
+  // Web-enabled presets (Analyst): attach the server-side web-search tool so the model can fill gaps
+  // in the stored data when the read needs it. A long server tool loop can stop with stop_reason
+  // "pause_turn" — re-send to continue, bounded so it can't spin (same pattern as the Ask box).
+  if (preset.web && env.WEB_SEARCH !== "off") request.tools = [{ type: "web_search_20260209", name: "web_search", max_uses: 6 }];
+  let response;
+  for (let turn = 0; turn < 4; turn++) {
+    response = await client.messages.create(request);
+    store.recordUsage(model, "memo", response.usage.input_tokens, response.usage.output_tokens);
+    if (response.stop_reason !== "pause_turn") break;
+    request.messages.push({ role: "assistant", content: response.content }); // echo blocks back unchanged to resume
+  }
+  // Web-augmented notes can span several text blocks (interleaved with search-result blocks) — join them.
+  const markdown = response.content.filter((b) => b.type === "text").map((b) => b.text).join("").trim();
   const filePath = saveBrief(markdown, preset.edition, timezone);
   return { markdown, filePath, edition: preset.edition };
 }
@@ -814,10 +791,10 @@ export function getCachedNewsDigest() {
 }
 
 /**
- * Market-education cards — the farmer-facing output of the condition-trigger engine. Evaluates
- * the active triggers + imminent reports, then one Sonnet call writes compliance-framed education
- * cards (teach, never advise; the banned-phrasing filter + standard footer are applied here).
- * Cached in kv_state. @returns {{ markdown, date, triggers, flags } | null}
+ * Signal cards — the internal output of the condition-trigger engine. Evaluates the active
+ * triggers + imminent reports, then one Sonnet call writes short signal cards (what fired, what it
+ * means, the directional read). Staff-facing/un-muzzled — no compliance filter (decoupled 2026-07-11).
+ * Cached in kv_state. @returns {{ markdown, date, triggers } | null}
  */
 export async function generateMarketCards(env = process.env) {
   if (!env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not set in .env — get one at console.anthropic.com");
@@ -828,7 +805,7 @@ export async function generateMarketCards(env = process.env) {
 
   const marketBlock = formatMarketSnapshot(store.marketSnapshot());
   const system =
-    `You write BeanBrief's farmer market-EDUCATION cards for Iowa soybean growers. Turn the ACTIVE triggers below into 1–3 short education cards; the headline card is the one with the lowest priority number (or the nearest high-impact report). Honor the card TYPE listed for each trigger (what's happening / what history shows / review your plan). For a "what history shows" card, always state the sample and the caveat.\n\n${COMPLIANCE_RULES}\n\nFormat: markdown. Begin each card with "### " and a short bold-worthy title, then 2–4 plain sentences grounded in the provided data. Do NOT write your own disclaimer/footer — one standard education footer is appended in code. No preamble.`;
+    `You write BeanBrief's internal SIGNAL cards for the Iowa Soybean Association demand & policy team. Turn the ACTIVE triggers below into 1–3 short signal cards; the headline card is the one with the lowest priority number (or the nearest high-impact report). Each card: what fired, what it means for soybean supply/demand/price, and the analytical read — including the likely direction and the risk to it. For a card resting on a seasonal/statistical pattern, state the sample and the caveat (e.g. "in X of the last Y years… not every year"). This is an internal analyst tool — a clear directional read is welcome; flag it as interpretation, not certainty.\n\nFormat: markdown. Begin each card with "### " and a short bold-worthy title, then 2–4 sentences grounded in the provided data (never invent a figure). No preamble, no footer.`;
   const user =
     `Today: ${now.toISOString().slice(0, 10)}.\n\n` +
     `ACTIVE TRIGGERS (ranked; lowest priority number = headline):\n${triggersText(now) || "(none)"}\n\n` +
@@ -844,25 +821,14 @@ export async function generateMarketCards(env = process.env) {
     return resp.content.find((b) => b.type === "text")?.text?.trim() ?? "";
   };
 
-  // Defense-in-depth: the synthesis prompt forbids advice, but if the model slips, do NOT publish it.
-  // Regenerate once with a corrective instruction; if it's STILL flagged, withhold the cards entirely
-  // (better no card than an advice card) — the previously cached cards stay in place.
-  let markdown = await synth(system);
-  let flags = scanBanned(markdown);
-  if (flags.length) {
-    console.log(`⚠️  Market cards compliance flags on first pass (${flags.length}): ${flags.join(" · ")} — regenerating once.`);
-    markdown = await synth(`${system}\n\nYOUR PREVIOUS DRAFT CONTAINED ADVICE-LIKE PHRASING: "${flags.join('", "')}". Rewrite every card so NONE of that appears — describe what is happening or what history shows, never what the farmer should do.`);
-    flags = scanBanned(markdown);
-    if (flags.length) {
-      console.log(`⛔  Market cards STILL flagged after retry (${flags.join(" · ")}) — withholding; cards not updated.`);
-      return null;
-    }
-  }
-  markdown += `\n\n---\n\n_${EDUCATION_FOOTER}_`;
+  // Internal signal cards — no compliance filter (this is a staff analysis tool; compliance.js is
+  // decoupled for the future farmer tool). One synthesis call; the trigger read speaks for itself.
+  const markdown = await synth(system);
+  if (!markdown) return null;
 
   const date = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(now);
-  store.setState("market_cards", JSON.stringify({ date, markdown, createdAt: new Date().toISOString(), triggers: fired.map((f) => f.id), flags }));
-  return { markdown, date, triggers: fired.map((f) => f.id), flags };
+  store.setState("market_cards", JSON.stringify({ date, markdown, createdAt: new Date().toISOString(), triggers: fired.map((f) => f.id) }));
+  return { markdown, date, triggers: fired.map((f) => f.id) };
 }
 
 /** The cached market-education cards ({ date, markdown, triggers, flags }) or null. */

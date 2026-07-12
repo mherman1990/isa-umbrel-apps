@@ -1,8 +1,14 @@
-// compliance.js — the "education, never advice" guardrails for BeanBrief's farmer cards.
+// compliance.js — the "education, never advice" guardrails for FARMER-FACING market outputs.
 //
-// BeanBrief explains what is happening and what history shows; it NEVER tells a farmer to buy,
-// sell, hold, or store. The synthesis prompt enforces this, and this module is the defense-in-
-// depth check on the OUTPUT (docs/BEANBRIEF_MARKETING_CONTEXT.md §2.2) plus the standard footer.
+// ⚠️ DECOUPLED 2026-07-11 (platform split — see docs/STAFF_TOOL_REBUILD.md). Bean Brief is now a
+// staff-only internal analysis tool and these guardrails are NO LONGER injected into its prompts.
+// This module is retained INTACT as the reusable compliance filter that the future, separate
+// farmer-facing tool will run Bean Brief's data through before it reaches farmers. Do not delete;
+// do not re-wire it into internal outputs. It stays the single home of the "never advise" rules.
+//
+// The check explains what is happening / what history shows and NEVER tells a farmer to buy, sell,
+// hold, or store — a defense-in-depth filter on OUTPUT (docs/BEANBRIEF_MARKETING_CONTEXT.md §2.2)
+// plus the standard footer.
 
 // Intents that must never appear in a card. Kept deliberately narrow to avoid false positives on
 // legitimate education (e.g. "storage has real costs", "the market wants grain later").

@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-polibrief
 category: automation
 name: The Bean Brief
-version: "1.18.3"
+version: "1.19.0"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
@@ -28,10 +28,13 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  Readability and accessibility polish on the Home, News, and Laws/Rules/Decisions pages. News text no
-  longer shows stray codes like "&#8217;" where an apostrophe or dash belongs, previews cut on whole
-  words, the Laws table scrolls cleanly on a phone instead of pushing the page sideways, and the
-  relevance buttons are labeled for screen readers. Code-only — nothing to set up and no new keys;
-  just Update. Informational and nonpartisan throughout.
+  Staff-focused refocus. The Bean Brief is now a sharper internal analysis tool: the Farmer update and
+  Market Pulse reports are gone, the Market-education brief is aimed at ISA staff, and the analysis gives
+  a direct, directional read instead of a hedged briefing. Ask the Bean Brief — and the Analyst Note —
+  can now search the web to fill gaps in the stored data when a question needs it, citing web sources.
+  The Markets tab is trimmed to the ten core charts; comment deadlines moved to the Laws, Rules &
+  Decisions page (with their own set-aside archive); and the Map gains a layer of Iowa soybean crush and
+  biodiesel plants. Code-only — just Update, no new keys. (Optional: WEB_SEARCH=off in .env turns web
+  search off.)
 submitter: Matt
 submission: https://github.com/mherman1990/isa-umbrel-apps

@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.19.0 — Staff-focused refocus: sharper analysis, web-search Ask, Iowa plant map
+
+The Bean Brief is now an internal staff analysis tool (a separate farmer-facing tool comes later, fed
+through a compliance filter). Internal outputs are de-muzzled; `src/compliance.js` is **decoupled** —
+kept intact as the future farmer-tool filter, no longer injected into any internal prompt.
+
+### Added
+- **Web search in the Ask box and the Analyst Note.** Both lean on the stored data first, then use
+  Anthropic's server-side web search (`web_search_20260209`, bounded `pause_turn` loop) to fill gaps —
+  latest prices, breaking news, a figure worth verifying — citing web sources distinctly. Kill-switch:
+  `WEB_SEARCH=off` in `.env` falls back to stored-data-only.
+- **Iowa crush & biodiesel plant map layer.** A toggleable overlay on the Map tab: soybean crush plants
+  + biodiesel/renewable-diesel producers (EPA Part 80, "Renewable Fuel Producer" facilities). Two icons
+  (crush circle / biodiesel square), both-sites ringed (AGP Sergeant Bluff, Cargill Iowa Falls).
+  Iowa-only on the map; the full national crush list stays in `facilities.json`.
+
+### Changed
+- **Removed the Farmer update + Market Pulse reports.** The Market-education brief is re-aimed at
+  non-expert ISA staff; the 🌱 trigger cards became internal **signal cards** (directional reads).
+- **Ask box + reports de-muzzled** — direct, directional analysis instead of hedged briefings.
+- **Markets trimmed to 10 charts** (feedstock demand, soy price, soy:corn ratio, crush, stocks-to-use,
+  crop condition, drought, exports, barge freight, CFTC positions). The dropped series still feed the
+  signals board + Ask/Analyst — only the charts are hidden.
+- **Comment deadlines moved** off Home → the Laws, Rules & Decisions tab (below tracked items), with
+  their own set-aside archive (`deadline_archived`); the `calendar.ics` link moved to Logs & Settings.
+
+Code-only — the `deadline_archived` column auto-migrates on boot and the plant data ships in the image.
+Just Update; no new keys or data steps.
+
 ## 1.18.3 — Home / News / Laws: readability & accessibility
 
 ### Fixed

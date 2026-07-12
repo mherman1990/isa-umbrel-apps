@@ -101,6 +101,13 @@ export function markdownToHtml(md) {
 // chartSection already emits). Operates on the rendered HTML and skips anything already inside an
 // <a>, so we never nest or break the item citations the LLM produced.
 let _seriesLinkCache = { at: 0, map: [] };
+// The market categories that have a chart on /markets (see marketsBody). Series whose data still
+// feeds signals + Ask/Analyst but that are no longer charted are excluded here so linkifySeries
+// never links text to a dead #chart_ anchor. Keep in sync with the chartSection list in marketsBody.
+const CHARTED_CATEGORIES = new Set([
+  "biofuel_feedstock", "soy_price", "soy_corn_ratio", "soy_crush", "soy_balance_stu",
+  "soy_condition", "drought", "soy_exports", "barge_freight", "positioning",
+]);
 function seriesLinkMap() {
   if (Date.now() - _seriesLinkCache.at < 120000) return _seriesLinkCache.map; // cheap memo — metas rarely change
   let map = [];
@@ -108,7 +115,7 @@ function seriesLinkMap() {
     const seen = new Set();
     for (const m of store.listSeriesMeta()) {
       const label = (m.label || "").trim();
-      if (label.length < 5 || !m.category || seen.has(label.toLowerCase())) continue;
+      if (label.length < 5 || !m.category || !CHARTED_CATEGORIES.has(m.category) || seen.has(label.toLowerCase())) continue;
       seen.add(label.toLowerCase());
       map.push({ label, href: `/markets#chart_${m.category}` });
     }
@@ -379,7 +386,7 @@ async function triggerRun(edition) {
   runInProgress = true;
   lastRunProblem = null; // a genuinely-starting run retires any prior failure banner (not just on success)
   try {
-    if (["weekly", "monthly", "farmer", "education", "analyst", "pulse"].includes(edition)) await runMemo(edition, process.env);
+    if (["weekly", "monthly", "education", "analyst"].includes(edition)) await runMemo(edition, process.env);
     else await runPipeline({ edition, env: process.env });
     return null;
   } catch (err) {
@@ -526,21 +533,35 @@ function sourcesSection(watchlist, openId) {
 </details>`;
 }
 
-function deadlinesSection() {
-  const deadlines = store.upcomingDeadlines(6);
-  if (deadlines.length === 0) return "";
+// Comment deadlines — rendered on the Laws, Rules & Decisions tab (below tracked items). Each can
+// be set aside into a SEPARATE "dismissed" archive (distinct from the LRD set-aside). The ICS
+// subscribe link now lives on Logs & Settings.
+function deadlinesSection(viewingDismissed = false) {
+  const deadlines = viewingDismissed ? store.dismissedDeadlines(200) : store.upcomingDeadlines(12);
+  const nDismissed = store.dismissedDeadlineCount();
+  if (!deadlines.length && !viewingDismissed && !nDismissed) return "";
+  const back = viewingDismissed ? "/items?deadlines_archived=1" : "/items";
   const rows = deadlines
-    .map(
-      (d) =>
-        `<li><strong>${esc(d.comment_deadline)}</strong> — <a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(
-          (d.title ?? "").slice(0, 90)
-        )}</a></li>`
-    )
+    .map((d) => {
+      const btn = viewingDismissed
+        ? '<button class="ghost tiny" title="Restore to the deadlines list">♻ restore</button>'
+        : '<button class="ghost tiny" title="Dismiss — move to the deadlines archive (recoverable)">🗄 set aside</button>';
+      return `<li><strong>${esc(d.comment_deadline)}</strong> — <a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(
+        (d.title ?? "").slice(0, 90)
+      )}</a>
+        <form method="post" action="/items/deadline-archive" style="display:inline">
+          <input type="hidden" name="uid" value="${esc(d.uid)}"><input type="hidden" name="on" value="${viewingDismissed ? "false" : "true"}">
+          <input type="hidden" name="back" value="${esc(back)}">${btn}</form></li>`;
+    })
     .join("\n");
-  return `
-<h2>⏰ Upcoming comment deadlines</h2>
-<ul>${rows}</ul>
-<p class="muted">📅 <a href="/calendar.ics">calendar.ics</a> — in Outlook: Calendar → Add calendar → Subscribe from web → paste this page's address ending in /calendar.ics. Deadlines then appear on your work calendar automatically.</p>`;
+  if (viewingDismissed) {
+    return `<h2>⏰ Comment deadlines · 🗄 Dismissed</h2>
+<p><a href="/items">← back to the main list</a></p>
+${deadlines.length ? `<ul>${rows}</ul>` : "<p class='muted'>No dismissed deadlines.</p>"}`;
+  }
+  return `<h2>⏰ Upcoming comment deadlines</h2>
+${deadlines.length ? `<ul>${rows}</ul>` : "<p class='muted'>None upcoming.</p>"}
+${nDismissed ? `<p class="muted"><a href="/items?deadlines_archived=1">🗄 View dismissed (${nDismissed})</a></p>` : ""}`;
 }
 
 function watchlistSection(watchlist, openId, activity) {
@@ -653,6 +674,8 @@ function settingsSection(watchlist, openId) {
   }</p>
   <div class="kicker">Security</div>
   <p class="muted">${process.env.POLIBRIEF_PASSWORD ? "Password protection is ON." : "No password set. To require one, add POLIBRIEF_PASSWORD=yourpassword to .env and restart (fine to skip on a Tailscale-only network)."}</p>
+  <div class="kicker">Comment-deadline calendar</div>
+  <p class="muted">📅 <a href="/calendar.ics">calendar.ics</a> — in Outlook: Calendar → Add calendar → Subscribe from web → paste this page's address ending in /calendar.ics. Upcoming comment deadlines then appear on your work calendar automatically.</p>
 </details>`;
 }
 
@@ -703,17 +726,17 @@ function storylinesSection() {
     <div class="storylines">${cards}</div></details>`;
 }
 
-// Market-education cards — the farmer-facing output of the condition-trigger engine (compliance-
-// framed: teach, never advise). Cached; generated on each run + on demand.
+// Signal cards — the internal output of the condition-trigger engine (what fired + the directional
+// read). Cached; generated on each run + on demand. Un-muzzled (compliance decoupled 2026-07-11).
 function marketCardsSection() {
   const cached = getCachedMarketCards();
   if (cached && cached.markdown) {
-    return `<details class="topic" open><summary>🌱 For farmers: what to watch${cached.triggers?.length ? ` <span class="muted">(${cached.triggers.length} active)</span>` : ""}</summary>
+    return `<details class="topic" open><summary>🎯 Signal cards — what's firing${cached.triggers?.length ? ` <span class="muted">(${cached.triggers.length} active)</span>` : ""}</summary>
       <div class="answer market-cards">${markdownToHtml(cached.markdown)}
         <div class="muted" style="margin-top:6px;font-size:.82em">${esc(cached.date)} · <form method="post" action="/market-cards" style="display:inline"><button class="ghost tiny">↻ Refresh</button></form></div></div></details>`;
   }
-  return `<details class="topic"><summary>🌱 For farmers: what to watch</summary>
-    <p class="muted" style="font-size:.9em">Farmer-facing education cards from the seasonal / report / positioning triggers — teach, never advise.</p>
+  return `<details class="topic"><summary>🎯 Signal cards — what's firing</summary>
+    <p class="muted" style="font-size:.9em">Internal signal cards from the seasonal / report / positioning triggers — what fired, what it means, and the directional read.</p>
     <form method="post" action="/market-cards"><button class="ghost">Generate today's cards</button></form></details>`;
 }
 
@@ -737,14 +760,8 @@ function homeBody(notice, openId = null, search = null) {
     })
     .join("\n");
 
-  // Settings moved to the Logs & Settings page; the homepage keeps upcoming comment deadlines.
+  // Settings live on Logs & Settings; comment deadlines moved to the Laws, Rules & Decisions tab.
   void openId;
-  let configSections;
-  try {
-    configSections = deadlinesSection();
-  } catch (err) {
-    configSections = `<div class="banner err">⚠️ ${esc(err.message)}</div>`;
-  }
 
   const searchSection = `<h2 style="margin-bottom:2px">🔎 Ask the Bean Brief</h2>
 <form method="get" action="/" class="toolbar">
@@ -788,23 +805,14 @@ ${whatChangedSection()}
       <span class="muted rdesc">Internal deep dive: connects policy to the market mechanism and looks around the corner, naming the reports that would confirm or kill each read.</span>
     </div>
     <div class="report">
-      <form method="post" action="/run"><input type="hidden" name="edition" value="pulse"><button class="ghost">⚡ Market Pulse</button></form>
-      <span class="muted rdesc">Short farmer read on what's moving now and what a marketer is weighing — education, never a buy/sell call.</span>
-    </div>
-    <div class="report">
-      <form method="post" action="/run"><input type="hidden" name="edition" value="farmer"><button class="ghost">🌾 Farmer update</button></form>
-      <span class="muted rdesc">Plain, nonpartisan update for members: what your beans are worth, the policy to know, dates to watch.</span>
-    </div>
-    <div class="report">
       <form method="post" action="/run"><input type="hidden" name="edition" value="education"><button class="ghost">🎓 Market-education brief</button></form>
-      <span class="muted rdesc">The daily "teach, don't tell" lesson — one real data point, one market concept, so farmers learn to read the market themselves.</span>
+      <span class="muted rdesc">A plain-language market read for ISA staff who aren't grain-market experts — one real data point, one concept, and the take-away, so the team learns to read the market.</span>
     </div>
   </div>
   ${runInProgress ? '<p class="muted" style="margin-top:10px">a run is in progress…</p>' : ""}
 </div>
 <h2>Saved briefs <span class="muted" style="font-weight:400;font-size:.7em">(<a href="/feed.xml">RSS</a>)</span></h2>
 ${briefs.length ? `<ul class="briefs">${items}</ul>` : "<p class='muted'>No briefs yet. Click a Run button above, or wait for the next scheduled edition.</p>"}
-${configSections}
 `;
 }
 
@@ -1365,22 +1373,14 @@ function marketsBody(notice) {
   const charts = [
     chartSection("biofuel_feedstock", "Biofuel feedstock demand", "Lipid feedstocks used in U.S. biodiesel + renewable diesel — soybean oil vs. the competition (corn oil, canola, used cooking oil, tallow…). Hover for the value + month.", 320),
     chartSection("soy_price", "Soybean price received", "Monthly average price ($/bu) — Iowa vs. U.S.", 260),
-    chartSection("corn_price", "Corn price received", "Monthly average corn price ($/bu) — Iowa vs. U.S. The other half of the rotation.", 260),
     chartSection("soy_corn_ratio", "Soybean:corn price ratio (Iowa)", "Iowa soybean price ÷ corn price — the relative-value read behind acreage decisions. Historically ~2.3–2.5 is the rough pivot between favoring beans and corn.", 240),
     chartSection("soy_crush", "U.S. soybean crush", "Monthly crush — the domestic-demand engine, near record highs on renewable-diesel demand.", 260),
-    chartSection("soy_stocks", "U.S. soybean stocks", "Quarterly ending stocks — the supply cushion behind price.", 260),
-    chartSection("soy_balance", "U.S. soybean ending stocks (WASDE)", "USDA's monthly WASDE ending-stocks estimate for the current marketing year (mln bushels) — the supply cushion at the heart of the balance sheet. Each point is a fresh WASDE, so the line doubles as a revision trail.", 260),
     chartSection("soy_balance_stu", "U.S. soybean stocks-to-use (WASDE)", "Ending stocks as a share of total use — the tightness ratio that drives price. Roughly: below ~8% is tight (supportive), above ~15% is ample (a drag).", 240),
     chartSection("soy_condition", "Soybean crop condition", "In-season % rated good or excellent (USDA Crop Progress) — Iowa vs. U.S. Weather's fingerprint on this year's yield potential.", 260),
     chartSection("drought", "Iowa drought coverage", "Share of Iowa land area in drought (D1+) and abnormally dry or worse (D0+), from the weekly U.S. Drought Monitor — a fast read on Corn Belt crop stress.", 260),
-    chartSection("weather_us", "U.S. crop-weather anomaly", "Recent 30-day precipitation and heat vs. the ~27-year normal for the U.S. soybean belt (Open-Meteo / ERA5), production-weighted. Percentiles: low precip = drier than normal, high heat = hotter — both crop stress.", 240),
-    chartSection("weather_sa", "S. America crop-weather anomaly", "The same anomaly read for the Brazil/Argentina soybean crop — the competitor-supply signal. Stress there shifts demand toward the U.S.", 240),
     chartSection("soy_exports", "Soybean exports (weekly)", "Weekly export activity in metric tons — inspections (actual loadings) vs. net sales (forward bookings). An export-pace / China-demand read; net sales also stands in for the (currently offline) FAS report.", 280),
     chartSection("barge_freight", "Mississippi barge freight", "Cost to move grain down the Mississippi ($/ton) — a driver of the Gulf export basis, and so of what Iowa elevators can bid.", 240),
     chartSection("positioning", "Fund positioning (CFTC)", "CBOT soybean managed-money net position — how the funds are leaning. Extremes can unwind fast.", 240),
-    chartSection("macro_usd", "U.S. dollar index", "The broad trade-weighted dollar (FRED). A stronger dollar makes U.S. soybeans more expensive abroad — a quiet cap on export competitiveness vs. Brazil.", 240),
-    chartSection("macro_rates", "10-year Treasury yield", "The 10-year yield (FRED) — a read on the cost of carrying stored grain.", 220),
-    chartSection("brazil_production", "Brazil soybean production", "Brazil's annual soybean crop (IBGE PAM) — the U.S.'s main export competitor, and the multi-decade rise that reshaped the trade.", 240),
   ].filter(Boolean).join('<hr style="border:none;border-top:1px solid var(--isa-blue-40);margin:18px 0">');
   // Load uPlot + our renderer only on this page, after the chart blobs are in the DOM.
   const chartAssets = charts
@@ -1428,6 +1428,7 @@ function itemsBody(params, notice) {
   // (demand data) live on their own tabs so they don't dilute this feed. Archived (set-aside)
   // items drop out of the main list into a recoverable archive view.
   const viewingArchive = params.get("archived") === "1";
+  const viewingDismissedDeadlines = params.get("deadlines_archived") === "1";
   const rows = store.listItems({ ...filters, sourceIds: sourceIdsForClass("official"), limit: 200, archived: viewingArchive ? 1 : 0 });
   const nArchived = store.archivedCount();
   const trackedKeys = new Set(store.listTracked().map((t) => t.uid));
@@ -1484,6 +1485,7 @@ function itemsBody(params, notice) {
   return `
 ${notice ? `<div class="banner">${esc(notice)}</div>` : ""}
 ${trackedBlock}
+${deadlinesSection(viewingDismissedDeadlines)}
 <h2>Laws, Rules &amp; Decisions${viewingArchive ? " · 🗄 Archive" : ""}</h2>
 ${viewingArchive
   ? '<p><a href="/items">← back to the main list</a></p>'
@@ -1725,6 +1727,7 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
           "geo/senate.geojson": "application/json; charset=utf-8",
           "geo/house.geojson": "application/json; charset=utf-8",
           "geo/huc8.geojson": "application/json; charset=utf-8",
+          "geo/facilities.json": "application/json; charset=utf-8", // soybean crush + biodiesel plant markers
         };
         const name = url.pathname.slice("/assets/".length);
         const ctype = ASSETS[name];
@@ -2095,6 +2098,14 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
         }
         const back = form.get("back") || "/items";
         redirect(res, `${back}${back.includes("?") ? "&" : "?"}notice=${encodeURIComponent(form.get("on") === "true" ? "Set aside." : "Restored.")}`);
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/items/deadline-archive") {
+        const form = await readForm(req);
+        store.setDeadlineArchived(form.get("uid") ?? "", form.get("on") === "true");
+        const back = form.get("back") || "/items";
+        redirect(res, `${back}${back.includes("?") ? "&" : "?"}notice=${encodeURIComponent(form.get("on") === "true" ? "Deadline set aside." : "Deadline restored.")}`);
         return;
       }
 

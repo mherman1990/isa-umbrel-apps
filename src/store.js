@@ -82,6 +82,7 @@ for (const columnDef of [
   "body TEXT", // item body/summary text (esp. email bodies) — feeds the deeper News digest
   "feedback_note TEXT", // free-text note on 👍/👎, fed into the triage prompt as guidance
   "archived INTEGER DEFAULT 0", // set-aside items — out of the main LRD list, recoverable
+  "deadline_archived INTEGER DEFAULT 0", // dismissed comment deadlines — separate archive from `archived`
 ]) {
   try {
     db.exec(`ALTER TABLE seen_items ADD COLUMN ${columnDef}`);
@@ -820,16 +821,43 @@ export function trackedKeySet() {
   return new Set(db.prepare("SELECT track_key FROM tracked_items").all().map((r) => r.track_key));
 }
 
-/** Upcoming comment deadlines (for the .ics calendar + UI), soonest first. */
-export function upcomingDeadlines(limit = 100) {
+/** Upcoming comment deadlines (for the .ics calendar + UI), soonest first. Dismissed deadlines
+ *  (deadline_archived=1) drop out — pass {includeArchived:true} for the dismissed-archive view. */
+export function upcomingDeadlines(limit = 100, { includeArchived = false } = {}) {
   const today = new Date(Date.now() - 86400e3).toISOString().slice(0, 10);
   return db
     .prepare(
       `SELECT uid, title, url, comment_deadline, one_line, source_id FROM seen_items
         WHERE comment_deadline IS NOT NULL AND comment_deadline >= ?
+          ${includeArchived ? "" : "AND COALESCE(deadline_archived, 0) = 0"}
         ORDER BY comment_deadline ASC LIMIT ?`
     )
     .all(today, limit);
+}
+
+/** Dismiss / restore a comment deadline (separate archive from the LRD set-aside). */
+export function setDeadlineArchived(uid, on = true) {
+  db.prepare("UPDATE seen_items SET deadline_archived = ? WHERE uid = ?").run(on ? 1 : 0, uid);
+}
+/** Dismissed comment deadlines that are still in the future (the recoverable archive view). */
+export function dismissedDeadlines(limit = 100) {
+  const today = new Date(Date.now() - 86400e3).toISOString().slice(0, 10);
+  return db
+    .prepare(
+      `SELECT uid, title, url, comment_deadline, one_line, source_id FROM seen_items
+        WHERE comment_deadline IS NOT NULL AND comment_deadline >= ? AND COALESCE(deadline_archived, 0) = 1
+        ORDER BY comment_deadline ASC LIMIT ?`
+    )
+    .all(today, limit);
+}
+export function dismissedDeadlineCount() {
+  const today = new Date(Date.now() - 86400e3).toISOString().slice(0, 10);
+  return db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM seen_items
+        WHERE comment_deadline IS NOT NULL AND comment_deadline >= ? AND COALESCE(deadline_archived, 0) = 1`
+    )
+    .get(today).n;
 }
 
 /** Per-day item counts for sparklines: {topicId → number[days]} plus a total series. */

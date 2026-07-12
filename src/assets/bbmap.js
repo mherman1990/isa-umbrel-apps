@@ -136,6 +136,36 @@
     });
   }
 
+  // Processing-plant markers: soybean crush = green circle, biodiesel = amber square, a site that
+  // hosts BOTH = green circle with an amber ring. Two distinct icons, one layer (§ map tab request).
+  function facIcon(f) {
+    var html;
+    if (f.crush && f.biodiesel) html = '<div style="width:13px;height:13px;border-radius:50%;background:#4a7c1f;border:2.5px solid #e08a1e;box-shadow:0 0 2px rgba(0,0,0,.6)"></div>';
+    else if (f.biodiesel) html = '<div style="width:12px;height:12px;background:#e08a1e;border:1.5px solid #fff;box-shadow:0 0 2px rgba(0,0,0,.6)"></div>';
+    else html = '<div style="width:12px;height:12px;border-radius:50%;background:#4a7c1f;border:1.5px solid #fff;box-shadow:0 0 2px rgba(0,0,0,.6)"></div>';
+    return L.divIcon({ html: html, className: "fac-marker", iconSize: [13, 13], iconAnchor: [7, 7] });
+  }
+  function facilityLayer(facs) {
+    var g = L.layerGroup();
+    (facs || []).forEach(function (f) {
+      if (typeof f.lat !== "number" || typeof f.lng !== "number") return;
+      if (f.state !== "IA") return; // Iowa-only on the map; the full national crush list stays in facilities.json
+      var types = [];
+      if (f.crush) types.push("Soybean crush");
+      if (f.biodiesel) types.push("Biodiesel");
+      var html =
+        '<div class="tip-title">' + esc(f.name) + "</div>" +
+        '<div class="tip-row"><span class="tip-role">Type</span><span class="tip-name">' + esc(types.join(" + ") || "—") + "</span></div>" +
+        (f.capacity ? '<div class="tip-row"><span class="tip-role">Capacity</span><span class="tip-name">' + esc(f.capacity) + "</span></div>" : "") +
+        (f.status && f.status !== "operating" ? '<div class="tip-row"><span class="tip-role">Status</span><span class="tip-name">' + esc(f.status) + "</span></div>" : "");
+      L.marker([f.lat, f.lng], { icon: facIcon(f) })
+        .bindTooltip(html, { direction: "top", className: "map-tip", opacity: 1 })
+        .bindPopup(html, { maxWidth: 300 })
+        .addTo(g);
+    });
+    return g;
+  }
+
   function loadJSON(url) {
     return fetch(url).then(function (r) {
       if (!r.ok) throw new Error(url + " -> " + r.status);
@@ -153,7 +183,11 @@
         '<div class="row"><span class="sw" style="background:' + TONE.D + '"></span>Democrat</div>' +
         '<h4 style="margin-top:6px">Reference</h4>' +
         '<div class="row"><span class="sw" style="border:1px solid #4a5763;background:transparent"></span>County line</div>' +
-        '<div class="row"><span class="sw" style="background:' + HUC_COLOR + ';opacity:.45"></span>HUC8 watershed</div>';
+        '<div class="row"><span class="sw" style="background:' + HUC_COLOR + ';opacity:.45"></span>HUC8 watershed</div>' +
+        '<h4 style="margin-top:6px">Processing plants</h4>' +
+        '<div class="row"><span class="sw" style="border-radius:50%;background:#4a7c1f"></span>Soybean crush</div>' +
+        '<div class="row"><span class="sw" style="background:#e08a1e"></span>Biodiesel</div>' +
+        '<div class="row"><span class="sw" style="border-radius:50%;background:#4a7c1f;border:2px solid #e08a1e"></span>Both</div>';
       return div;
     };
     return c;
@@ -185,6 +219,7 @@
       loadJSON(G + "senate.geojson"),
       loadJSON(G + "congress.geojson"),
       loadJSON(G + "huc8.geojson"),
+      loadJSON(G + "facilities.json").catch(function () { return []; }), // fail-soft: missing plant data never breaks the political map
     ])
       .then(function (geo) {
         var counties = countyLines(geo[0]);
@@ -194,14 +229,16 @@
         var senate = districtLayer(geo[2], data.senate, hucOn);
         var congress = districtLayer(geo[3], data.congress, hucOn);
         var groups = [house, senate, congress];
+        var facilities = facilityLayer(geo[5]);
 
         counties.addTo(map); // always-on base reference
         house.addTo(map); // default political boundary (translucent, over the county lines)
+        facilities.addTo(map); // crush + biodiesel plants (toggle off in the layer control)
 
         L.control
           .layers(
             { "Iowa House": house, "Iowa Senate": senate, "U.S. Congress": congress },
-            { "HUC8 Watersheds": huc8 },
+            { "HUC8 Watersheds": huc8, "🌱 Iowa crush &amp; biodiesel plants": facilities },
             { collapsed: false }
           )
           .addTo(map);
