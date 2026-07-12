@@ -27,6 +27,16 @@ from ..models import (
 )
 
 
+def enqueue_weather(op: FieldOperation) -> None:
+    """Fire-and-forget weather attach — the record never waits on it."""
+    from ..jobs.tasks import attach_weather_task
+
+    try:
+        attach_weather_task.defer(operation_id=str(op.id))
+    except Exception:  # noqa: BLE001 — nightly backfill catches misses
+        pass
+
+
 def _get_or_create_product(session: Session, name: str, category: str = "other") -> Product:
     row = session.scalar(select(Product).where(Product.name == name))
     if row is None:
@@ -56,6 +66,7 @@ def _create_field_operation(session: Session, capture: CaptureEvent, payload: di
     )
     session.add(op)
     session.flush()
+    enqueue_weather(op)
     for p in payload.get("products") or []:
         product = _get_or_create_product(session, p["name"], p.get("category", "other"))
         session.add(

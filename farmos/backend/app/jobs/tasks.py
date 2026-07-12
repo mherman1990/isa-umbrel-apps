@@ -43,6 +43,18 @@ def route_capture(capture_id: str) -> None:
         pipeline.run_route(s, uuid.UUID(capture_id))
 
 
+@job_app.task(queue="default", name="attach_weather")
+def attach_weather_task(operation_id: str) -> bool:
+    import uuid
+
+    from ..services import weather
+
+    with db_session() as s:
+        ok = weather.attach_weather(s, uuid.UUID(operation_id))
+        s.commit()
+        return ok
+
+
 @job_app.task(queue="default", name="run_backup")
 def run_backup_task() -> dict:
     from ..services import backup

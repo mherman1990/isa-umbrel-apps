@@ -38,6 +38,18 @@ def upgrade_timestamp_proofs(timestamp: int) -> dict:
         return result
 
 
+@job_app.periodic(cron="15 3 * * *")
+@job_app.task(queue="default", name="weather_backfill")
+def weather_backfill(timestamp: int) -> int:
+    from ..db import session as db_session
+    from ..services import weather
+
+    with db_session() as s:
+        done = weather.backfill_recent(s)
+        s.commit()
+        return done
+
+
 @job_app.periodic(cron="0 3 * * *")
 @job_app.task(queue="default", name="retry_parked_captures")
 def retry_parked_captures(timestamp: int) -> int:

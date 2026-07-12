@@ -288,6 +288,9 @@ def create_operation(body: OperationIn, session: Session = Depends(get_session),
                 unit=p.unit,
             )
         )
+    from ...services.records import enqueue_weather
+
+    enqueue_weather(op)
     session.add(AuditLog(user_id=user.id, action="operation.create", entity_type="field_operation", entity_id=op.id))
     return _operation_view(op, session)
 
