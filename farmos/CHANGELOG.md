@@ -3,9 +3,9 @@
 (Separate from the repo-root CHANGELOG.md, which tracks Bean Brief.
 Farm OS releases use `farmos-v*` git tags.)
 
-## 0.2.0 — Accounting expansion
+## 0.2.0 — Accounting + Agronomy expansion
 
-### Added
+### Added — Accounting
 - **Schedule F classification** (`GET /financials/schedule-f?year=`): whole-farm
   income/expense rolled up to IRS Schedule F (Form 1040) lines from a new
   **versioned tax pack** (`tax_packs/schedule-f-2025.yaml`) carrying
@@ -57,6 +57,16 @@ Farm OS releases use `farmos-v*` git tags.)
   it, restore drill re-verified). Money-tab tenure list + add form; demo seed
   ships a cash-rent and a crop-share lease.
 
+### Added — Agronomy
+- **N-rate / MRTN decision support** (`GET /agronomy/n-rate`): the economically
+  optimal corn nitrogen rate for the entered corn & N prices and rotation
+  (Iowa State Maximum Return To Nitrogen approach), with the profitable range,
+  agronomic maximum, and net return. Optionally compares to the N actually
+  applied (passed in, or read from a `nutrient_mgmt` practice) and shows the
+  dollars left on the table. Response coefficients ship as a **new cited
+  region-pack `mrtn` section** read at compute time (no DB/migration), flagged
+  `unverified: true` — the output links the ISU calculator and says "confirm
+  before applying." Programs-tab card.
 ## Also unreleased — Phase 5 assistant + sandbox
 
 - **Assistant chat** (`POST /assistant/chat` + Ask box on the capture

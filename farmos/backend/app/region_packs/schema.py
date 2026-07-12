@@ -86,6 +86,38 @@ class PackCompliance(BaseModel):
     verify_by: date
 
 
+# --------------------------------------------------------------------------- agronomy
+# Agronomic decision-support DATA (N-rate/MRTN, fungicide ROI, practice costs).
+# Like `compliance`, these sections are READ AT COMPUTE TIME from the pack file
+# (never loaded into DB tables) — so they carry their own citation/verify_by and
+# the engine degrades them to "unverified" past verify_by, exactly like programs.
+
+
+class PackMrtnRotation(BaseModel):
+    """Quadratic-plateau corn N response for one rotation.
+
+    delta_yield(N) = b1*N - b2*N^2 (bu/ac over zero N), plateauing at the
+    agronomic maximum N = b1/(2*b2). The economic optimum (EONR / MRTN) is
+    derived from prices at compute time.
+    """
+
+    label: str
+    marginal_bu_per_lb: float = Field(gt=0)  # b1: bu/ac gain per lb N at low N
+    curvature: float = Field(gt=0)  # b2: quadratic term (>0)
+    agronomic_max_lb: float | None = None  # plateau join; defaults to b1/(2*b2)
+
+
+class PackMrtn(BaseModel):
+    crop: str = "corn"
+    unit: str = "lb N/ac"
+    citation: str
+    source_url: str
+    last_verified: date
+    verify_by: date
+    unverified: bool = False  # coefficients approximated from published MRTN — confirm at source_url
+    rotations: dict[str, PackMrtnRotation]
+
+
 class RegionPackFile(BaseModel):
     region_code: str  # 'US-IA'
     version: str  # '2026.1'
@@ -93,3 +125,4 @@ class RegionPackFile(BaseModel):
     programs: list[PackProgram]
     stacking_rules: list[PackStackingRule] = []
     compliance: PackCompliance | None = None
+    mrtn: PackMrtn | None = None

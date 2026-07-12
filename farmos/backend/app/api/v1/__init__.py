@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from . import (
+    agronomy,
     assistant,
     auth_routes,
     captures,
@@ -32,6 +33,7 @@ router.include_router(conservation.router)
 router.include_router(workbooks.router)
 router.include_router(financials.router)
 router.include_router(leases.router)
+router.include_router(agronomy.router)
 router.include_router(grain.router)
 router.include_router(nudges.router)
 router.include_router(assistant.router)

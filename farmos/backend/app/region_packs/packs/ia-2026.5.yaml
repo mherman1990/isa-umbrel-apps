@@ -404,3 +404,34 @@ compliance:
   source_url: https://www.ecfr.gov/current/title-7/subtitle-B/chapter-I/part-110
   last_verified: 2026-07-12
   verify_by: 2027-07-01
+
+# --------------------------------------------------------------- agronomy: N rate
+# Corn N response as a quadratic-plateau per rotation, following the Iowa State
+# Maximum Return To Nitrogen (MRTN) approach. The app derives the economically
+# optimal rate from these coefficients + the farmer's prices at compute time.
+#
+# HONESTY FLAG: unverified: true. These coefficients are APPROXIMATED to
+# reproduce published Iowa MRTN rates at recent price ratios; they are NOT a
+# substitute for the ISU Corn Nitrogen Rate Calculator. The app surfaces the
+# source_url and labels the output "confirm at the ISU calculator before
+# applying." A human must re-fit/confirm against the primary source and clear
+# this flag (same cadence as program verify_by).
+mrtn:
+  crop: corn
+  unit: "lb N/ac"
+  citation: "Iowa State University Corn Nitrogen Rate Calculator (MRTN); Sawyer et al., Concepts and Rationale for Regional N Rate Guidelines (PM 2015)"
+  source_url: https://cnrc.agron.iastate.edu/
+  last_verified: 2026-07-12
+  verify_by: 2027-03-01
+  unverified: true
+  rotations:
+    corn_after_soybean:
+      label: "Corn following soybean"
+      marginal_bu_per_lb: 0.85
+      curvature: 0.00280
+      agronomic_max_lb: 152
+    corn_after_corn:
+      label: "Corn following corn"
+      marginal_bu_per_lb: 1.00
+      curvature: 0.00250
+      agronomic_max_lb: 200

@@ -185,6 +185,74 @@ function StackingChecker({ programs }: { programs: ProgramView[] }) {
   );
 }
 
+function NRateCard() {
+  const [cornPrice, setCornPrice] = useState("5.00");
+  const [nPrice, setNPrice] = useState("0.50");
+  const [rotation, setRotation] = useState("corn_after_soybean");
+  const [applied, setApplied] = useState("");
+  const [result, setResult] = useState<any>(null);
+
+  async function run() {
+    const q = new URLSearchParams({ corn_price: cornPrice, n_price_per_lb: nPrice, rotation });
+    if (applied) q.set("applied_n", applied);
+    try {
+      setResult(await api.get(`/agronomy/n-rate?${q.toString()}`));
+    } catch (e: any) {
+      setResult({ error: e.message });
+    }
+  }
+
+  return (
+    <div className="card">
+      <h3>Nitrogen rate (MRTN)</h3>
+      <p className="hint">
+        Economically optimal corn N for your prices (Iowa State MRTN approach). A recommendation —
+        confirm at the ISU calculator before applying.
+      </p>
+      <div className="button-row">
+        <label>Corn $/bu<input inputMode="decimal" value={cornPrice} onChange={(e) => setCornPrice(e.target.value)} /></label>
+        <label>N $/lb<input inputMode="decimal" value={nPrice} onChange={(e) => setNPrice(e.target.value)} /></label>
+        <label>
+          Rotation
+          <select value={rotation} onChange={(e) => setRotation(e.target.value)}>
+            <option value="corn_after_soybean">corn after soybean</option>
+            <option value="corn_after_corn">corn after corn</option>
+          </select>
+        </label>
+        <label>Applied lb/ac<input inputMode="decimal" value={applied} onChange={(e) => setApplied(e.target.value)} placeholder="opt." /></label>
+      </div>
+      <button className="primary" disabled={!Number(cornPrice) || !Number(nPrice)} onClick={run}>
+        Calculate
+      </button>
+      {result?.error && <div className="error-banner">{result.error}</div>}
+      {result?.mrtn_rate_lb_n != null && (
+        <div className="stacking-result">
+          <div className="flash">
+            <strong>MRTN: {result.mrtn_rate_lb_n} lb N/ac</strong> — profitable range{" "}
+            {result.profitable_range_lb_n[0]}–{result.profitable_range_lb_n[1]}; agronomic max {result.agronomic_max_lb_n}
+          </div>
+          {result.comparison && (
+            <p className="small">
+              You applied {result.comparison.applied_n_lb} lb ({result.comparison.source}) —{" "}
+              {result.comparison.delta_vs_mrtn_lb > 0
+                ? `${result.comparison.delta_vs_mrtn_lb} over`
+                : `${-result.comparison.delta_vs_mrtn_lb} under`}
+              , ${result.comparison.net_left_on_table_per_ac}/ac left on the table.
+            </p>
+          )}
+          <p className="small">
+            {result.unverified ? "Approximate coefficients · " : ""}
+            <a href={result.source_url} target="_blank" rel="noreferrer">ISU calculator</a> · verified{" "}
+            {result.last_verified}
+            {result.stale ? " · STALE" : ""}
+          </p>
+        </div>
+      )}
+      {result?.gaps && <p className="small warn-text">{result.gaps.join("; ")}</p>}
+    </div>
+  );
+}
+
 export default function ProgramsScreen() {
   const [data, setData] = useState<{ disclaimer: string; pack_health: any; programs: ProgramView[] } | null>(null);
   const [nudges, setNudges] = useState<any[]>([]);
@@ -218,6 +286,7 @@ export default function ProgramsScreen() {
         Rule pack health: {data.pack_health.rules_current}/{data.pack_health.rules_total} rules current
       </p>
       <StackingChecker programs={data.programs} />
+      <NRateCard />
       {data.programs.map((p) => (
         <div className={`card ${p.excluded_by_rule ? "muted" : ""}`} key={p.program_key}>
           <div className="card-head">
