@@ -75,9 +75,21 @@ class PackProgram(BaseModel):
     evidence_requirements: list[PackEvidenceRequirement] = []
 
 
+class PackCompliance(BaseModel):
+    """Legal recordkeeping requirements for the region (RUP records etc.)."""
+
+    rup_retention_years: int
+    rup_required_fields: list[str]  # keys the compliance checker looks for
+    citation: str
+    source_url: str
+    last_verified: date
+    verify_by: date
+
+
 class RegionPackFile(BaseModel):
     region_code: str  # 'US-IA'
     version: str  # '2026.1'
     description: str = ""
     programs: list[PackProgram]
     stacking_rules: list[PackStackingRule] = []
+    compliance: PackCompliance | None = None

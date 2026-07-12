@@ -189,6 +189,22 @@ def create_enrollment(body: EnrollmentIn, session: Session = Depends(get_session
     return {"id": str(e.id)}
 
 
+# ------------------------------------------------------------------ compliance
+
+
+@router.get("/compliance/rup")
+def rup_compliance(
+    year: int,
+    session: Session = Depends(get_session),
+    user: AppUser = Depends(auth.current_user),
+):
+    """Restricted-use pesticide records for the year, graded against the
+    region pack's legal required-field list — with citation."""
+    from ...services import compliance
+
+    return compliance.rup_records(session, year)
+
+
 # ------------------------------------------------------------------ stacking
 
 

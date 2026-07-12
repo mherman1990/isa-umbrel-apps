@@ -10,7 +10,7 @@
 # The federal tier is factored so future state packs can inherit it.
 
 region_code: US-IA
-version: "2026.4"
+version: "2026.5"
 description: Iowa corn/soybean row-crop pack (pack #1)
 
 programs:
@@ -381,3 +381,26 @@ stacking_rules:
     source_url: https://iowaagriculture.gov/CropInsuranceDiscount
     last_verified: 2026-07-12
     verify_by: 2027-01-15
+
+
+# ---------------------------------------------------------------- compliance
+# Restricted-use pesticide recordkeeping (federal baseline for private
+# applicators; Iowa Dept. of Ag enforces — legal record, immutable once
+# confirmed, retained per the statute).
+compliance:
+  rup_retention_years: 2
+  rup_required_fields:
+    - product_name
+    - epa_reg_number
+    - total_amount
+    - rate
+    - location
+    - area_size
+    - crop
+    - application_date
+    - applicator_name
+    - applicator_certification
+  citation: 7 U.S.C. 136i-1 (federal private-applicator RUP records); Iowa Code ch. 206
+  source_url: https://www.ecfr.gov/current/title-7/subtitle-B/chapter-I/part-110
+  last_verified: 2026-07-12
+  verify_by: 2027-07-01
