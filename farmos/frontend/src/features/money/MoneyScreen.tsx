@@ -66,6 +66,17 @@ export default function MoneyScreen() {
     await refresh();
   }
 
+  async function exportLenderPacket() {
+    try {
+      const html = await api.getText(`/financials/lender-packet?year=${year}&format=html`);
+      const url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+      window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e: any) {
+      setFlash(e.message);
+    }
+  }
+
   async function uploadWorkbook(file: File) {
     setBusy(true);
     setFlash(null);
@@ -213,6 +224,18 @@ export default function MoneyScreen() {
           </p>
         </div>
       )}
+
+      <div className="card">
+        <h3>Lender packet</h3>
+        <p className="hint">
+          A printable income statement + enterprise detail + grain position for {year}, assembled
+          from your records. It states plainly what it can’t show (there’s no balance sheet yet).
+          Open it and print to PDF.
+        </p>
+        <button className="primary" onClick={exportLenderPacket}>
+          Export lender packet ({year})
+        </button>
+      </div>
 
       <div className="card">
         <h3>Add a transaction</h3>

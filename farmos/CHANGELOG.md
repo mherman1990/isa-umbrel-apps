@@ -15,6 +15,14 @@ Farm OS releases use `farmos-v*` git tags.)
   and **left out of the totals** — the app never guesses a dollar onto a tax
   line (the financial cousin of "insufficient data"). Money-tab card shows net
   farm profit, the line detail, and the uncategorized gap.
+- **Lender packet export** (`GET /financials/lender-packet?year=&format=json|html`):
+  a printable income statement (Schedule F basis) + budget-vs-actual +
+  per-field breakeven + grain position, assembled entirely from records. It
+  discloses what it **cannot** show — no balance sheet, because Farm OS holds
+  no asset/debt records — and flags the income statement as incomplete when
+  uncategorized money exists. The `html` format is a self-contained,
+  dependency-free printable page (every dynamic value HTML-escaped) that the
+  PWA opens and prints to PDF; Money-tab "Export lender packet" button.
 
 ## Also unreleased — Phase 5 assistant + sandbox
 

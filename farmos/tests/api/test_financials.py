@@ -99,9 +99,10 @@ def test_summary_and_breakeven(client, auth_headers, app_and_engine):
 
 
 SF_YEAR = 2032  # isolated from the summary/breakeven setup above
+LP_YEAR = 2033  # lender-packet test's own year (engine is session-scoped; data accumulates)
 
 
-def _seed_schedule_f_txns(app_and_engine):
+def _seed_schedule_f_txns(app_and_engine, year=SF_YEAR):
     from datetime import datetime
 
     from sqlalchemy.orm import Session
@@ -119,7 +120,7 @@ def _seed_schedule_f_txns(app_and_engine):
             ("mystery", "expense", "widgets", 250),  # -> uncategorized (unknown)
         ]
         for desc, kind, cat, amt in rows:
-            s.add(MoneyTransaction(occurred_on=datetime(SF_YEAR, 3, 1).date(), description=desc,
+            s.add(MoneyTransaction(occurred_on=datetime(year, 3, 1).date(), description=desc,
                                    kind=kind, category=cat, amount=amt))
         s.commit()
 
@@ -151,6 +152,43 @@ def test_schedule_f_line_mapping_and_uncategorized(client, auth_headers, app_and
     assert body["uncategorized"]["expense_total"] == 750.0
     assert body["complete"] is False
     assert "uncategorized" in body["note"].lower()
+
+
+def test_lender_packet_json_html_and_escaping(client, auth_headers, app_and_engine):
+    from datetime import datetime
+
+    from sqlalchemy.orm import Session
+
+    from app.models import MoneyTransaction
+
+    _seed_schedule_f_txns(app_and_engine, LP_YEAR)
+    _, engine = app_and_engine
+    with Session(engine, expire_on_commit=False) as s:  # HTML-injection payload in a category
+        s.add(MoneyTransaction(occurred_on=datetime(LP_YEAR, 4, 1).date(), description="odd",
+                               kind="expense", category="weird<script>", amount=111))
+        s.commit()
+
+    # JSON packet
+    r = client.get(f"/api/v1/financials/lender-packet?year={LP_YEAR}", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    p = r.json()
+    assert p["income_statement"]["gross_farm_income"] == 50000.0
+    assert p["income_statement"]["net_farm_income"] == 29000.0  # only categorized expenses
+    assert any("Balance sheet" in x for x in p["not_included"])
+    assert p["caveats"], "uncategorized money must flag the income statement incomplete"
+
+    # HTML packet
+    h = client.get(f"/api/v1/financials/lender-packet?year={LP_YEAR}&format=html", headers=auth_headers)
+    assert h.status_code == 200
+    assert h.headers["content-type"].startswith("text/html")
+    assert "Income statement" in h.text and "Not included in this packet" in h.text
+    # the injection payload is escaped, never emitted raw
+    assert "<script>" not in h.text
+    assert "weird&lt;script&gt;" in h.text
+
+    # unknown format is rejected, not silently guessed
+    bad = client.get(f"/api/v1/financials/lender-packet?year={LP_YEAR}&format=pdf", headers=auth_headers)
+    assert bad.status_code == 422
 
 
 def test_transaction_crud_and_idempotency(client, auth_headers):

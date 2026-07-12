@@ -20,7 +20,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request(path: string, init: RequestInit = {}): Promise<any> {
+async function rawRequest(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
   const token = getToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
@@ -36,11 +36,16 @@ async function request(path: string, init: RequestInit = {}): Promise<any> {
     }
     throw new ApiError(res.status, detail);
   }
-  return res.json();
+  return res;
+}
+
+async function request(path: string, init: RequestInit = {}): Promise<any> {
+  return (await rawRequest(path, init)).json();
 }
 
 export const api = {
   get: (path: string) => request(path),
+  getText: async (path: string) => (await rawRequest(path)).text(),
   post: (path: string, body?: unknown) =>
     request(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) }),
   put: (path: string, body: unknown) => request(path, { method: "PUT", body: JSON.stringify(body) }),

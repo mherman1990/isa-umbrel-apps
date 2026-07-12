@@ -3,7 +3,8 @@ from __future__ import annotations
 import uuid
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field as PField
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -11,7 +12,7 @@ from sqlalchemy.orm import Session
 from ... import auth
 from ...db import get_session
 from ...models import AppUser, AuditLog, BudgetLine, Field, MoneyTransaction
-from ...services import financials
+from ...services import financials, lender_packet as lender_packet_svc
 
 router = APIRouter(tags=["financials"])
 
@@ -128,3 +129,19 @@ def schedule_f(
     """Whole-farm transactions rolled up to Schedule F lines (from the
     versioned tax pack). Uncategorized money is surfaced, never guessed."""
     return financials.schedule_f(session, year)
+
+
+@router.get("/financials/lender-packet")
+def lender_packet(
+    year: int,
+    format: str = Query("json", pattern="^(json|html)$"),
+    session: Session = Depends(get_session),
+    user: AppUser = Depends(auth.current_user),
+):
+    """Income statement + enterprise detail + grain position, assembled from
+    records, with an explicit 'not included' section (no balance sheet). HTML
+    format is a self-contained printable page the PWA prints to PDF."""
+    packet = lender_packet_svc.build(session, year)
+    if format == "html":
+        return HTMLResponse(content=lender_packet_svc.render_html(packet))
+    return packet
