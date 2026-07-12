@@ -191,6 +191,71 @@ def test_lender_packet_json_html_and_escaping(client, auth_headers, app_and_engi
     assert bad.status_code == 422
 
 
+ALLOC_YEAR = 2042  # allocation test's own year
+
+
+def _alloc_field(app_and_engine):
+    from sqlalchemy import select
+    from sqlalchemy.orm import Session
+
+    from app.models import Farm, FarmProfile, Field
+
+    _, engine = app_and_engine
+    with Session(engine, expire_on_commit=False) as s:
+        profile = s.query(FarmProfile).first()
+        if profile is None:
+            profile = FarmProfile(operation_name="Alloc Farm")
+            s.add(profile)
+            s.flush()
+        farm = s.scalar(select(Farm).where(Farm.farm_number == "4242"))
+        if farm is None:
+            farm = Farm(farm_profile_id=profile.id, farm_number="4242", state_ansi_code="19", county_ansi_code="169")
+            s.add(farm)
+            s.flush()
+        field = s.scalar(select(Field).where(Field.name == "Alloc Field"))
+        if field is None:
+            field = Field(
+                farm_id=farm.id, tract_number="4243", field_number="1", name="Alloc Field",
+                boundary="SRID=4326;MULTIPOLYGON(((-93.7 42.3,-93.69 42.3,-93.69 42.31,-93.7 42.31,-93.7 42.3)))",
+                gis_acres=80, clu_calculated_acres=80, source="manual",
+            )
+            s.add(field)
+            s.flush()
+        fid = str(field.id)
+        s.commit()
+        return fid
+
+
+def test_transaction_allocation_patch_closes_schedule_f_gap(client, auth_headers, app_and_engine):
+    field_id = _alloc_field(app_and_engine)
+    r = client.post("/api/v1/transactions", headers=auth_headers, json={
+        "occurred_on": f"{ALLOC_YEAR}-05-01", "description": "co-op charge",
+        "kind": "expense", "category": "other", "amount": 5000})
+    tid = r.json()["id"]
+
+    # starts life uncategorized on Schedule F
+    sf = client.get(f"/api/v1/financials/schedule-f?year={ALLOC_YEAR}", headers=auth_headers).json()
+    assert any(u["category"] == "other" and u["amount"] == 5000.0 for u in sf["uncategorized"]["expense"])
+
+    # allocate: recategorize + tag crop and field
+    p = client.patch(f"/api/v1/transactions/{tid}", headers=auth_headers,
+                     json={"category": "seed", "crop": "Corn", "field_id": field_id})
+    assert p.status_code == 200, p.text
+    assert p.json()["category"] == "seed" and p.json()["crop"] == "corn" and p.json()["field_id"] == field_id
+
+    # the gap is closed and the money now lands on Schedule F line 26
+    sf2 = client.get(f"/api/v1/financials/schedule-f?year={ALLOC_YEAR}", headers=auth_headers).json()
+    assert {ln["line"]: ln["amount"] for ln in sf2["expense_lines"]}.get("26") == 5000.0
+    assert not any(u["amount"] == 5000.0 for u in sf2["uncategorized"]["expense"])
+
+    # explicit null clears an allocation; bad field -> 422; unknown txn -> 404
+    assert client.patch(f"/api/v1/transactions/{tid}", headers=auth_headers, json={"crop": None}).json()["crop"] is None
+    assert client.patch(f"/api/v1/transactions/{tid}", headers=auth_headers,
+                        json={"field_id": str(uuid.uuid4())}).status_code == 422
+    assert client.patch(f"/api/v1/transactions/{uuid.uuid4()}", headers=auth_headers,
+                        json={"category": "seed"}).status_code == 404
+
+
 def test_transaction_crud_and_idempotency(client, auth_headers):
     cid = str(uuid.uuid4())
     body = {"client_id": cid, "occurred_on": f"{YEAR}-05-05", "description": "twine",

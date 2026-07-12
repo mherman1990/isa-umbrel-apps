@@ -98,6 +98,52 @@ def create_transaction(
     return _txn_view(t)
 
 
+class TransactionPatch(BaseModel):
+    """Enterprise allocation / correction. Only fields present in the request
+    body are changed; sending `null` for crop or field_id clears it."""
+
+    crop: str | None = None
+    field_id: uuid.UUID | None = None
+    category: str | None = None
+    crop_year: int | None = None
+    description: str | None = None
+
+
+@router.patch("/transactions/{txn_id}")
+def update_transaction(
+    txn_id: uuid.UUID,
+    body: TransactionPatch,
+    session: Session = Depends(get_session),
+    user: AppUser = Depends(auth.current_user),
+):
+    t = session.get(MoneyTransaction, txn_id)
+    if t is None:
+        raise HTTPException(status_code=404, detail="unknown transaction")
+    provided = body.model_fields_set
+    changed: list[str] = []
+    if "field_id" in provided:
+        if body.field_id is not None and session.get(Field, body.field_id) is None:
+            raise HTTPException(status_code=422, detail="unknown field_id")
+        t.field_id = body.field_id
+        changed.append("field_id")
+    if "crop" in provided:
+        t.crop = body.crop.strip().lower() if body.crop else None
+        changed.append("crop")
+    if "category" in provided:
+        t.category = body.category.strip() if body.category and body.category.strip() else "other"
+        changed.append("category")
+    if "crop_year" in provided:
+        t.crop_year = body.crop_year
+        changed.append("crop_year")
+    if "description" in provided and body.description is not None:
+        t.description = body.description
+        changed.append("description")
+    if changed:
+        session.add(AuditLog(user_id=user.id, action="transaction.update",
+                             entity_type="money_transaction", entity_id=t.id, detail={"changed": changed}))
+    return _txn_view(t)
+
+
 @router.get("/budget")
 def list_budget(
     year: int,

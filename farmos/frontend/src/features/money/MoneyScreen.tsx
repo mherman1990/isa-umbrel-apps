@@ -35,6 +35,13 @@ export default function MoneyScreen() {
   const [position, setPosition] = useState<any>(null);
   const [scheduleF, setScheduleF] = useState<any>(null);
   const [cashFlow, setCashFlow] = useState<any>(null);
+  const [fields, setFields] = useState<any[]>([]);
+
+  // inline transaction allocation editor
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editCat, setEditCat] = useState("");
+  const [editCrop, setEditCrop] = useState("");
+  const [editField, setEditField] = useState("");
 
   // operating-line add forms
   const [loanName, setLoanName] = useState("");
@@ -50,9 +57,27 @@ export default function MoneyScreen() {
       setPosition(await api.get(`/grain/position?year=${year}`));
       setScheduleF(await api.get(`/financials/schedule-f?year=${year}`));
       setCashFlow(await api.get(`/financials/cash-flow?year=${year}`));
+      setFields(await api.get(`/fields`));
     } catch {
       /* offline */
     }
+  }
+
+  function startEdit(t: any) {
+    setEditId(t.id);
+    setEditCat(t.category === "other" ? "" : t.category || "");
+    setEditCrop(t.crop || "");
+    setEditField(t.field_id || "");
+  }
+
+  async function saveAllocation() {
+    await api.patch(`/transactions/${editId}`, {
+      category: editCat || "other",
+      crop: editCrop || null,
+      field_id: editField || null,
+    });
+    setEditId(null);
+    await refresh();
   }
 
   async function addLoan() {
@@ -478,17 +503,51 @@ export default function MoneyScreen() {
 
       <div className="card">
         <h3>Transactions ({txns.length})</h3>
+        <p className="hint">Tap a transaction to assign its category, crop, and field — that’s what fills in Schedule F and per-field breakeven.</p>
         <ul className="list">
-          {txns.slice(0, 30).map((t) => (
+          {txns.slice(0, 40).map((t) => (
             <li key={t.id}>
-              <strong>
-                {t.kind === "income" ? "+" : "−"}${t.amount.toLocaleString()} {t.description}
-              </strong>
-              <span className="small">
-                {t.occurred_on} · {t.category}
-                {t.crop ? ` · ${t.crop}` : ""}
-                {t.imported ? " · imported" : ""}
-              </span>
+              <div className="txn-head" onClick={() => (editId === t.id ? setEditId(null) : startEdit(t))}>
+                <strong>
+                  {t.kind === "income" ? "+" : "−"}${t.amount.toLocaleString()} {t.description}
+                </strong>
+                <span className="small">
+                  {t.occurred_on} · {t.category}
+                  {t.crop ? ` · ${t.crop}` : ""}
+                  {t.field_id ? " · field-tagged" : ""}
+                  {t.imported ? " · imported" : ""}
+                </span>
+              </div>
+              {editId === t.id && (
+                <div className="alloc-editor button-row">
+                  <label style={{ flex: 1 }}>
+                    Category
+                    <input value={editCat} onChange={(e) => setEditCat(e.target.value)} placeholder="seed, fertilizer…" />
+                  </label>
+                  <label>
+                    Crop
+                    <select value={editCrop} onChange={(e) => setEditCrop(e.target.value)}>
+                      <option value="">—</option>
+                      <option value="corn">corn</option>
+                      <option value="soybeans">soybeans</option>
+                    </select>
+                  </label>
+                  <label>
+                    Field
+                    <select value={editField} onChange={(e) => setEditField(e.target.value)}>
+                      <option value="">—</option>
+                      {fields.map((f) => (
+                        <option key={f.id} value={f.id}>
+                          {f.name || `T${f.tract_number}/F${f.field_number}`}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button className="primary" onClick={saveAllocation}>
+                    Save
+                  </button>
+                </div>
+              )}
             </li>
           ))}
         </ul>

@@ -37,6 +37,13 @@ Farm OS releases use `farmos-v*` git tags.)
   from the ledger, never entered** (`client_id` idempotent, over-limit
   flagged). Surfaced in the cash-flow view and Money-tab card; demo seed ships
   a sample line. Migration 0008 (new tables); restore drill re-verified.
+- **Enterprise allocation / transaction edit** (`PATCH /transactions/{id}`):
+  re-assign a transaction's category, crop, field, and crop-year after the
+  fact (audited; explicit `null` clears an allocation, unknown field → 422).
+  Closes the half-built gap where allocation could only be set at create
+  time. Money-tab transactions are now tap-to-allocate — recategorizing a
+  transaction moves it off the Schedule F "uncategorized" list onto its line,
+  and field-tagging feeds per-field breakeven.
 
 ## Also unreleased — Phase 5 assistant + sandbox
 
