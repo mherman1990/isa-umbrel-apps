@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "farmos-backend"
+version = "0.1.0"
+description = "Farm OS — self-hosted farm records for row-crop operations (Umbrel app)"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sqlalchemy>=2.0",
+    "geoalchemy2>=0.15",
+    "psycopg[binary]>=3.2,<3.3",  # 3.3.x returns bytes for server_version; breaks SQLAlchemy dialect init
+    "alembic>=1.13",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "procrastinate[psycopg2]>=2.9",
+    "anthropic>=0.40",
+    "shapely>=2.0",
+    "fiona>=1.9",
+    "pyproj>=3.6",
+    "python-multipart>=0.0.9",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "httpx>=0.27",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]

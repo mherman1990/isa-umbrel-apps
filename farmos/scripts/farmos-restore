@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+"""One-command restore (Hard Requirement #17: records outlive the hardware).
+
+Usage (inside the container, on fresh hardware):
+
+  docker exec -it isa-farmos_web_1 farmos-restore --repo /backup-usb/farmos
+  docker exec -it isa-farmos_web_1 farmos-restore --repo s3:s3.amazonaws.com/bucket/farmos
+
+Prompts for the recovery phrase, restores the newest snapshot (or
+--snapshot ID), pg_restores the database, and puts artifacts/secrets/config
+back under /data. Safe to re-run.
+"""
+from __future__ import annotations
+
+import argparse
+import getpass
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+BACKEND_DIR = Path(__file__).resolve().parent.parent / "backend"
+if not BACKEND_DIR.exists():  # installed at /usr/local/bin inside the image
+    BACKEND_DIR = Path("/srv/backend")
+sys.path.insert(0, str(BACKEND_DIR))
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--repo", required=True, help="restic repository (path or s3:… URL)")
+    ap.add_argument("--snapshot", default="latest")
+    ap.add_argument("--password-file", help="file containing the recovery phrase (non-interactive)")
+    ap.add_argument("--yes", action="store_true", help="skip the overwrite confirmation")
+    args = ap.parse_args()
+
+    from app.config import settings
+
+    if args.password_file:
+        password = Path(args.password_file).read_text().strip()
+    else:
+        password = getpass.getpass("Recovery phrase: ").strip()
+    if not password:
+        sys.exit("a recovery phrase is required")
+
+    if not args.yes:
+        answer = input(f"This restores snapshot '{args.snapshot}' over {settings.data_dir} and the database. Continue? [y/N] ")
+        if answer.strip().lower() != "y":
+            sys.exit("aborted")
+
+    env = dict(os.environ)
+    env["RESTIC_REPOSITORY"] = args.repo
+    env["RESTIC_PASSWORD"] = password
+
+    with tempfile.TemporaryDirectory() as td:
+        print("restoring snapshot...")
+        subprocess.run(["restic", "restore", args.snapshot, "--target", td], env=env, check=True)
+
+        # restic preserves absolute paths under the target dir
+        restored = Path(td)
+        staged_dump = next(restored.rglob("farmos.dump"), None)
+        if staged_dump is None:
+            sys.exit("snapshot contains no farmos.dump — is this a Farm OS backup?")
+
+        for name in ("artifacts", "secrets", "config"):
+            src = next((p for p in restored.rglob(name) if p.is_dir()), None)
+            if src is not None:
+                dst = settings.data_dir / name
+                dst.mkdir(parents=True, exist_ok=True)
+                subprocess.run(["cp", "-a", f"{src}/.", str(dst)], check=True)
+                print(f"restored {name}/")
+
+        print("restoring database...")
+        dsn = settings.database_url.replace("postgresql+psycopg://", "postgresql://")
+        subprocess.run(
+            ["pg_restore", "--clean", "--if-exists", "--no-owner", "-d", dsn, str(staged_dump)],
+            check=True,
+        )
+
+    subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"], check=True, cwd=BACKEND_DIR)
+    print("\nrestore complete — restart the app containers.")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,77 @@
+# Farm OS — Umbrel app compose.
+#
+# Three services + Umbrel's injected app_proxy:
+#   web    — FastAPI API + PWA (port 8585)
+#   worker — job queue (whisper transcription runs nice'd, single-flight,
+#            max 2 threads: this box may also be running Bitcoin Core + LND
+#            and Farm OS is a guest on that hardware)
+#   db     — PostGIS + pgvector, deliberately small buffers
+#
+# All state lives under ${APP_DATA_DIR} (artifacts + secrets in ./data,
+# postgres in ./postgres) — on Bitcorn-class hardware that's the NVMe.
+
+version: "3.7"
+
+services:
+  app_proxy:
+    environment:
+      APP_HOST: isa-farmos_web_1
+      APP_PORT: 8585
+
+  web:
+    image: ghcr.io/mherman1990/farmos:0.1.0
+    restart: on-failure
+    stop_grace_period: 30s
+    environment: &app_env
+      FARMOS_DATA_DIR: /data
+      # ${APP_SEED} is Umbrel's per-app deterministic secret; the db is only
+      # reachable on this app's internal network.
+      FARMOS_DATABASE_URL: postgresql+psycopg://farmos:${APP_SEED}@isa-farmos_db_1:5432/farmos
+    volumes:
+      - ${APP_DATA_DIR}/data:/data
+    depends_on:
+      - db
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+
+  worker:
+    image: ghcr.io/mherman1990/farmos:0.1.0
+    command: ["worker"]
+    restart: on-failure
+    stop_grace_period: 30s
+    environment: *app_env
+    volumes:
+      - ${APP_DATA_DIR}/data:/data
+    depends_on:
+      - db
+    deploy:
+      resources:
+        limits:
+          memory: 1024M # whisper.cpp base.en transient ~800MB
+
+  db:
+    image: ghcr.io/mherman1990/farmos-db:0.1.0
+    restart: on-failure
+    stop_grace_period: 1m
+    command:
+      - postgres
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - work_mem=8MB
+      - -c
+      - max_connections=30
+      - -c
+      - effective_cache_size=512MB
+    environment:
+      POSTGRES_DB: farmos
+      POSTGRES_USER: farmos
+      POSTGRES_PASSWORD: ${APP_SEED}
+    volumes:
+      - ${APP_DATA_DIR}/postgres:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          memory: 768M

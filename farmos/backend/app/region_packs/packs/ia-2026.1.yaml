@@ -1,0 +1,242 @@
+# Iowa corn/soy region pack — v2026.1
+#
+# Program rules are DATA, not code. Every entry carries a citation,
+# source_url, last_verified, and verify_by. Past verify_by the engine
+# labels the entry "unverified since <date> — confirm before acting" and
+# excludes it from ranking. Rates below were compiled 2026-07 from the
+# sources cited; anything we could not confirm against a primary source is
+# marked unverified: true rather than guessed.
+#
+# The federal tier is factored so future state packs can inherit it.
+
+region_code: US-IA
+version: "2026.1"
+description: Iowa corn/soybean row-crop pack (pack #1)
+
+programs:
+  # ------------------------------------------------------------- federal
+  - program_key: eqip
+    name: Environmental Quality Incentives Program (EQIP)
+    agency: NRCS
+    tier: federal
+    summary: >
+      Cost-share for conservation practices on working land: cover crops,
+      no-till/reduced-till transitions, nutrient management, terraces,
+      grassed waterways. Payment schedules are set per state per practice.
+    payment_rate: "Per-practice payment schedule (Iowa NRCS); cover crop commonly ~$30-60/ac depending on scenario"
+    signup_deadline: "Continuous signup; state ranking cutoffs announced annually"
+    source_url: https://www.nrcs.usda.gov/programs-initiatives/eqip-environmental-quality-incentives
+    last_verified: 2026-07-12
+    verify_by: 2027-03-01
+    rules:
+      - rule_key: agricultural_land
+        description: Applicant must have an eligible land interest (owner or operator) in agricultural land.
+        citation: 7 CFR 1466.6
+        source_url: https://www.ecfr.gov/current/title-7/subtitle-B/chapter-XIV/subchapter-A/part-1466
+        last_verified: 2026-07-12
+        verify_by: 2027-03-01
+        predicate: null
+      - rule_key: conservation_compliance
+        description: Must be in compliance with HEL (highly erodible land) and wetland (Swampbuster) provisions.
+        citation: 7 CFR part 12
+        source_url: https://www.ecfr.gov/current/title-7/subtitle-A/part-12
+        last_verified: 2026-07-12
+        verify_by: 2027-03-01
+        predicate: null
+      - rule_key: beginning_farmer_advantage
+        description: Beginning farmers qualify for higher payment rates and advance payment options.
+        citation: 16 U.S.C. 3839aa-2(d)(4)
+        source_url: https://www.nrcs.usda.gov/getting-assistance/underserved-farmers-ranchers
+        last_verified: 2026-07-12
+        verify_by: 2027-03-01
+        predicate: { attr: beginning_farmer, op: truthy, value: true }
+
+  - program_key: csp
+    name: Conservation Stewardship Program (CSP)
+    agency: NRCS
+    tier: federal
+    summary: >
+      Whole-operation annual stewardship payments plus enhancement payments
+      for adding/improving practices. Suits operations already doing some
+      conservation and willing to add more.
+    payment_rate: "Annual payment by land use + enhancements; contract minimum $1,500/yr"
+    signup_deadline: "Continuous; FY26 first ranking cutoff Jan 15 (spec-provided, confirm at state office)"
+    source_url: https://www.nrcs.usda.gov/programs-initiatives/csp-conservation-stewardship-program
+    last_verified: 2026-07-12
+    verify_by: 2027-03-01
+    rules:
+      - rule_key: whole_operation
+        description: Enrollment covers the entire agricultural operation.
+        citation: 7 CFR 1470.5
+        source_url: https://www.ecfr.gov/current/title-7/subtitle-B/chapter-XIV/subchapter-A/part-1470
+        last_verified: 2026-07-12
+        verify_by: 2027-03-01
+        predicate: null
+      - rule_key: stewardship_threshold
+        description: Must meet or exceed the stewardship threshold for at least two priority resource concerns at enrollment.
+        citation: 7 CFR 1470.6
+        source_url: https://www.ecfr.gov/current/title-7/subtitle-B/chapter-XIV/subchapter-A/part-1470
+        last_verified: 2026-07-12
+        verify_by: 2027-03-01
+        predicate: null
+
+  - program_key: crp-continuous
+    name: Conservation Reserve Program — Continuous (buffers, filter strips, habitat)
+    agency: FSA
+    tier: federal
+    summary: >
+      Annual rental payments for taking environmentally sensitive acres out
+      of production: CP21 filter strips, CP22 riparian buffers, CP33 habitat
+      buffers. Continuous signup, no ranking competition for eligible acres.
+    payment_rate: "Annual soil rental rate by county + incentives; Iowa accepted 186,247 acres in 2026 enrollment (spec-provided)"
+    signup_deadline: "Continuous signup"
+    source_url: https://www.fsa.usda.gov/programs-and-services/conservation-programs/conservation-reserve-program
+    last_verified: 2026-07-12
+    verify_by: 2027-03-01
+    rules:
+      - rule_key: cropping_history
+        description: Land generally must have been planted to an agricultural commodity 4 of the previous 6 crop years and be physically/legally capable of being cropped.
+        citation: 7 CFR 1410.6
+        source_url: https://www.ecfr.gov/current/title-7/subtitle-B/chapter-XIV/subchapter-B/part-1410
+        last_verified: 2026-07-12
+        verify_by: 2027-03-01
+        predicate: null
+
+  # ------------------------------------------------------------- state (Iowa)
+  - program_key: idals-wqi-cover-crop
+    name: IDALS Water Quality Initiative cover crop cost-share
+    agency: IDALS
+    tier: state
+    summary: >
+      State cost-share for seeding cover crops, administered through Soil &
+      Water Conservation Districts. First-time users get the higher rate.
+    payment_rate: "$30/ac first-time users; $20/ac returning users (spec-provided rates)"
+    signup_deadline: "Apply at county SWCD; funds allocated summer/fall, first-come"
+    source_url: https://www.cleanwateriowa.org/costshare
+    last_verified: 2026-07-12
+    verify_by: 2027-03-01
+    rules:
+      - rule_key: iowa_land
+        description: Practice acres must be in Iowa.
+        citation: Iowa Admin. Code 27-10 (financial incentive program)
+        source_url: https://www.legis.iowa.gov/law/administrativeRules/rules?agency=27
+        last_verified: 2026-07-12
+        verify_by: 2027-03-01
+        predicate: { attr: state, op: eq, value: IA }
+      - rule_key: cover_crop_planned
+        description: Applicant seeds a qualifying cover crop species this fall on the enrolled acres.
+        citation: SWCD cost-share practice requirements (county SWCD)
+        source_url: https://www.cleanwateriowa.org/costshare
+        last_verified: 2026-07-12
+        verify_by: 2027-03-01
+        predicate: { attr: cover_crops, op: truthy, value: true }
+
+  - program_key: idals-rma-insurance-discount
+    name: Iowa Crop Insurance Discount Program (cover crop premium reduction)
+    agency: IDALS/RMA
+    tier: state
+    summary: >
+      $5/ac crop insurance premium reduction on acres with a fall-seeded
+      cover crop followed by a spring cash crop. IMPORTANT STACKING RULE:
+      acres enrolled in other state or federal cover crop cost-share
+      programs are NOT eligible — this program and IDALS/EQIP cost-share
+      are mutually exclusive on the same acres.
+    payment_rate: "$5/ac premium reduction"
+    signup_deadline: "Signup approximately Dec 1 - Jan 23 (spec-provided window; confirm annually)"
+    source_url: https://iowaagriculture.gov/CropInsuranceDiscount
+    last_verified: 2026-07-12
+    verify_by: 2027-01-15
+    rules:
+      - rule_key: cover_crop_seeded
+        description: Cover crop seeded in the fall on the enrolled acres, terminated ahead of a spring-planted cash crop.
+        citation: IDALS Crop Insurance Discount Program terms
+        source_url: https://iowaagriculture.gov/CropInsuranceDiscount
+        last_verified: 2026-07-12
+        verify_by: 2027-01-15
+        predicate: { attr: cover_crops, op: truthy, value: true }
+      - rule_key: no_other_cover_crop_program
+        description: >
+          Enrolled acres must NOT receive other state or federal cover crop
+          cost-share (e.g. IDALS WQI cost-share, EQIP cover crop payments)
+          for the same crop year. This is the canonical stacking exclusion.
+        citation: IDALS Crop Insurance Discount Program eligibility terms
+        source_url: https://iowaagriculture.gov/CropInsuranceDiscount
+        last_verified: 2026-07-12
+        verify_by: 2027-01-15
+        predicate: { attr: enrolled_cover_crop_programs, op: eq, value: [] }
+
+  - program_key: iowa-beginning-farmer-tax-credit
+    name: Iowa Beginning Farmer Tax Credit (for landowners leasing to beginning farmers)
+    agency: IFA/IADD
+    tier: state
+    summary: >
+      Iowa tax credit to landowners who lease land, equipment, or buildings
+      to a qualifying beginning farmer. Relevant to family succession and
+      buy-in structures.
+    payment_rate: "Tax credit of 5% (cash rent) or 15% (crop share) of lease value (confirm current rates)"
+    signup_deadline: "Applications through the Iowa Finance Authority; annual award cap"
+    source_url: https://www.iowafinance.com/beginning-farming-programs/
+    last_verified: 2026-07-12
+    verify_by: 2027-03-01
+    rules:
+      - rule_key: beginning_farmer_tenant
+        description: Tenant must qualify as a beginning farmer (net worth cap, experience, Iowa resident).
+        citation: Iowa Code ch. 16, subch. VIII, part 5
+        source_url: https://www.legis.iowa.gov/law/iowaCode/chapters?title=I&year=2025
+        last_verified: 2026-07-12
+        verify_by: 2027-03-01
+        predicate: { attr: beginning_farmer, op: truthy, value: true }
+
+  # ------------------------------------------------------------- private / market
+  - program_key: swof
+    name: Soil and Water Outcomes Fund (SWOF)
+    agency: SWOF (Iowa Soybean Association subsidiary)
+    tier: private
+    summary: >
+      Outcome-based payments for water quality + carbon outcomes from
+      practice changes (cover crops, tillage reduction, nutrient
+      management). 25% up front, 75% after verification. Additionality
+      applies: acres already receiving public cost-share for the same
+      practice are typically excluded.
+    payment_rate: "~$20-40/ac; 2024 average ~$33/ac (spec-provided)"
+    signup_deadline: "Enrollment opens summer 2026 for crop year 2027 (spec-provided)"
+    source_url: https://theoutcomesfund.com/
+    last_verified: 2026-07-12
+    verify_by: 2027-03-01
+    rules:
+      - rule_key: practice_change
+        description: Payments require a new practice change (additionality) — acres already in the practice, or funded by other programs for it, may not qualify.
+        citation: SWOF enrollment terms
+        source_url: https://theoutcomesfund.com/farmers
+        last_verified: 2026-07-12
+        verify_by: 2027-03-01
+        predicate: null
+
+  - program_key: bayer-forground
+    name: Bayer ForGround (reduced tillage / cover crop)
+    agency: Bayer
+    tier: private
+    summary: >
+      Practice-based payments for reduced tillage and cover crops, with
+      historical-practice payments available for recent adopters.
+    payment_rate: "~$6/ac reduced-till + ~$6/ac cover crop; up to ~$48/ac one-time historical (spec-provided; confirm current program terms)"
+    signup_deadline: "Rolling enrollment"
+    source_url: https://www.bayerforground.com/
+    last_verified: 2026-07-12
+    verify_by: 2027-03-01
+    unverified: true
+    rules: []
+
+  - program_key: pfi-cover-crop
+    name: Practical Farmers of Iowa cover crop cost-share
+    agency: Practical Farmers of Iowa
+    tier: private
+    summary: >
+      PFI-administered cover crop cost-share (often stackable where public
+      programs are not — check current-year terms).
+    payment_rate: "Varies by year and funding partner"
+    signup_deadline: "Annual; typically summer signup"
+    source_url: https://practicalfarmers.org/programs/cover-crops/
+    last_verified: 2026-07-12
+    verify_by: 2027-03-01
+    rules: []

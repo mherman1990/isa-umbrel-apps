@@ -1,0 +1,508 @@
+"""Core data model.
+
+Conventions:
+- UUID primary keys, created_at/updated_at everywhere.
+- client_id on client-creatable rows: generated on the device, UNIQUE here,
+  so offline batch upload is idempotent by construction.
+- Geometry SRID 4326.
+- FSA-578 fields are first-class columns named to the CART/NIEM standard
+  where one exists (FarmNumber, TractNumber, FieldNumber, CropYear,
+  OriginalPlantedDate, IntendedUse, IrrigationPractice). A CropYear that
+  cannot emit a valid 578 is an incomplete CropYear.
+- capture_event rows and their artifacts are append-only and never deleted;
+  every structured record links back to the capture it came from.
+"""
+from __future__ import annotations
+
+import uuid
+from datetime import date, datetime
+
+from geoalchemy2 import Geometry
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Numeric,
+    SmallInteger,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+    text,
+)
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+def uuid_pk():
+    return mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+
+def created_at_col():
+    return mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+def updated_at_col():
+    return mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+# --------------------------------------------------------------------------- identity
+
+
+class AppUser(Base):
+    __tablename__ = "app_user"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    display_name: Mapped[str] = mapped_column(Text, nullable=False)
+    role: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="owner", server_default="owner"
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = created_at_col()
+
+    __table_args__ = (
+        CheckConstraint("role IN ('owner','operator','advisor','readonly')", name="app_user_role_ck"),
+    )
+
+
+class DeviceToken(Base):
+    __tablename__ = "device_token"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("app_user.id", ondelete="CASCADE"), nullable=False)
+    token_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)  # sha256; plaintext never stored
+    device_name: Mapped[str] = mapped_column(Text, nullable=False)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = created_at_col()
+
+
+class PairingCode(Base):
+    __tablename__ = "pairing_code"
+
+    code: Mapped[str] = mapped_column(String(6), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("app_user.id", ondelete="CASCADE"), nullable=False)
+    role: Mapped[str] = mapped_column(String(16), nullable=False, default="operator", server_default="operator")
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = created_at_col()
+
+
+# --------------------------------------------------------------------------- farm structure
+
+
+class RegionPackRow(Base):
+    __tablename__ = "region_pack"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    region_code: Mapped[str] = mapped_column(String(16), nullable=False)  # 'US-IA'
+    version: Mapped[str] = mapped_column(String(32), nullable=False)  # '2026.1'
+    source_path: Mapped[str] = mapped_column(Text, nullable=False)
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    loaded_at: Mapped[datetime] = created_at_col()
+
+    __table_args__ = (UniqueConstraint("region_code", "version", name="region_pack_version_uq"),)
+
+
+class FarmProfile(Base):
+    """Singleton — one operation per box. Every module reads from this."""
+
+    __tablename__ = "farm_profile"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    operation_name: Mapped[str] = mapped_column(Text, nullable=False)
+    state_code: Mapped[str] = mapped_column(String(2), nullable=False, default="IA", server_default="IA")
+    county_ansi_code: Mapped[str | None] = mapped_column(String(3))
+    region_pack_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("region_pack.id"))
+    entity_type: Mapped[str | None] = mapped_column(Text)  # sole prop / LLC / partnership
+    crops: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    # e.g. {"corn": {"acres": 300, "storage_bu": 40000}, "soybeans": {"acres": 300, "storage_bu": 0}}
+    tenure: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    tillage_system: Mapped[str | None] = mapped_column(Text)
+    beginning_farmer: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    practice_history: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    # 5-question onboarding practice screen: cover_crops, no_till_since, nutrient_mgmt, hel_acres, enrolled_programs
+    monthly_spend_cap_usd: Mapped[float] = mapped_column(Numeric(8, 2), nullable=False, default=20, server_default="20.00")
+    anthropic_key_set: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    onboarding_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = created_at_col()
+    updated_at: Mapped[datetime] = updated_at_col()
+
+
+class Farm(Base):
+    """An FSA farm (a profile can span several FSA farm numbers)."""
+
+    __tablename__ = "farm"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    farm_profile_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("farm_profile.id"), nullable=False)
+    farm_number: Mapped[str] = mapped_column(Text, nullable=False)  # CART: FarmNumber
+    state_ansi_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    county_ansi_code: Mapped[str] = mapped_column(String(3), nullable=False)
+    created_at: Mapped[datetime] = created_at_col()
+
+    __table_args__ = (
+        UniqueConstraint("state_ansi_code", "county_ansi_code", "farm_number", name="farm_fsa_uq"),
+    )
+
+
+class Field(Base):
+    __tablename__ = "field"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    farm_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("farm.id"), nullable=False)
+    tract_number: Mapped[str] = mapped_column(Text, nullable=False)  # CART: TractNumber
+    field_number: Mapped[str] = mapped_column(Text, nullable=False)  # CART: FieldNumber
+    clu_identifier: Mapped[str | None] = mapped_column(Text)  # CLUID from farmers.gov export
+    name: Mapped[str | None] = mapped_column(Text)  # farmer's nickname ("North 80")
+    boundary = mapped_column(Geometry("MULTIPOLYGON", srid=4326), nullable=False)
+    clu_calculated_acres: Mapped[float | None] = mapped_column(Numeric(10, 2))  # acres attr from export
+    gis_acres: Mapped[float | None] = mapped_column(Numeric(10, 2))  # recomputed, sanity-check pair
+    productivity_index: Mapped[float | None] = mapped_column(Numeric(6, 2))  # CSR2 in Iowa
+    source: Mapped[str] = mapped_column(String(16), nullable=False, default="clu_import", server_default="clu_import")
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = created_at_col()
+    updated_at: Mapped[datetime] = updated_at_col()
+
+    __table_args__ = (
+        UniqueConstraint("farm_id", "tract_number", "field_number", name="field_fsa_uq"),
+        CheckConstraint("source IN ('clu_import','manual','geojson')", name="field_source_ck"),
+        # spatial index: GeoAlchemy2 creates idx_field_boundary automatically
+    )
+
+
+class Lease(Base):
+    __tablename__ = "lease"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    field_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("field.id"), nullable=False)
+    lease_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    landlord_name: Mapped[str | None] = mapped_column(Text)
+    producer_share: Mapped[float | None] = mapped_column(Numeric(5, 4))  # 1.0 if owned
+    rent_per_acre: Mapped[float | None] = mapped_column(Numeric(10, 2))
+    start_date: Mapped[date] = mapped_column(Date, nullable=False)
+    end_date: Mapped[date | None] = mapped_column(Date)
+    document_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("document.id"))
+    created_at: Mapped[datetime] = created_at_col()
+
+    __table_args__ = (
+        CheckConstraint("lease_type IN ('owned','cash_rent','crop_share','flex')", name="lease_type_ck"),
+    )
+
+
+# --------------------------------------------------------------------------- FSA-578 first-class
+
+
+class CropYear(Base):
+    __tablename__ = "crop_year"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    field_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("field.id"), nullable=False)
+    crop_year: Mapped[int] = mapped_column(SmallInteger, nullable=False)  # CART: CropYear
+    crop_code: Mapped[str] = mapped_column(Text, nullable=False)  # FSA crop code ('0041' corn, '0081' soybeans)
+    crop_name: Mapped[str] = mapped_column(Text, nullable=False)
+    crop_type_code: Mapped[str | None] = mapped_column(Text)
+    variety: Mapped[str | None] = mapped_column(Text)
+    intended_use_code: Mapped[str] = mapped_column(String(4), nullable=False, default="GR", server_default="GR")
+    reported_acres: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
+    boundary = mapped_column(Geometry("MULTIPOLYGON", srid=4326))  # subfield planting boundary; NULL = whole field
+    original_planted_date: Mapped[date | None] = mapped_column(Date)  # CART: OriginalPlantedDate
+    final_planted_date: Mapped[date | None] = mapped_column(Date)
+    planting_pattern: Mapped[str | None] = mapped_column(Text)
+    producer_share: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False, default=1, server_default="1.0")
+    irrigation_practice_code: Mapped[str] = mapped_column(String(1), nullable=False, default="N", server_default="N")
+    prevented_planted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    failed_acres: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0, server_default="0")
+    created_at: Mapped[datetime] = created_at_col()
+    updated_at: Mapped[datetime] = updated_at_col()
+
+    __table_args__ = (
+        UniqueConstraint("field_id", "crop_year", "crop_code", "intended_use_code", name="crop_year_uq"),
+        CheckConstraint("irrigation_practice_code IN ('I','N','O')", name="crop_year_irrigation_ck"),
+    )
+
+
+# --------------------------------------------------------------------------- operations & inputs
+
+
+class Product(Base):
+    __tablename__ = "product"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(String(16), nullable=False)
+    epa_reg_number: Mapped[str | None] = mapped_column(Text)  # restricted-use chem records
+    default_unit: Mapped[str] = mapped_column(Text, nullable=False, default="unit", server_default="unit")
+    created_at: Mapped[datetime] = created_at_col()
+
+    __table_args__ = (
+        UniqueConstraint("name", "category", name="product_name_uq"),
+        CheckConstraint(
+            "category IN ('seed','herbicide','insecticide','fungicide','fertilizer','fuel','other')",
+            name="product_category_ck",
+        ),
+    )
+
+
+class InputInventory(Base):
+    __tablename__ = "input_inventory"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("product.id"), nullable=False, unique=True)
+    quantity: Mapped[float] = mapped_column(Numeric(12, 3), nullable=False, default=0, server_default="0")
+    unit: Mapped[str] = mapped_column(Text, nullable=False)
+    unit_cost: Mapped[float | None] = mapped_column(Numeric(10, 2))
+    location: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = updated_at_col()
+
+
+class FieldOperation(Base):
+    __tablename__ = "field_operation"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    client_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), unique=True)  # offline idempotency
+    field_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("field.id"), nullable=False)
+    crop_year_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("crop_year.id"))
+    op_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    acres_covered: Mapped[float | None] = mapped_column(Numeric(10, 2))
+    notes: Mapped[str | None] = mapped_column(Text)
+    operator_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("app_user.id"))
+    source_capture_event_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("capture_event.id"))
+    details: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    # op-specific: rate, carrier gal/ac, wind mph + direction, temp, yield, moisture...
+    weather: Mapped[dict | None] = mapped_column(JSONB)  # auto-attached at occurred_at (adapter, optional)
+    created_at: Mapped[datetime] = created_at_col()
+    updated_at: Mapped[datetime] = updated_at_col()
+
+    __table_args__ = (
+        CheckConstraint(
+            "op_type IN ('plant','spray','fertilize','till','harvest','scout','irrigate','other')",
+            name="field_operation_type_ck",
+        ),
+        Index("field_operation_field_ix", "field_id", "occurred_at"),
+    )
+
+
+class OperationProduct(Base):
+    """N products per operation — tank mixes."""
+
+    __tablename__ = "operation_product"
+
+    operation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("field_operation.id", ondelete="CASCADE"), primary_key=True
+    )
+    product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("product.id"), primary_key=True)
+    rate: Mapped[float | None] = mapped_column(Numeric(12, 4))
+    rate_unit: Mapped[str | None] = mapped_column(Text)  # 'oz/ac', 'lbs/ac', 'seeds/ac'
+    total_quantity: Mapped[float | None] = mapped_column(Numeric(12, 3))
+    unit: Mapped[str | None] = mapped_column(Text)
+
+
+# --------------------------------------------------------------------------- capture pipeline
+
+CAPTURE_STATUSES = (
+    "recorded",
+    "transcribing",
+    "transcribed",
+    "parsing",
+    "parsed",
+    "queued",
+    "confirmed",
+    "rejected",
+    "failed",
+)
+
+
+class CaptureEvent(Base):
+    """Append-only. The raw artifact is NEVER deleted (hard requirement)."""
+
+    __tablename__ = "capture_event"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    client_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, unique=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("app_user.id"), nullable=False)
+    kind: Mapped[str] = mapped_column(String(8), nullable=False)
+    artifact_path: Mapped[str] = mapped_column(Text, nullable=False)  # relative to DATA_DIR
+    artifact_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    mime_type: Mapped[str] = mapped_column(Text, nullable=False)
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)  # device clock
+    uploaded_at: Mapped[datetime] = created_at_col()
+    device_gps = mapped_column(Geometry("POINT", srid=4326))
+    provenance: Mapped[str] = mapped_column(String(16), nullable=False, default="captured", server_default="captured")
+    timestamp_proof: Mapped[dict | None] = mapped_column(JSONB)  # OpenTimestamps (Phase 2 batch fills this)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="recorded", server_default="recorded")
+    status_detail: Mapped[str | None] = mapped_column(Text)
+    transcript: Mapped[str | None] = mapped_column(Text)  # whisper output (voice only)
+
+    __table_args__ = (
+        CheckConstraint("kind IN ('voice','photo','file','text')", name="capture_kind_ck"),
+        CheckConstraint("provenance IN ('captured','imported')", name="capture_provenance_ck"),
+        CheckConstraint(
+            "status IN " + repr(CAPTURE_STATUSES).replace('"', "'"),
+            name="capture_status_ck",
+        ),
+        Index("capture_event_status_ix", "status"),
+    )
+
+
+PARSE_TARGET_TYPES = (
+    "field_operation",
+    "input_inventory",
+    "equipment_issue",
+    "crop_year",
+    "document",
+    "product",
+    "note",
+)
+
+
+class ParseResult(Base):
+    """One capture → N of these (multi-record extraction is the norm)."""
+
+    __tablename__ = "parse_result"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    capture_event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("capture_event.id"), nullable=False)
+    seq: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    target_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    extracted: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    confidence: Mapped[float] = mapped_column(Numeric(4, 3), nullable=False)
+    model_used: Mapped[str] = mapped_column(Text, nullable=False)
+    prompt_version: Mapped[str] = mapped_column(Text, nullable=False)
+    ambiguities: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    created_at: Mapped[datetime] = created_at_col()
+
+    __table_args__ = (
+        UniqueConstraint("capture_event_id", "seq", name="parse_result_seq_uq"),
+        CheckConstraint(
+            "target_type IN " + repr(PARSE_TARGET_TYPES).replace('"', "'"),
+            name="parse_target_ck",
+        ),
+    )
+
+
+class ConfirmationQueueItem(Base):
+    __tablename__ = "confirmation_queue_item"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    parse_result_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("parse_result.id"), nullable=False, unique=True
+    )
+    state: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", server_default="pending")
+    resolved_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("app_user.id"))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    final_payload: Mapped[dict | None] = mapped_column(JSONB)  # payload after farmer edits
+    created_record_type: Mapped[str | None] = mapped_column(Text)
+    created_record_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    created_at: Mapped[datetime] = created_at_col()
+
+    __table_args__ = (
+        CheckConstraint("state IN ('pending','confirmed','edited','rejected')", name="cqi_state_ck"),
+        Index("cqi_state_ix", "state"),
+    )
+
+
+class Document(Base):
+    """Routed photos/PDFs: receipts, leases, FSA letters, soil tests — the vault."""
+
+    __tablename__ = "document"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    capture_event_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("capture_event.id"))
+    doc_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    file_path: Mapped[str] = mapped_column(Text, nullable=False)
+    extracted: Mapped[dict | None] = mapped_column(JSONB)  # OCR/LLM structured fields
+    related_field_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("field.id"))
+    created_at: Mapped[datetime] = created_at_col()
+
+    __table_args__ = (
+        CheckConstraint(
+            "doc_type IN ('receipt','scale_ticket','seed_tag','applicator_record','lease',"
+            "'fsa_form','insurance','soil_test','contract','other')",
+            name="document_type_ck",
+        ),
+    )
+
+
+# --------------------------------------------------------------------------- programs / region pack
+
+
+class Program(Base):
+    __tablename__ = "program"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    region_pack_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("region_pack.id"), nullable=False)
+    program_key: Mapped[str] = mapped_column(Text, nullable=False)  # 'eqip', 'idals-cover-crop', ...
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    agency: Mapped[str] = mapped_column(Text, nullable=False)  # FSA / NRCS / IDALS / RMA / private
+    tier: Mapped[str] = mapped_column(String(16), nullable=False, default="state", server_default="state")
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    payment_rate: Mapped[str | None] = mapped_column(Text)  # human-readable; rates too varied for numeric
+    signup_deadline: Mapped[str | None] = mapped_column(Text)  # may be a window, not a date
+    source_url: Mapped[str] = mapped_column(Text, nullable=False)
+    last_verified: Mapped[date] = mapped_column(Date, nullable=False)
+    verify_by: Mapped[date] = mapped_column(Date, nullable=False)
+    created_at: Mapped[datetime] = created_at_col()
+
+    __table_args__ = (
+        UniqueConstraint("region_pack_id", "program_key", name="program_key_uq"),
+        CheckConstraint("tier IN ('federal','state','private')", name="program_tier_ck"),
+    )
+
+
+class EligibilityRule(Base):
+    __tablename__ = "eligibility_rule"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    program_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("program.id", ondelete="CASCADE"), nullable=False)
+    rule_key: Mapped[str] = mapped_column(Text, nullable=False)
+    predicate: Mapped[dict | None] = mapped_column(JSONB)  # machine-checkable where possible
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    citation: Mapped[str] = mapped_column(Text, nullable=False)
+    source_url: Mapped[str] = mapped_column(Text, nullable=False)
+    last_verified: Mapped[date] = mapped_column(Date, nullable=False)
+    verify_by: Mapped[date] = mapped_column(Date, nullable=False)
+
+    __table_args__ = (UniqueConstraint("program_id", "rule_key", name="eligibility_rule_uq"),)
+
+
+# --------------------------------------------------------------------------- metering / audit
+
+
+class ApiSpend(Base):
+    __tablename__ = "api_spend"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    occurred_at: Mapped[datetime] = created_at_col()
+    purpose: Mapped[str] = mapped_column(Text, nullable=False)  # 'voice_parse','doc_route',...
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+    input_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    output_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    cost_usd: Mapped[float] = mapped_column(Numeric(10, 6), nullable=False)
+    capture_event_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("capture_event.id"))
+
+    __table_args__ = (Index("api_spend_occurred_ix", "occurred_at"),)
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    at: Mapped[datetime] = created_at_col()
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("app_user.id"))
+    action: Mapped[str] = mapped_column(Text, nullable=False)  # 'field.create','inbox.confirm',...
+    entity_type: Mapped[str | None] = mapped_column(Text)
+    entity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    detail: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))

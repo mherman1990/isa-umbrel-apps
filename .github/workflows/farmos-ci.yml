@@ -1,0 +1,78 @@
+# Farm OS CI: unit tests, DB-backed API tests (real PostGIS), the
+# voice-parser eval gate (F1 >= 0.90, zero API calls), the restore drill,
+# and the frontend build. Trust-critical paths are tested, not vibed
+# (Hard Requirement #18).
+name: farmos-ci
+
+on:
+  push:
+    branches: ["**"]
+    paths: ["farmos/**", "isa-farmos/**", ".github/workflows/farmos-ci.yml"]
+  pull_request:
+    paths: ["farmos/**", "isa-farmos/**", ".github/workflows/farmos-ci.yml"]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: farmos
+          POSTGRES_PASSWORD: farmos
+          POSTGRES_DB: farmos_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd="pg_isready -U farmos" --health-interval=5s
+          --health-timeout=5s --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install system deps (restic + pg client for the restore drill)
+        run: sudo apt-get update -q && sudo apt-get install -y -q restic postgresql-client
+
+      - name: Install backend
+        run: |
+          pip install ./farmos/backend
+          pip install pytest httpx
+
+      - name: Unit tests
+        working-directory: farmos
+        run: pytest tests/unit -q
+
+      - name: Voice-parser eval gate (replay mode, no API calls)
+        working-directory: farmos
+        run: python tests/eval/run_eval.py
+
+      - name: API tests (real PostGIS)
+        working-directory: farmos
+        env:
+          FARMOS_TEST_DATABASE_URL: postgresql+psycopg://farmos:farmos@localhost:5432/farmos_test
+        run: pytest tests/api -q
+
+      - name: Restore drill (seed -> backup -> wipe -> restore -> verify)
+        working-directory: farmos
+        env:
+          FARMOS_DATABASE_URL: postgresql+psycopg://farmos:farmos@localhost:5432/farmos_drill
+          FARMOS_DATA_DIR: /tmp/farmos-drill
+        run: |
+          PGPASSWORD=farmos createdb -h localhost -U farmos farmos_drill
+          PGPASSWORD=farmos psql -h localhost -U farmos -d farmos_drill -c "CREATE EXTENSION postgis"
+          PGPASSWORD=farmos python scripts/restore_drill.py
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Build PWA
+        working-directory: farmos/frontend
+        run: |
+          npm install --no-audit --no-fund
+          npm run build

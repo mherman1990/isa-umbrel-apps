@@ -13,3 +13,12 @@ briefings/
 logs/
 polibrief-data/
 backups/
+
+# Farm OS
+farmos/frontend/dist/
+farmos/frontend/dev-dist/
+__pycache__/
+*.pyc
+.pytest_cache/
+farmos/backend/*.egg-info/
+farmos/tests/eval/recorded_live.json

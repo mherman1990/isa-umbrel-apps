@@ -1,0 +1,360 @@
+# Voice-parser evaluation set (Hard Requirement #18a).
+#
+# Each case: a realistic in-cab transcript, the RECORDED model output
+# (refreshed by live runs when the prompt or model pin changes), and the
+# EXPECTED records. CI runs replay mode: recorded output → real
+# post-processing (extract_json + validate_records) → scored against
+# expected. Gate: record-level F1 >= 0.90.
+#
+# expected[].payload_match values: exact match, or {contains: "..."} for
+# case-insensitive substring, or {any: true} for "must be present".
+
+cases:
+  - id: 001-spec-canonical-three-records
+    transcript: >
+      Just finished spraying the home eighty, Enlist One at 32 ounces, twenty
+      gallons of water, started about two — wind was out of the south, maybe
+      eight miles an hour. Oh, and the left boom section's dripping again,
+      second time this month. Need to tell Dad we're low on Enlist, maybe two
+      jugs left.
+    recorded: |
+      [{"target_type":"field_operation","confidence":0.85,"ambiguities":[{"key":"rate_basis","question":"32 oz per acre or total?","options":["oz/ac","oz total"]}],
+        "payload":{"op_type":"spray","field_name":"home eighty","occurred_at_hint":"started about two",
+                   "products":[{"name":"Enlist One","rate":32,"rate_unit":"oz/ac"}],
+                   "details":{"carrier_gal_per_ac":20,"wind":"S 8 mph"}}},
+       {"target_type":"equipment_issue","confidence":0.92,"ambiguities":[],
+        "payload":{"equipment":"sprayer left boom section","issue":"dripping","recurring":true}},
+       {"target_type":"input_inventory","confidence":0.9,"ambiguities":[],
+        "payload":{"product_name":"Enlist One","observation":"low","quantity_hint":"two jugs left"}}]
+    expected:
+      - target_type: field_operation
+        payload_match: { op_type: spray, field_name: { contains: "home eighty" }, products: { any: true } }
+      - target_type: equipment_issue
+        payload_match: { issue: { contains: "drip" }, recurring: true }
+      - target_type: input_inventory
+        payload_match: { product_name: { contains: "Enlist" }, observation: low }
+
+  - id: 002-simple-planting
+    transcript: >
+      Planted the Miller place today, P1185 at thirty four five, finished
+      about six tonight.
+    recorded: |
+      [{"target_type":"field_operation","confidence":0.9,"ambiguities":[],
+        "payload":{"op_type":"plant","field_name":"Miller place","occurred_at_hint":"finished about six tonight",
+                   "details":{"variety":"P1185","population":34500}}}]
+    expected:
+      - target_type: field_operation
+        payload_match: { op_type: plant, field_name: { contains: "miller" }, details: { any: true } }
+
+  - id: 003-harvest-yield-moisture
+    transcript: >
+      Wrapped up beans on the north forty, combine monitor said fifty eight
+      and a half bushel, moisture right around twelve.
+    recorded: |
+      [{"target_type":"field_operation","confidence":0.9,"ambiguities":[],
+        "payload":{"op_type":"harvest","field_name":"north forty",
+                   "details":{"yield_bu_per_ac":58.5,"moisture_pct":12}}}]
+    expected:
+      - target_type: field_operation
+        payload_match: { op_type: harvest, field_name: { contains: "north forty" } }
+
+  - id: 004-tillage
+    transcript: >
+      Ran the vertical till across the creek bottom this afternoon, one pass,
+      pretty mellow.
+    recorded: |
+      [{"target_type":"field_operation","confidence":0.88,"ambiguities":[],
+        "payload":{"op_type":"till","field_name":"creek bottom","notes":"vertical till, one pass"}}]
+    expected:
+      - target_type: field_operation
+        payload_match: { op_type: till, field_name: { contains: "creek bottom" } }
+
+  - id: 005-scouting
+    transcript: >
+      Walked the west place, seeing waterhemp coming through in the low spots,
+      maybe two three inches. Gonna need to spray this week.
+    recorded: |
+      [{"target_type":"field_operation","confidence":0.85,"ambiguities":[],
+        "payload":{"op_type":"scout","field_name":"west place","notes":"waterhemp 2-3 inches in low spots"}},
+       {"target_type":"note","confidence":0.8,"ambiguities":[],
+        "payload":{"text":"needs spraying this week","about":"west place"}}]
+    expected:
+      - target_type: field_operation
+        payload_match: { op_type: scout, field_name: { contains: "west" } }
+      - target_type: note
+        payload_match: { text: { contains: "spray" } }
+
+  - id: 006-tank-mix
+    transcript: >
+      Sprayed the home place corn, Roundup PowerMax at 32 ounces and Status at
+      five, fifteen gallon water, done by noon.
+    recorded: |
+      [{"target_type":"field_operation","confidence":0.87,"ambiguities":[],
+        "payload":{"op_type":"spray","field_name":"home place",
+                   "products":[{"name":"Roundup PowerMax","rate":32,"rate_unit":"oz/ac"},
+                                {"name":"Status","rate":5,"rate_unit":"oz/ac"}],
+                   "details":{"carrier_gal_per_ac":15}}}]
+    expected:
+      - target_type: field_operation
+        payload_match: { op_type: spray, products: { any: true } }
+
+  - id: 007-ambiguous-field
+    transcript: >
+      Finished spraying the north field, Liberty at 29 ounces.
+    recorded: |
+      [{"target_type":"field_operation","confidence":0.6,
+        "ambiguities":[{"key":"field_id","question":"Which north field — North 40 or North 80?","options":["North 40","North 80"]}],
+        "payload":{"op_type":"spray","field_name":"north field",
+                   "products":[{"name":"Liberty","rate":29,"rate_unit":"oz/ac"}]}}]
+    expected:
+      - target_type: field_operation
+        payload_match: { op_type: spray, field_name: { contains: "north" } }
+        require_ambiguity: field_id
+
+  - id: 008-rate-basis-ambiguity
+    transcript: >
+      Put 60 gallons of 32 percent on the east eighty with the y-drops.
+    recorded: |
+      [{"target_type":"field_operation","confidence":0.65,
+        "ambiguities":[{"key":"rate_basis","question":"60 gallons total or per acre?","options":["gal/ac","gal total"]}],
+        "payload":{"op_type":"fertilize","field_name":"east eighty",
+                   "products":[{"name":"UAN 32%","rate":60,"rate_unit":"gal"}],
+                   "notes":"applied with y-drops"}}]
+    expected:
+      - target_type: field_operation
+        payload_match: { op_type: fertilize, field_name: { contains: "east eighty" } }
+        require_ambiguity: rate_basis
+
+  - id: 009-junk-audio
+    transcript: >
+      uh... [wind noise] ... yeah hang on... [door slam]
+    recorded: |
+      []
+    expected: []
+
+  - id: 010-inventory-received
+    transcript: >
+      Chem delivery showed up, ten jugs of Enlist One and four boxes of
+      Liberty in the shed.
+    recorded: |
+      [{"target_type":"input_inventory","confidence":0.9,"ambiguities":[],
+        "payload":{"product_name":"Enlist One","observation":"received","quantity_hint":"ten jugs"}},
+       {"target_type":"input_inventory","confidence":0.9,"ambiguities":[],
+        "payload":{"product_name":"Liberty","observation":"received","quantity_hint":"four boxes"}}]
+    expected:
+      - target_type: input_inventory
+        payload_match: { product_name: { contains: "Enlist" }, observation: received }
+      - target_type: input_inventory
+        payload_match: { product_name: { contains: "Liberty" }, observation: received }
+
+  - id: 011-fertilizer-application
+    transcript: >
+      Spread dry fertilizer on the school section, two hundred pounds of
+      potash and a hundred fifty of DAP.
+    recorded: |
+      [{"target_type":"field_operation","confidence":0.88,"ambiguities":[],
+        "payload":{"op_type":"fertilize","field_name":"school section",
+                   "products":[{"name":"Potash","rate":200,"rate_unit":"lbs/ac"},
+                                {"name":"DAP","rate":150,"rate_unit":"lbs/ac"}]}}]
+    expected:
+      - target_type: field_operation
+        payload_match: { op_type: fertilize, field_name: { contains: "school" } }
+
+  - id: 012-equipment-only
+    transcript: >
+      Planter's throwing a code on row six again, seed sensor probably.
+      Second time it's done it.
+    recorded: |
+      [{"target_type":"equipment_issue","confidence":0.9,"ambiguities":[],
+        "payload":{"equipment":"planter row 6","issue":"seed sensor code","recurring":true}}]
+    expected:
+      - target_type: equipment_issue
+        payload_match: { issue: { contains: "sensor" }, recurring: true }
+
+  - id: 013-note-for-dad
+    transcript: >
+      Remind me to tell Dad the co-op called about the fall dry fertilizer
+      prepay, wants an answer by Friday.
+    recorded: |
+      [{"target_type":"note","confidence":0.9,"ambiguities":[],
+        "payload":{"text":"co-op called about fall dry fertilizer prepay, answer by Friday","about":"Dad"}}]
+    expected:
+      - target_type: note
+        payload_match: { text: { contains: "prepay" } }
+
+  - id: 014-plant-plus-note
+    transcript: >
+      Got beans in on the home eighty, 2.4 maturity at one forty, and mark
+      down we should try one forty five next year on the good ground.
+    recorded: |
+      [{"target_type":"field_operation","confidence":0.85,"ambiguities":[],
+        "payload":{"op_type":"plant","field_name":"home eighty",
+                   "details":{"variety":"2.4 maturity","population":140000}}},
+       {"target_type":"note","confidence":0.8,"ambiguities":[],
+        "payload":{"text":"try 145k population next year on the good ground"}}]
+    expected:
+      - target_type: field_operation
+        payload_match: { op_type: plant, field_name: { contains: "home eighty" } }
+      - target_type: note
+        payload_match: { text: { contains: "next year" } }
+
+  - id: 015-spray-with-conditions
+    transcript: >
+      Sprayed fungicide on the corn at the Anderson farm, Delaro at eight
+      ounces, wind was calm, about seventy five degrees, done by ten this
+      morning.
+    recorded: |
+      [{"target_type":"field_operation","confidence":0.9,"ambiguities":[],
+        "payload":{"op_type":"spray","field_name":"Anderson farm","occurred_at_hint":"done by ten this morning",
+                   "products":[{"name":"Delaro","rate":8,"rate_unit":"oz/ac"}],
+                   "details":{"wind":"calm","temp_f":75}}}]
+    expected:
+      - target_type: field_operation
+        payload_match: { op_type: spray, field_name: { contains: "anderson" }, details: { any: true } }
+
+  - id: 016-replant
+    transcript: >
+      Replanted the drowned out spots on the creek bottom, maybe twelve acres
+      total, same hybrid.
+    recorded: |
+      [{"target_type":"field_operation","confidence":0.85,"ambiguities":[],
+        "payload":{"op_type":"plant","field_name":"creek bottom","acres_covered":12,
+                   "notes":"replant of drowned-out spots, same hybrid"}}]
+    expected:
+      - target_type: field_operation
+        payload_match: { op_type: plant, field_name: { contains: "creek bottom" } }
+
+  - id: 017-irrigation
+    transcript: >
+      Started the pivot on the sandy quarter, going to run it around once at
+      three quarters of an inch.
+    recorded: |
+      [{"target_type":"field_operation","confidence":0.88,"ambiguities":[],
+        "payload":{"op_type":"irrigate","field_name":"sandy quarter",
+                   "details":{"application_in":0.75}}}]
+    expected:
+      - target_type: field_operation
+        payload_match: { op_type: irrigate, field_name: { contains: "sandy" } }
+
+  - id: 018-harvest-plus-bin
+    transcript: >
+      Corn on the east eighty went two twenty one dry. North bin is getting
+      close to full, maybe two loads left of room.
+    recorded: |
+      [{"target_type":"field_operation","confidence":0.9,"ambiguities":[],
+        "payload":{"op_type":"harvest","field_name":"east eighty",
+                   "details":{"yield_bu_per_ac":221}}},
+       {"target_type":"note","confidence":0.8,"ambiguities":[],
+        "payload":{"text":"north bin near full, ~2 loads of room left","about":"grain storage"}}]
+    expected:
+      - target_type: field_operation
+        payload_match: { op_type: harvest, field_name: { contains: "east eighty" } }
+      - target_type: note
+        payload_match: { text: { contains: "bin" } }
+
+  - id: 019-two-fields-one-capture
+    transcript: >
+      Sprayed both the north forty and the south forty today, same mix,
+      Enlist at 32 with AMS.
+    recorded: |
+      [{"target_type":"field_operation","confidence":0.8,"ambiguities":[],
+        "payload":{"op_type":"spray","field_name":"north forty",
+                   "products":[{"name":"Enlist One","rate":32,"rate_unit":"oz/ac"},{"name":"AMS"}]}},
+       {"target_type":"field_operation","confidence":0.8,"ambiguities":[],
+        "payload":{"op_type":"spray","field_name":"south forty",
+                   "products":[{"name":"Enlist One","rate":32,"rate_unit":"oz/ac"},{"name":"AMS"}]}}]
+    expected:
+      - target_type: field_operation
+        payload_match: { op_type: spray, field_name: { contains: "north forty" } }
+      - target_type: field_operation
+        payload_match: { op_type: spray, field_name: { contains: "south forty" } }
+
+  - id: 020-seed-population
+    transcript: >
+      Switched to DKC62-89 on the bottom ground, dropped population to thirty
+      two even, it was getting wet.
+    recorded: |
+      [{"target_type":"field_operation","confidence":0.85,"ambiguities":[],
+        "payload":{"op_type":"plant","field_name":"bottom ground",
+                   "details":{"variety":"DKC62-89","population":32000},"notes":"wet conditions"}}]
+    expected:
+      - target_type: field_operation
+        payload_match: { op_type: plant, details: { any: true } }
+
+  - id: 021-inventory-low
+    transcript: >
+      Down to the last tote of Roundup, better get more ordered before
+      post spraying.
+    recorded: |
+      [{"target_type":"input_inventory","confidence":0.9,"ambiguities":[],
+        "payload":{"product_name":"Roundup","observation":"low","quantity_hint":"last tote"}}]
+    expected:
+      - target_type: input_inventory
+        payload_match: { product_name: { contains: "Roundup" }, observation: low }
+
+  - id: 022-fungicide-decision-note
+    transcript: >
+      Tassels are just starting to poke on the home place. If we're doing
+      fungicide it's got to be scheduled this week.
+    recorded: |
+      [{"target_type":"field_operation","confidence":0.75,"ambiguities":[],
+        "payload":{"op_type":"scout","field_name":"home place","notes":"tassels starting to emerge (VT approaching)"}},
+       {"target_type":"note","confidence":0.8,"ambiguities":[],
+        "payload":{"text":"schedule fungicide this week if doing it","about":"home place"}}]
+    expected:
+      - target_type: field_operation
+        payload_match: { op_type: scout, field_name: { contains: "home place" } }
+      - target_type: note
+        payload_match: { text: { contains: "fungicide" } }
+
+  - id: 023-prevented-planting
+    transcript: >
+      The slough on the Peterson quarter never dried out, calling it prevent
+      plant, probably eighteen acres. Need pictures for the insurance.
+    recorded: |
+      [{"target_type":"note","confidence":0.85,"ambiguities":[],
+        "payload":{"text":"prevent plant on Peterson quarter slough, ~18 acres; take photos for insurance","about":"Peterson quarter"}}]
+    expected:
+      - target_type: note
+        payload_match: { text: { contains: "prevent plant" } }
+
+  - id: 024-custom-hire
+    transcript: >
+      Jensen's crew hauled manure on the far quarter today, four loads, said
+      he'd bill us end of month.
+    recorded: |
+      [{"target_type":"field_operation","confidence":0.8,"ambiguities":[],
+        "payload":{"op_type":"fertilize","field_name":"far quarter","notes":"manure hauled by Jensen (custom hire), 4 loads"}},
+       {"target_type":"note","confidence":0.8,"ambiguities":[],
+        "payload":{"text":"Jensen will bill end of month for manure hauling"}}]
+    expected:
+      - target_type: field_operation
+        payload_match: { field_name: { contains: "far quarter" } }
+      - target_type: note
+        payload_match: { text: { contains: "bill" } }
+
+  - id: 025-cover-crop-seeding
+    transcript: >
+      Drilled cereal rye behind the corn on the home eighty, bushel to the
+      acre, finished after dark.
+    recorded: |
+      [{"target_type":"field_operation","confidence":0.9,"ambiguities":[],
+        "payload":{"op_type":"plant","field_name":"home eighty",
+                   "products":[{"name":"cereal rye","rate":1,"rate_unit":"bu/ac"}],
+                   "notes":"cover crop seeding behind corn"}}]
+    expected:
+      - target_type: field_operation
+        payload_match: { op_type: plant, field_name: { contains: "home eighty" }, notes: { contains: "cover" } }
+
+  - id: 026-self-correction
+    transcript: >
+      Sprayed the west — no wait, the east place, dicamba pre at 22 ounces,
+      or actually I think we bumped it to 24, put down 24.
+    recorded: |
+      [{"target_type":"field_operation","confidence":0.7,
+        "ambiguities":[{"key":"rate","question":"22 or 24 oz — transcript self-corrects to 24","options":["24 oz/ac","22 oz/ac"]}],
+        "payload":{"op_type":"spray","field_name":"east place",
+                   "products":[{"name":"dicamba","rate":24,"rate_unit":"oz/ac"}]}}]
+    expected:
+      - target_type: field_operation
+        payload_match: { op_type: spray, field_name: { contains: "east" } }

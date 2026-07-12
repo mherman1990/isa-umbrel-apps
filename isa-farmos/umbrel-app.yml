@@ -1,0 +1,39 @@
+manifestVersion: 1
+id: isa-farmos
+category: automation
+name: Farm OS
+version: "0.1.0"
+tagline: Self-hosted farm records — voice capture, fields, FSA paperwork prep, program finder
+icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-farmos/icon.png
+description: >-
+  Farm OS is an all-in-one record-keeping platform for row-crop operations
+  that runs entirely on your own hardware. Hold a button and talk — a
+  45-second voice note from the cab becomes structured field records
+  (operations, inventory, equipment issues) you confirm with one tap.
+  Import your FSA field boundaries straight from a farmers.gov export.
+  See which conservation programs are worth a look for your acres, with a
+  citation and verification date on every claim. Capture works with no
+  cell signal and syncs when you're back in range.
+
+
+  Your data stays on your box: transcription is local, parsing uses your
+  own AI API key under a hard monthly spend cap you control, and nightly
+  encrypted backups go to your own USB drive or bucket. No telemetry, no
+  phoning home, no platform vendor warehousing your yield data.
+developer: ISA
+website: https://github.com/mherman1990/isa-umbrel-apps
+dependencies: []
+repo: https://github.com/mherman1990/isa-umbrel-apps
+support: https://github.com/mherman1990/isa-umbrel-apps/issues
+port: 8585
+gallery: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""
+releaseNotes: >-
+  First release: capture layer (voice/photo/file with offline queue),
+  confirmation inbox, field registry with farmers.gov CLU import, field
+  operations log, Iowa program finder, AI spend meter with hard cap,
+  nightly encrypted backups with tested restore.
+submitter: ISA
+submission: https://github.com/mherman1990/isa-umbrel-apps
