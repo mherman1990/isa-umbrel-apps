@@ -32,6 +32,7 @@ interface ProgramView {
 
 export default function ProgramsScreen() {
   const [data, setData] = useState<{ disclaimer: string; pack_health: any; programs: ProgramView[] } | null>(null);
+  const [nudges, setNudges] = useState<any[]>([]);
   const [open, setOpen] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -40,6 +41,10 @@ export default function ProgramsScreen() {
       .get("/programs/matches")
       .then(setData)
       .catch((e) => setError(e.message));
+    api
+      .get("/nudges")
+      .then((r) => setNudges(r.nudges))
+      .catch(() => {});
   }, []);
 
   if (error) return <div className="empty">{error}</div>;
@@ -47,6 +52,12 @@ export default function ProgramsScreen() {
 
   return (
     <div className="programs">
+      {nudges.map((n, i) => (
+        <div key={i} className={n.severity === "high" ? "error-banner" : "flash"}>
+          <strong>{n.title}</strong>
+          <div className="small">{n.detail}</div>
+        </div>
+      ))}
       <p className="hint">{data.disclaimer}</p>
       <p className="small">
         Rule pack health: {data.pack_health.rules_current}/{data.pack_health.rules_total} rules current

@@ -33,6 +33,7 @@ class PackProgram(BaseModel):
     summary: str
     payment_rate: str | None = None
     signup_deadline: str | None = None
+    signup_deadline_date: date | None = None  # machine-readable, drives deadline nudges
     source_url: str
     last_verified: date
     verify_by: date

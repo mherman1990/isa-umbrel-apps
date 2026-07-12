@@ -3,6 +3,39 @@
 (Separate from the repo-root CHANGELOG.md, which tracks Bean Brief.
 Farm OS releases use `farmos-v*` git tags.)
 
+## Unreleased — capture complete + Phase 2 core
+
+### Added
+- **Photo/document routing** — capture layer complete: vision classify
+  (document / scouting / equipment / field photo), documents land in the
+  vault immediately with type-specific extraction (receipt, scale ticket,
+  seed tag, applicator record, soil test) confirmed via the inbox; field
+  photos attach to the nearest field by GPS; Docs vault UI; camera-roll
+  HEIC re-encodes client-side.
+- **OpenTimestamps anchoring** (spec §2): nightly nonced Merkle batch to
+  public calendars, standard `.ots` proofs (stock client verifies),
+  6-hourly upgrade to Bitcoin-attested, `GET /captures/{id}/proof`,
+  privacy disclosure lists the nightly hash. UI says "tamper-evident".
+- **Mapping-assisted spreadsheet importer**: model proposes tab/column
+  mapping (blue-font input convention as a signal), farmer confirms once,
+  mapping persists by content hash; rotation matrix → crop years,
+  transactions/budget tabs → money records; warnings never guesses.
+- **Accounting seed**: transactions (offline-idempotent), budget lines,
+  `GET /financials/summary` — budget vs actual per crop and per-field
+  breakeven $/bu with prorated crop-level costs; "insufficient data"
+  with reasons instead of estimates. Money tab UI.
+- **Weather auto-attach**: Open-Meteo nearest-hour conditions at the field
+  centroid on operation confirm (async; degrades to nothing; nightly
+  backfill) — the wind/temp line an RUP record needs.
+- **Soil tests**: a confirmed soil-test document with a field becomes a
+  `soil_test` row.
+- **Nudges** (`GET /nudges`, shown on Programs): program deadlines within
+  45 days (machine-readable pack dates, Iowa pack → 2026.2 with loader
+  version supersession), failed captures, spend-cap parked items, backup
+  staleness.
+- Migrations 0002 (money/workbooks/soil tests) + 0003 (deadline dates);
+  restore drill re-verified across both. API test suite now 20 tests.
+
 ## 0.1.0 — Phase 1 foundation: capture, fields, programs, backups
 
 ### Added

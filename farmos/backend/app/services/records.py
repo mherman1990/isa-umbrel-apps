@@ -117,6 +117,24 @@ def _confirm_document(session: Session, payload: dict):
         doc.title = payload["title"]
     if payload.get("doc_type"):
         doc.doc_type = payload["doc_type"]
+
+    # A confirmed soil test with a field becomes a first-class SoilTest row
+    # (fertility history per field, Phase 2 agronomy).
+    if doc.doc_type == "soil_test" and doc.related_field_id is not None:
+        from datetime import date as date_cls
+
+        from ..models import SoilTest
+
+        sampled = None
+        if fields.get("date"):
+            try:
+                sampled = date_cls.fromisoformat(str(fields["date"])[:10])
+            except ValueError:
+                sampled = None
+        session.add(
+            SoilTest(field_id=doc.related_field_id, sampled_on=sampled,
+                     lab=fields.get("lab"), results=fields, document_id=doc.id)
+        )
     return doc
 
 

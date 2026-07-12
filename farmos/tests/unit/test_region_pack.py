@@ -7,12 +7,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[2] / "backend"))
 
-from app.region_packs.loader import PACKS_DIR, read_pack
+from app.region_packs.loader import PACKS_DIR, default_pack_path as loader_default_pack, read_pack
 from app.services.program_finder import eval_predicate
 
 
 def test_iowa_pack_parses_and_has_enough_programs():
-    pack, sha = read_pack(PACKS_DIR / "ia-2026.1.yaml")
+    pack, sha = read_pack(loader_default_pack())
     assert pack.region_code == "US-IA"
     assert len(pack.programs) >= 5, "Phase 1 acceptance: >=5 Iowa programs"
     assert len(sha) == 64
@@ -20,7 +20,7 @@ def test_iowa_pack_parses_and_has_enough_programs():
 
 def test_every_program_and_rule_carries_citation_metadata():
     """Hard Requirement #6: never assert eligibility without citation + last_verified."""
-    pack, _ = read_pack(PACKS_DIR / "ia-2026.1.yaml")
+    pack, _ = read_pack(loader_default_pack())
     for prog in pack.programs:
         assert prog.source_url, prog.program_key
         assert prog.last_verified, prog.program_key
@@ -32,7 +32,7 @@ def test_every_program_and_rule_carries_citation_metadata():
 
 def test_stacking_exclusion_rule_is_present():
     """The IDALS insurance-discount exclusion is the canonical stacking rule."""
-    pack, _ = read_pack(PACKS_DIR / "ia-2026.1.yaml")
+    pack, _ = read_pack(loader_default_pack())
     discount = next(p for p in pack.programs if p.program_key == "idals-rma-insurance-discount")
     keys = {r.rule_key for r in discount.rules}
     assert "no_other_cover_crop_program" in keys

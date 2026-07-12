@@ -7,6 +7,7 @@ from . import (
     fields,
     financials,
     inbox,
+    nudges,
     programs,
     records,
     sync,
@@ -25,4 +26,5 @@ router.include_router(documents.router)
 router.include_router(programs.router)
 router.include_router(workbooks.router)
 router.include_router(financials.router)
+router.include_router(nudges.router)
 router.include_router(system.router)

@@ -10,7 +10,7 @@
 # The federal tier is factored so future state packs can inherit it.
 
 region_code: US-IA
-version: "2026.1"
+version: "2026.2"
 description: Iowa corn/soybean row-crop pack (pack #1)
 
 programs:
@@ -61,6 +61,7 @@ programs:
       conservation and willing to add more.
     payment_rate: "Annual payment by land use + enhancements; contract minimum $1,500/yr"
     signup_deadline: "Continuous; FY26 first ranking cutoff Jan 15 (spec-provided, confirm at state office)"
+    signup_deadline_date: 2027-01-15
     source_url: https://www.nrcs.usda.gov/programs-initiatives/csp-conservation-stewardship-program
     last_verified: 2026-07-12
     verify_by: 2027-03-01
@@ -143,6 +144,7 @@ programs:
       are mutually exclusive on the same acres.
     payment_rate: "$5/ac premium reduction"
     signup_deadline: "Signup approximately Dec 1 - Jan 23 (spec-provided window; confirm annually)"
+    signup_deadline_date: 2027-01-23
     source_url: https://iowaagriculture.gov/CropInsuranceDiscount
     last_verified: 2026-07-12
     verify_by: 2027-01-15

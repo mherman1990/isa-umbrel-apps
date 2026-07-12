@@ -451,6 +451,7 @@ class Program(Base):
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     payment_rate: Mapped[str | None] = mapped_column(Text)  # human-readable; rates too varied for numeric
     signup_deadline: Mapped[str | None] = mapped_column(Text)  # may be a window, not a date
+    signup_deadline_date: Mapped[date | None] = mapped_column(Date)  # machine-readable, for nudges
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
     last_verified: Mapped[date] = mapped_column(Date, nullable=False)
     verify_by: Mapped[date] = mapped_column(Date, nullable=False)
