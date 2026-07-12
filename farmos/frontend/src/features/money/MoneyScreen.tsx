@@ -43,6 +43,12 @@ export default function MoneyScreen() {
   const [editCrop, setEditCrop] = useState("");
   const [editField, setEditField] = useState("");
 
+  // tenure + operating-mode scenario
+  const [leases, setLeases] = useState<any[]>([]);
+  const [scenario, setScenario] = useState<any>(null);
+  const [sc, setSc] = useState({ acres: "", yield_bu_per_ac: "", price_per_bu: "", operating_cost_per_ac: "", cash_rent_per_acre: "", producer_share: "" });
+  const [leaseForm, setLeaseForm] = useState({ field_id: "", lease_type: "cash_rent", rent_per_acre: "", producer_share: "" });
+
   // operating-line add forms
   const [loanName, setLoanName] = useState("");
   const [loanLimit, setLoanLimit] = useState("");
@@ -58,10 +64,40 @@ export default function MoneyScreen() {
       setScheduleF(await api.get(`/financials/schedule-f?year=${year}`));
       setCashFlow(await api.get(`/financials/cash-flow?year=${year}`));
       setFields(await api.get(`/fields`));
+      setLeases(await api.get(`/leases`));
     } catch {
       /* offline */
     }
   }
+
+  async function runScenario() {
+    const num = (v: string) => (v === "" ? undefined : Number(v));
+    setScenario(
+      await api.post("/financials/scenarios", {
+        acres: num(sc.acres),
+        yield_bu_per_ac: num(sc.yield_bu_per_ac),
+        price_per_bu: num(sc.price_per_bu),
+        operating_cost_per_ac: num(sc.operating_cost_per_ac),
+        cash_rent_per_acre: num(sc.cash_rent_per_acre),
+        producer_share: num(sc.producer_share),
+      }),
+    );
+  }
+
+  async function addLease() {
+    await api.post("/leases", {
+      client_id: crypto.randomUUID(),
+      field_id: leaseForm.field_id,
+      lease_type: leaseForm.lease_type,
+      rent_per_acre: leaseForm.rent_per_acre ? Number(leaseForm.rent_per_acre) : null,
+      producer_share: leaseForm.producer_share ? Number(leaseForm.producer_share) : null,
+      start_date: new Date().toISOString().slice(0, 10),
+    });
+    setLeaseForm({ field_id: "", lease_type: "cash_rent", rent_per_acre: "", producer_share: "" });
+    await refresh();
+  }
+
+  const fieldName = (id: string) => fields.find((f) => f.id === id)?.name || "field";
 
   function startEdit(t: any) {
     setEditId(t.id);
@@ -408,6 +444,107 @@ export default function MoneyScreen() {
           <p className="hint">Balances are derived from the draw/paydown ledger, never entered directly.</p>
         </div>
       )}
+
+      <div className="card">
+        <h3>Compare tenure — net &amp; cash outlay</h3>
+        <p className="hint">
+          Enter your assumptions to compare owning vs. cash rent vs. crop share. Every figure is
+          arithmetic on what you type — nothing is invented.
+        </p>
+        <div className="button-row">
+          <label>Acres<input inputMode="decimal" value={sc.acres} onChange={(e) => setSc({ ...sc, acres: e.target.value })} /></label>
+          <label>Yield bu/ac<input inputMode="decimal" value={sc.yield_bu_per_ac} onChange={(e) => setSc({ ...sc, yield_bu_per_ac: e.target.value })} /></label>
+          <label>Price $/bu<input inputMode="decimal" value={sc.price_per_bu} onChange={(e) => setSc({ ...sc, price_per_bu: e.target.value })} /></label>
+        </div>
+        <div className="button-row">
+          <label>Op cost $/ac<input inputMode="decimal" value={sc.operating_cost_per_ac} onChange={(e) => setSc({ ...sc, operating_cost_per_ac: e.target.value })} /></label>
+          <label>Cash rent $/ac<input inputMode="decimal" value={sc.cash_rent_per_acre} onChange={(e) => setSc({ ...sc, cash_rent_per_acre: e.target.value })} /></label>
+          <label>Your share 0–1<input inputMode="decimal" value={sc.producer_share} onChange={(e) => setSc({ ...sc, producer_share: e.target.value })} /></label>
+        </div>
+        <button
+          className="primary"
+          disabled={!sc.acres || !sc.yield_bu_per_ac || !sc.price_per_bu || !sc.operating_cost_per_ac}
+          onClick={runScenario}
+        >
+          Compare
+        </button>
+        {scenario && (
+          <>
+            <table className="scenario">
+              <thead>
+                <tr>
+                  <th>Structure</th>
+                  <th className="num">Net income</th>
+                  <th className="num">Cash outlay</th>
+                </tr>
+              </thead>
+              <tbody>
+                {scenario.scenarios.map((s: any) => (
+                  <tr key={s.mode}>
+                    <td>{s.label}</td>
+                    <td className="num">${s.net_income.toLocaleString()}</td>
+                    <td className="num">${s.cash_outlay.toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {scenario.verdict && <p className="hint">{scenario.verdict.summary}</p>}
+            {scenario.gaps && (
+              <ul className="small warn-text">
+                {scenario.gaps.map((g: string, i: number) => (
+                  <li key={i}>{g}</li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+      </div>
+
+      <div className="card">
+        <h3>Tenure (leases)</h3>
+        {leases.length === 0 && <p className="hint">No leases recorded. Add how each field is held.</p>}
+        <ul className="list">
+          {leases.map((l) => (
+            <li key={l.id}>
+              <strong>
+                {fieldName(l.field_id)} — {l.lease_type.replace("_", " ")}
+              </strong>
+              <span className="small">
+                {l.landlord_name ? `${l.landlord_name} · ` : ""}
+                {l.rent_per_acre != null ? `$${l.rent_per_acre}/ac` : ""}
+                {l.producer_share != null ? ` · you keep ${Math.round(l.producer_share * 100)}%` : ""}
+              </span>
+            </li>
+          ))}
+        </ul>
+        <div className="button-row">
+          <label style={{ flex: 1 }}>
+            Field
+            <select value={leaseForm.field_id} onChange={(e) => setLeaseForm({ ...leaseForm, field_id: e.target.value })}>
+              <option value="">—</option>
+              {fields.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name || `T${f.tract_number}/F${f.field_number}`}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Type
+            <select value={leaseForm.lease_type} onChange={(e) => setLeaseForm({ ...leaseForm, lease_type: e.target.value })}>
+              <option value="owned">owned</option>
+              <option value="cash_rent">cash rent</option>
+              <option value="crop_share">crop share</option>
+              <option value="flex">flex</option>
+            </select>
+          </label>
+          <label>Rent $/ac<input inputMode="decimal" value={leaseForm.rent_per_acre} onChange={(e) => setLeaseForm({ ...leaseForm, rent_per_acre: e.target.value })} /></label>
+          <label>Share<input inputMode="decimal" value={leaseForm.producer_share} onChange={(e) => setLeaseForm({ ...leaseForm, producer_share: e.target.value })} /></label>
+          <button className="primary" disabled={!leaseForm.field_id} onClick={addLease}>
+            Add
+          </button>
+        </div>
+      </div>
 
       <div className="card">
         <h3>Add a transaction</h3>

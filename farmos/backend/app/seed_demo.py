@@ -31,7 +31,7 @@ def seed(session: Session) -> dict:
     from .models import (
         AppUser, BudgetLine, CaptureEvent, ConfirmationQueueItem, CropYear, DailyBrief,
         Document, Farm, FarmProfile, Field, FieldOperation, GrainContract, InputInventory,
-        MoneyTransaction, OperatingLoan, OperatingLoanEvent, OperationProduct, ParseResult,
+        Lease, MoneyTransaction, OperatingLoan, OperatingLoanEvent, OperationProduct, ParseResult,
         Practice, PracticeEvidence, Product, ProgramEnrollment,
     )
 
@@ -169,6 +169,12 @@ def seed(session: Session) -> dict:
     for etype, amt, when in (("draw", 120000, date(year, 4, 5)), ("draw", 60000, date(year, 6, 10)),
                              ("paydown", 90000, date(year - 1, 11, 20))):
         session.add(OperatingLoanEvent(loan_id=loan.id, event_type=etype, amount=amt, occurred_on=when))
+
+    # tenure: some ground owned, some rented — feeds operating-mode scenarios
+    session.add(Lease(field_id=fields["North 40"].id, lease_type="cash_rent", landlord_name="Iverson Trust",
+                      producer_share=1.0, rent_per_acre=285, start_date=date(year, 1, 1)))
+    session.add(Lease(field_id=fields["Miller Place"].id, lease_type="crop_share", landlord_name="Bell Family",
+                      producer_share=0.5, start_date=date(year, 1, 1)))
 
     # documents incl. a scale ticket that feeds the position ledger
     session.add(Document(doc_type="scale_ticket", title="Heartland ticket 5512 (demo)",

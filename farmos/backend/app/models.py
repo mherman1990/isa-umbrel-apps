@@ -185,6 +185,7 @@ class Lease(Base):
     __tablename__ = "lease"
 
     id: Mapped[uuid.UUID] = uuid_pk()
+    client_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), unique=True)  # offline idempotency
     field_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("field.id"), nullable=False)
     lease_type: Mapped[str] = mapped_column(String(16), nullable=False)
     landlord_name: Mapped[str | None] = mapped_column(Text)

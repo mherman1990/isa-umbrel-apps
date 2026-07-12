@@ -308,3 +308,27 @@ def cash_flow(
     """Monthly projected cash position: budget-derived outflow (typical timing),
     priced-contract inflow, actuals, and the operating-line balance. Gaps named."""
     return cashflow.cash_flow(session, year)
+
+
+# --------------------------------------------------------------- operating-mode scenarios
+
+
+class ScenarioIn(BaseModel):
+    acres: float = PField(gt=0)
+    yield_bu_per_ac: float = PField(gt=0)
+    price_per_bu: float = PField(gt=0)
+    operating_cost_per_ac: float = PField(ge=0)
+    cash_rent_per_acre: float | None = PField(default=None, ge=0)
+    producer_share: float | None = PField(default=None, gt=0, le=1)
+    landlord_cost_share: float | None = PField(default=None, ge=0, le=1)
+
+
+@router.post("/financials/scenarios")
+def operating_mode_scenarios(
+    body: ScenarioIn,
+    session: Session = Depends(get_session),
+    user: AppUser = Depends(auth.current_user),
+):
+    """Compare net income AND cash outlay under own / cash-rent / crop-share
+    for the entered assumptions. Arithmetic on your inputs — nothing invented."""
+    return financials.operating_mode_scenarios(**body.model_dump())

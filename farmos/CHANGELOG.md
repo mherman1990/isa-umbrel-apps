@@ -44,6 +44,18 @@ Farm OS releases use `farmos-v*` git tags.)
   time. Money-tab transactions are now tap-to-allocate — recategorizing a
   transaction moves it off the Schedule F "uncategorized" list onto its line,
   and field-tagging feeds per-field breakeven.
+- **Operating-mode scenarios** (`POST /financials/scenarios`): compare the
+  producer's net income AND cash outlay under own / cash-rent / crop-share for
+  a set of assumptions (acres, yield, price, operating cost, rent, share). Every
+  figure is arithmetic on the entered inputs — a structure whose parameter is
+  missing is omitted with a gap, never fabricated. Includes a plain comparative
+  verdict (per the owner's decision that this app has no education-not-advice
+  limit; see HANDOFF §6). Money-tab "Compare tenure" card.
+- **Lease entity wired** (`GET/POST/PATCH/DELETE /leases`): the previously
+  orphaned tenure record is now usable — owned / cash-rent / crop-share / flex,
+  landlord, producer share, rent (`client_id` idempotent; migration 0009 adds
+  it, restore drill re-verified). Money-tab tenure list + add form; demo seed
+  ships a cash-rent and a crop-share lease.
 
 ## Also unreleased — Phase 5 assistant + sandbox
 

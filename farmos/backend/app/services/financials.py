@@ -145,6 +145,104 @@ def field_breakeven(session: Session, year: int) -> list[dict]:
     return out
 
 
+def operating_mode_scenarios(
+    *,
+    acres: float,
+    yield_bu_per_ac: float,
+    price_per_bu: float,
+    operating_cost_per_ac: float,
+    cash_rent_per_acre: float | None = None,
+    producer_share: float | None = None,
+    landlord_cost_share: float | None = None,
+) -> dict:
+    """Compare the producer's net income AND cash outlay under each tenure
+    structure (own / cash-rent / crop-share) for a given set of assumptions.
+
+    Every figure derives from the inputs the farmer entered — nothing is
+    invented; a structure whose parameter is missing is omitted with a gap.
+    (Per the product owner, there is no education-not-advice limit on this
+    app, so a plain comparative verdict is included — but it is arithmetic on
+    the given numbers, not a fabricated recommendation.)
+    """
+    gross = acres * yield_bu_per_ac * price_per_bu
+    opcost = acres * operating_cost_per_ac
+
+    def row(mode: str, label: str, prod_revenue: float, prod_cost: float, rent: float, share: float) -> dict:
+        net = prod_revenue - prod_cost - rent
+        cash = prod_cost + rent
+        return {
+            "mode": mode,
+            "label": label,
+            "producer_share": round(share, 4),
+            "gross_revenue": round(gross, 2),
+            "producer_revenue": round(prod_revenue, 2),
+            "producer_operating_cost": round(prod_cost, 2),
+            "cash_rent": round(rent, 2),
+            "net_income": round(net, 2),
+            "cash_outlay": round(cash, 2),
+            "net_per_acre": round(net / acres, 2) if acres else None,
+            "cash_outlay_per_acre": round(cash / acres, 2) if acres else None,
+        }
+
+    scenarios = [row("self_farm", "Own the ground", gross, opcost, 0.0, 1.0)]
+    gaps: list[str] = []
+
+    if cash_rent_per_acre is not None:
+        scenarios.append(
+            row("cash_rent", f"Cash rent ${cash_rent_per_acre:,.0f}/ac", gross, opcost, acres * cash_rent_per_acre, 1.0)
+        )
+    else:
+        gaps.append("cash_rent_per_acre not provided — cash-rent scenario omitted")
+
+    if producer_share is not None:
+        lc = landlord_cost_share if landlord_cost_share is not None else (1 - producer_share)
+        scenarios.append(
+            row(
+                "crop_share",
+                f"Crop share (you keep {producer_share:.0%})",
+                producer_share * gross,
+                (1 - lc) * opcost,
+                0.0,
+                producer_share,
+            )
+        )
+    else:
+        gaps.append("producer_share not provided — crop-share scenario omitted")
+
+    verdict = None
+    if len(scenarios) >= 2:
+        best_net = max(scenarios, key=lambda s: s["net_income"])
+        least_cash = min(scenarios, key=lambda s: s["cash_outlay"])
+        verdict = {
+            "highest_net": {"mode": best_net["mode"], "net_income": best_net["net_income"]},
+            "lowest_cash_outlay": {"mode": least_cash["mode"], "cash_outlay": least_cash["cash_outlay"]},
+            "summary": (
+                f"On these numbers, '{best_net['label']}' nets the most "
+                f"(${best_net['net_income']:,.0f}); '{least_cash['label']}' needs the least cash up front "
+                f"(${least_cash['cash_outlay']:,.0f})."
+            ),
+        }
+
+    return {
+        "inputs": {
+            "acres": acres,
+            "yield_bu_per_ac": yield_bu_per_ac,
+            "price_per_bu": price_per_bu,
+            "operating_cost_per_ac": operating_cost_per_ac,
+            "cash_rent_per_acre": cash_rent_per_acre,
+            "producer_share": producer_share,
+            "landlord_cost_share": landlord_cost_share,
+        },
+        "scenarios": scenarios,
+        "verdict": verdict,
+        "gaps": gaps or None,
+        "note": (
+            "Every figure is arithmetic on the assumptions you entered — change an input and re-run. "
+            "This compares the mechanics of each tenure structure; it is not a substitute for your own judgment."
+        ),
+    }
+
+
 def schedule_f(session: Session, year: int) -> dict:
     """Whole-farm income/expense rolled up to Schedule F (Form 1040) lines.
 

@@ -10,6 +10,7 @@ from . import (
     financials,
     grain,
     inbox,
+    leases,
     nudges,
     programs,
     records,
@@ -30,6 +31,7 @@ router.include_router(programs.router)
 router.include_router(conservation.router)
 router.include_router(workbooks.router)
 router.include_router(financials.router)
+router.include_router(leases.router)
 router.include_router(grain.router)
 router.include_router(nudges.router)
 router.include_router(assistant.router)
