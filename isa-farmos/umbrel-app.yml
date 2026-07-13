@@ -31,16 +31,15 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  Re-release of the 0.2.0 accounting + agronomy expansion. The original
-  farmos-v0.2.0 tag landed on the wrong commit and its image build was
-  cancelled, so no 0.2.0 images ever shipped; 0.2.1 rebuilds the same work
-  from the correct commit. Accounting: Schedule F line classification, a
-  printable lender packet, a cash-flow projection with operating-line
-  tracking, tap-to-allocate transactions, and
-  own-vs-cash-rent-vs-crop-share scenarios. Agronomy: an economically
-  optimal nitrogen rate (MRTN), fungicide-pass ROI, and net practice
-  economics. Fields: a map-based boundary editor to draw and adjust field
-  outlines (offline; aerial imagery is opt-in). Every figure comes from
-  your own records and cited data — gaps are shown, never guessed.
+  Settings you asked for: edit your farm profile any time after setup
+  (name, county, crops, tillage, cover-crop history), a Light/Dark/System
+  theme, and an owner-only factory reset that wipes the box back to
+  first-run. Plus the full accounting + agronomy expansion — Schedule F
+  classification, a printable lender packet, a cash-flow projection with
+  operating-line tracking, tap-to-allocate transactions,
+  own-vs-cash-rent-vs-crop-share scenarios, MRTN nitrogen rate,
+  fungicide-pass ROI, net practice economics, and a map-based field
+  boundary editor (offline; aerial imagery opt-in). Every figure comes
+  from your own records and cited data — gaps are shown, never guessed.
 submitter: ISA
 submission: https://github.com/mherman1990/isa-umbrel-apps
