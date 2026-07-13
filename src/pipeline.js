@@ -93,7 +93,22 @@ export function normalizeWatchlist(w) {
 export function saveWatchlist(watchlist) {
   const { topics, ...persist } = watchlist; // drop the derived engine view before writing
   void topics;
-  fs.writeFileSync(watchlistFilePath(), JSON.stringify(persist, null, 2) + "\n", "utf8");
+  const target = watchlistFilePath();
+  const data = JSON.stringify(persist, null, 2) + "\n";
+  // Atomic write: a bare writeFileSync truncates the live file first, so a crash mid-write leaves
+  // the whole config corrupt. Write a sibling temp in the SAME directory, then rename onto the
+  // target — rename is atomic within one filesystem, so a reader (or the next boot) sees either the
+  // intact old file or the fully-written new one, never a torn one. The .<pid>.<uuid> suffix avoids
+  // collisions between concurrent writers; on failure we remove the temp and rethrow, leaving the
+  // original untouched.
+  const tmp = `${target}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(tmp, data, "utf8");
+    fs.renameSync(tmp, target);
+  } catch (err) {
+    try { fs.rmSync(tmp, { force: true }); } catch { /* best-effort temp cleanup */ }
+    throw err;
+  }
 }
 
 export function loadWatchlist() {
