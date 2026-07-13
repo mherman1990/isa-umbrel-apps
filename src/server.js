@@ -2256,12 +2256,23 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
           const watchlist = loadWatchlist();
           watchlist.briefEditions ??= {};
           const hhmm = /^\d{2}:\d{2}$/;
-          if (hhmm.test(form.get("am") ?? "")) watchlist.briefEditions.am = form.get("am");
-          if (hhmm.test(form.get("pm") ?? "")) watchlist.briefEditions.pm = form.get("pm");
+          // The regex only checks shape (it accepts 25:00 / 12:99). Also reject impossible clock
+          // times: the scheduler compares HH:MM lexicographically, so an out-of-range value would
+          // silently never fire. Throwing routes through the catch below as the normal ⚠️ notice.
+          const checkTime = (label, t) => {
+            const [h, m] = t.split(":").map(Number);
+            if (h > 23 || m > 59) throw new Error(`${label} time "${t}" must be a 24-hour HH:MM between 00:00 and 23:59.`);
+          };
+          const am = form.get("am") ?? "";
+          if (hhmm.test(am)) { checkTime("AM edition", am); watchlist.briefEditions.am = am; }
+          const pm = form.get("pm") ?? "";
+          if (hhmm.test(pm)) { checkTime("PM edition", pm); watchlist.briefEditions.pm = pm; }
           const day = form.get("weeklyDay");
           if (day === "off") delete watchlist.briefEditions.weekly;
           else if (["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].includes(day) && hhmm.test(form.get("weeklyTime") ?? "")) {
-            watchlist.briefEditions.weekly = `${day} ${form.get("weeklyTime")}`;
+            const weeklyTime = form.get("weeklyTime");
+            checkTime("Weekly memo", weeklyTime);
+            watchlist.briefEditions.weekly = `${day} ${weeklyTime}`;
           }
           watchlist.output ??= {};
           for (const key of ["minLocalScoreForTriage", "maxItemsToTriage", "maxItemsInBrief"]) {
