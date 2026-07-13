@@ -15,6 +15,7 @@ description: >-
   citation and verification date on every claim. Capture works with no
   cell signal and syncs when you're back in range.
 
+
   Your data stays on your box: transcription is local, parsing uses your
   own AI API key under a hard monthly spend cap you control, and nightly
   encrypted backups go to your own USB drive or bucket. No telemetry, no
