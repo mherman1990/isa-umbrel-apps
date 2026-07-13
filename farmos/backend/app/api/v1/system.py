@@ -1,14 +1,18 @@
-"""Spend meter, backup status, and the "what leaves this box" disclosure."""
+"""Spend meter, backup status, the "what leaves this box" disclosure, and the
+guarded factory reset."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+import shutil
+
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from ... import auth, llm
+from ...config import settings
 from ...db import get_session
-from ...models import ApiSpend, AppUser, FarmProfile
+from ...models import ApiSpend, AppUser, Base, FarmProfile
 from ...services import backup as backup_svc
 
 router = APIRouter(tags=["system"])
@@ -72,6 +76,42 @@ def latest_brief(session: Session = Depends(get_session), user: AppUser = Depend
         "body_md": row.body_md,
         "model_used": row.model_used,
     }
+
+
+FACTORY_RESET_PHRASE = "RESET"
+
+
+class FactoryResetIn(BaseModel):
+    confirm: str
+
+
+@router.post("/system/factory-reset")
+def factory_reset(
+    body: FactoryResetIn,
+    session: Session = Depends(get_session),
+    user: AppUser = Depends(auth.require_owner),
+):
+    """Wipe this box back to a fresh install: every farm record, field, money
+    row, capture, and paired device. Owner-only, and gated by typing the exact
+    confirm phrase. Irreversible from here — recovery is only from a backup."""
+    if body.confirm.strip() != FACTORY_RESET_PHRASE:
+        raise HTTPException(status_code=400, detail=f"Type {FACTORY_RESET_PHRASE} to confirm a factory reset")
+
+    # Truncate every application table. Procrastinate's queue tables and
+    # alembic_version live OUTSIDE Base.metadata, so the schema and migration
+    # state survive — this is a data wipe, not a teardown. CASCADE handles FK
+    # ordering; RESTART IDENTITY resets sequences so the new farm starts clean.
+    tables = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables)
+    session.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
+
+    # Best-effort removal of on-disk state that lives beside the DB: capture
+    # audio + documents, secrets (the farmer's API key and restic key), and the
+    # backup config. Non-fatal — the DB wipe is the real reset; stale files must
+    # not survive it, but a failed unlink must not fail the request.
+    for d in (settings.artifacts_dir, settings.secrets_dir, settings.backup_staging_dir, settings.data_dir / "config"):
+        shutil.rmtree(d, ignore_errors=True)
+
+    return {"reset": True}
 
 
 @router.get("/system/privacy")
