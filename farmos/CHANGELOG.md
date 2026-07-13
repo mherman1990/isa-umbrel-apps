@@ -3,6 +3,17 @@
 (Separate from the repo-root CHANGELOG.md, which tracks Bean Brief.
 Farm OS releases use `farmos-v*` git tags.)
 
+## 0.2.1 — Re-release of 0.2.0 (accounting + agronomy + boundary editor)
+
+Same feature set as 0.2.0, rebuilt from the correct commit. The original
+`farmos-v0.2.0` tag was created against a 0.1.3-era commit and its image
+build workflow was cancelled, so no `0.2.0` images were ever pushed to GHCR
+and the Umbrel install failed with an image-pull / manifest-unknown error.
+0.2.1 cuts a fresh tag from `main` (which carries all the 0.2.0 code) so the
+multi-arch `farmos:0.2.1` and `farmos-db:0.2.1` images actually get built and
+published. No feature-code changes versus 0.2.0 — version bump only
+(umbrel-app.yml, docker-compose.yml image tags, backend pyproject.toml).
+
 ## 0.2.0 — Accounting + Agronomy expansion
 
 ### Added — Accounting

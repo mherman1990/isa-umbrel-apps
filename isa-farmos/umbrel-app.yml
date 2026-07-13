@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-farmos
 category: automation
 name: Farm OS
-version: "0.2.0"
+version: "0.2.1"
 tagline: Self-hosted farm records — voice capture, fields, FSA paperwork prep, program finder
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-farmos/icon.png
 description: >-
@@ -31,9 +31,12 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  Accounting + agronomy expansion. Accounting: Schedule F line
-  classification, a printable lender packet, a cash-flow projection with
-  operating-line tracking, tap-to-allocate transactions, and
+  Re-release of the 0.2.0 accounting + agronomy expansion. The original
+  farmos-v0.2.0 tag landed on the wrong commit and its image build was
+  cancelled, so no 0.2.0 images ever shipped; 0.2.1 rebuilds the same work
+  from the correct commit. Accounting: Schedule F line classification, a
+  printable lender packet, a cash-flow projection with operating-line
+  tracking, tap-to-allocate transactions, and
   own-vs-cash-rent-vs-crop-share scenarios. Agronomy: an economically
   optimal nitrogen rate (MRTN), fungicide-pass ROI, and net practice
   economics. Fields: a map-based boundary editor to draw and adjust field
