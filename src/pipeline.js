@@ -212,7 +212,7 @@ export async function runPipeline({ edition = "am", dryRun = false, source = nul
   }
 
   // 1. Collect. Dry runs never write state (no last-success advance, no items marked seen).
-  const { items, skippedSources, fetchedCount } = await collectAll({
+  const { items, skippedSources, fetchedCount, pendingWatermarks } = await collectAll({
     watchlist,
     env,
     onlySource: source,
@@ -268,7 +268,7 @@ export async function runPipeline({ edition = "am", dryRun = false, source = nul
     return { dryRun: true, kept, skippedSources };
   }
 
-  return runFullPipeline({ watchlist, env, edition, kept, items: officialItems, skippedSources, fetchedCount });
+  return runFullPipeline({ watchlist, env, edition, kept, items: officialItems, skippedSources, fetchedCount, pendingWatermarks });
 }
 
 // Rough list prices per 1M tokens, for the audit cost estimate only.
@@ -280,7 +280,7 @@ const PRICES = {
   "claude-opus-4-8": { input: 5.0, output: 25.0 },
 };
 
-export async function runFullPipeline({ watchlist, env, edition, kept, items, skippedSources, fetchedCount }) {
+export async function runFullPipeline({ watchlist, env, edition, kept, items, skippedSources, fetchedCount, pendingWatermarks = [] }) {
   if (!env.ANTHROPIC_API_KEY) {
     throw new Error("ANTHROPIC_API_KEY is not set in .env — get one at console.anthropic.com (or use --dry-run to test without it)");
   }
@@ -308,6 +308,15 @@ export async function runFullPipeline({ watchlist, env, edition, kept, items, sk
   for (const item of items) {
     if (!keptUids.has(item.uid)) store.markSeen(item, null);
   }
+
+  // Watermark commit point. Every item fetched this run is now durably in seen_items — side items
+  // (news/markets) above, triaged items during triage, locally-dropped items just now. ONLY here is
+  // it safe to advance each source's last_success_at: collect deferred these instead of writing them
+  // mid-fetch, so if the run had died earlier (missing ANTHROPIC_API_KEY at runFullPipeline entry, an
+  // Anthropic 429/5xx during triage, a crash) the watermarks stay put and the next run re-fetches —
+  // isSeen dedupes the survivors. ts is each source's fetch-start, so nothing published during the
+  // run is skipped. Prevents silent, permanent data loss.
+  for (const { sourceId, ts } of pendingWatermarks) store.setLastSuccess(sourceId, ts);
 
   // 4. Sonnet brief — only when there's something to report. On a quiet scan we
   // skip the brief entirely: no file, no clutter in Saved briefs. The run still did
