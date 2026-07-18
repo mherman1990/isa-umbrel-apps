@@ -38,6 +38,10 @@
         "IN",
         "MO",
         "WI"
+      ],
+      "maxQueriesPerRun": 120,
+      "fullTextStates": [
+        "IA"
       ]
     },
     "eurlex_oj": {
@@ -147,7 +151,17 @@
         "biofuel",
         "blenders tax credit",
         "feedstock"
-      ]
+      ],
+      "sourceTerms": {
+        "legiscan": [
+          "biodiesel",
+          "renewable diesel",
+          "carbon intensity",
+          "sustainable aviation fuel",
+          "biofuel",
+          "soybean oil"
+        ]
+      }
     },
     {
       "id": "trade-intl-affairs",
@@ -167,7 +181,10 @@
         "retaliatory tariff",
         "phytosanitary",
         "WTO"
-      ]
+      ],
+      "sourceTerms": {
+        "legiscan": []
+      }
     },
     {
       "id": "farm-bill-policy",
@@ -185,7 +202,10 @@
         "reauthorization",
         "marketing loan",
         "base acres"
-      ]
+      ],
+      "sourceTerms": {
+        "legiscan": []
+      }
     },
     {
       "id": "usda-fpac",
@@ -210,7 +230,10 @@
         "Farm Service Agency",
         "conservation compliance",
         "sodsaver"
-      ]
+      ],
+      "sourceTerms": {
+        "legiscan": []
+      }
     },
     {
       "id": "crop-protection",
@@ -229,7 +252,17 @@
         "failure to warn",
         "herbicide",
         "endangered species pesticide"
-      ]
+      ],
+      "sourceTerms": {
+        "legiscan": [
+          "pesticide",
+          "herbicide",
+          "glyphosate",
+          "dicamba",
+          "failure to warn",
+          "preemption"
+        ]
+      }
     },
     {
       "id": "iowa-water-land",
@@ -248,7 +281,19 @@
         "drainage",
         "nitrate",
         "buffer strip"
-      ]
+      ],
+      "sourceTerms": {
+        "legiscan": [
+          "eminent domain",
+          "carbon pipeline",
+          "CO2 pipeline",
+          "nitrate",
+          "water quality",
+          "cover crop",
+          "drainage",
+          "buffer strip"
+        ]
+      }
     },
     {
       "id": "carbon-ecosystem-markets",
@@ -265,7 +310,15 @@
         "Scope 3",
         "measurement reporting verification",
         "low-carbon"
-      ]
+      ],
+      "sourceTerms": {
+        "legiscan": [
+          "carbon market",
+          "carbon credit",
+          "ecosystem services",
+          "carbon offset"
+        ]
+      }
     },
     {
       "id": "ag-data-repair",
@@ -280,7 +333,15 @@
         "data privacy",
         "precision agriculture data",
         "interoperability"
-      ]
+      ],
+      "sourceTerms": {
+        "legiscan": [
+          "right to repair",
+          "equipment repair",
+          "agricultural data",
+          "precision agriculture data"
+        ]
+      }
     },
     {
       "id": "diet-demand",
@@ -305,7 +366,14 @@
         "regulations_gov",
         "courtlistener",
         "eurlex_oj"
-      ]
+      ],
+      "sourceTerms": {
+        "legiscan": [
+          "seed oil",
+          "food dye",
+          "ultra-processed"
+        ]
+      }
     }
   ],
   "output": {

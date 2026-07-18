@@ -2213,6 +2213,12 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
             if (idx < 0) notice = `"${term}" wasn't found in "${area.label}".`;
             else {
               area.terms.splice(idx, 1);
+              // Keep any per-source search override coherent: a term that's no longer
+              // scored must not keep costing API queries (see deriveEngineTopics).
+              for (const list of Object.values(area.sourceTerms ?? {})) {
+                const s = list.findIndex((t) => t.toLowerCase() === term.toLowerCase());
+                if (s >= 0) list.splice(s, 1);
+              }
               saveWatchlist(watchlist);
               notice = `Removed "${term}" from "${area.label}". Applies from the next run.`;
             }

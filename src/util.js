@@ -1,4 +1,5 @@
-// util.js — small shared helpers for adapters (HTTP with timeouts + friendly errors).
+// util.js — small shared helpers for adapters (HTTP with timeouts + friendly errors,
+// plus the shared keyword matcher used by both score.js and the legiscan adapter).
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
@@ -71,6 +72,20 @@ function describeUrl(url) {
 /** "YYYY-MM-DD" from an ISO string — several of the APIs filter by date, not datetime. */
 export function isoDateOnly(iso) {
   return iso.slice(0, 10);
+}
+
+/**
+ * Build a word-boundary regex for a keyword; escapes regex specials. Case-insensitive,
+ * and won't match inside a longer word ("RIN" must not hit "brine").
+ *
+ * Shared by score.js (which scores every item) and the legiscan adapter (which matches
+ * bill titles locally instead of paying a getSearch query per term) — they MUST agree,
+ * or a bill the adapter admits gets dropped by the scorer for a different reason.
+ */
+export function keywordRegex(keyword) {
+  const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // \b doesn't work adjacent to non-word chars (e.g. "45Z"), so use lookarounds.
+  return new RegExp(`(?<![A-Za-z0-9])${escaped}(?![A-Za-z0-9])`, "i");
 }
 
 export function sleep(ms) {

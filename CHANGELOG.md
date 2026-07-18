@@ -1,5 +1,54 @@
 # Changelog
 
+## 1.20.0 — LegiScan quota fix: 19× fewer API queries, complete session coverage
+
+On 2026-07-16 the LegiScan key hit its 30,000/month free-tier cap. It was structural, not a spike: the
+adapter ran one `getSearch` per (term × state) on every run — 103 watchlist terms × 7 states = **721
+queries per run**, so the twice-daily schedule alone burned ~45,000/month. LegiScan's coverage log
+showed 97.5% duplicate queries (39.7:1 repeat ratio).
+
+It also failed backwards. `maxItemsPerRun` capped items *kept*, not queries *spent*, and the loop only
+exited once that many bills cleared the `last_action_date` filter — so out of session, when nothing
+clears it, every run fired all 721 queries and returned nothing. Spend was inversely proportional to
+activity, which is why the quietest month of the year is the one that blew the cap.
+
+### Changed
+- **LegiScan adapter rewritten as two passes** (`src/adapters/legiscan.js`):
+  - **Pass 1 — `getMasterList` per state.** One query returns every bill in that state's current
+    session with title, description, `change_hash` and last action; keywords are matched **locally**
+    (free). Cost is fixed per state no matter how long the term list grows, and coverage is now the
+    **whole session** instead of page 1 of each search.
+  - **Pass 2 — `getSearch` over a curated term list**, for `fullTextStates` only (default: `IA`). This
+    is the only way to reach a bill whose *text* mentions a term but whose title doesn't — `score.js`
+    leans on that explicitly (state bill titles are often generic). Kept where it pays instead of paid
+    for seven times over.
+  - **Spend is now decoupled from item count** — the failure mode above is structurally impossible.
+    **~38 queries/run → ~2,356/month** against the 30,000 cap (was 721/run → ~44,702).
+  - `maxQueriesPerRun` (default 120) is a hard backstop; calls are throttled to ~4/s (LegiScan logged
+    the old adapter at 27/s average, 50/s peak — the crash course warns that earns a suspension).
+  - Over-quota now fails with a plain-English message that names the reset date and warns against
+    registering a second key (LegiScan revokes **all** keys for that).
+- **Focus areas take an optional `sourceTerms: { [sourceId]: string[] }` override** (`pipeline.js`
+  `deriveEngineTopics`) narrowing what a *metered* source searches for. Scoring still uses the full
+  flat `terms` list — matching is free, searching is not. Shipped config: 31 curated LegiScan search
+  terms (from 103), with the federal-only areas (farm bill, trade, USDA-FPAC) set to `[]` — they still
+  match locally, so a state resolution urging Congress is still caught, at zero query cost.
+- `keywordRegex` moved to `util.js` so the adapter and `score.js` share one matcher and can't drift.
+- Removing a term in the Watchlist UI now also prunes it from any `sourceTerms` override.
+
+### Added
+- `scripts/verify-legiscan.mjs` — offline verification (stubs `globalThis.fetch`, drives the adapter
+  against fixtures). Asserts the budget, the decoupling regression, `change_hash` uid behaviour, the
+  masterlist/search field-name drift, the backstop, and the throttle. Re-run against the live API once
+  the quota resets.
+
+### Pi go-live
+**The Update alone fixes the blowout** — `/data/watchlist.json` is persisted and not shipped in the
+image, but the code defaults carry an un-merged watchlist to ~110 queries/run (~6,820/month), safely
+under the cap and under the backstop. Merging the new `sources.legiscan` keys (`maxQueriesPerRun`,
+`fullTextStates`) and the per-area `sourceTerms` then takes it the rest of the way to ~38/run
+(~2,356/month). Both paths are covered by `scripts/verify-legiscan.mjs`. No new keys.
+
 ## 1.19.0 — Staff-focused refocus: sharper analysis, web-search Ask, Iowa plant map
 
 The Bean Brief is now an internal staff analysis tool (a separate farmer-facing tool comes later, fed
