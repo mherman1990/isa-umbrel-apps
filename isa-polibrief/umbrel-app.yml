@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-polibrief
 category: automation
 name: The Bean Brief
-version: "1.19.0"
+version: "1.20.0"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
@@ -28,13 +28,12 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  Staff-focused refocus. The Bean Brief is now a sharper internal analysis tool: the Farmer update and
-  Market Pulse reports are gone, the Market-education brief is aimed at ISA staff, and the analysis gives
-  a direct, directional read instead of a hedged briefing. Ask the Bean Brief — and the Analyst Note —
-  can now search the web to fill gaps in the stored data when a question needs it, citing web sources.
-  The Markets tab is trimmed to the ten core charts; comment deadlines moved to the Laws, Rules &
-  Decisions page (with their own set-aside archive); and the Map gains a layer of Iowa soybean crush and
-  biodiesel plants. Code-only — just Update, no new keys. (Optional: WEB_SEARCH=off in .env turns web
-  search off.)
+  Fixes the LegiScan state-bill feed, which ran out of its monthly free allowance on 16 July. The old
+  code asked LegiScan a separate question for every search term in every state — 721 questions every
+  run, about 45,000 a month against a 30,000 limit — and, oddly, it cost the most when the legislatures
+  were quietest. It now asks each state for its full bill list once (7 questions), matches your Focus
+  Area terms on this machine for free, and only pays for deep full-text searching in Iowa. That's about
+  38 questions a run, roughly 2,400 a month, and the state bill coverage is actually better: it now sees
+  every bill in a session rather than the first page of each search. Just Update — no new keys.
 submitter: Matt
 submission: https://github.com/mherman1990/isa-umbrel-apps

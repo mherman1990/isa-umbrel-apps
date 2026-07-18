@@ -66,6 +66,20 @@ function migrateTopicsToFocusAreas(topics) {
  *   { id, label, weight, keywords, queries: { [sourceId]: string[] } }
  * Derive it from focus areas — the flat `terms` list serves as both keywords
  * (scoring) and per-source queries (collection), for every source it applies to.
+ *
+ * A focus area may narrow what a METERED source searches for via an optional
+ *   sourceTerms: { [sourceId]: string[] }
+ * override. Scoring always uses the full flat `terms` list; only the outbound
+ * queries shrink. This exists because a term list is cheap to score against but
+ * expensive to search with: legiscan bills one API query per (term × state), so
+ * firing federal-only vocabulary ("farm bill", "USTR", "RVO") at seven state
+ * legislatures burned quota on searches that can never match. Setting
+ * `sourceTerms.legiscan` to the genuinely state-legislative terms keeps recall
+ * where it pays and stops the rest.
+ *
+ * NOTE: terms added to a focus area in the Watchlist UI land in `terms` only — a
+ * source with a `sourceTerms` override won't search them until that list is edited
+ * too. That's deliberate (the override is a budget), but it's a real footgun.
  */
 function deriveEngineTopics(focusAreas) {
   return (focusAreas ?? [])
@@ -74,7 +88,7 @@ function deriveEngineTopics(focusAreas) {
       const applies = fa.appliesTo && fa.appliesTo.length ? fa.appliesTo : ALL_SOURCE_IDS;
       const terms = fa.terms ?? [];
       const queries = {};
-      for (const sid of applies) queries[sid] = terms;
+      for (const sid of applies) queries[sid] = fa.sourceTerms?.[sid] ?? terms;
       return { id: fa.id, label: fa.label, weight: fa.weight ?? 5, keywords: terms, queries };
     });
 }

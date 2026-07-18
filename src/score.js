@@ -6,12 +6,7 @@
 // output.minLocalScoreForTriage are dropped; the rest are capped at output.maxItemsToTriage.
 // Claude never sees the unfiltered firehose.
 
-/** Build a word-boundary regex for a keyword; escapes regex specials. */
-function keywordRegex(keyword) {
-  const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  // \b doesn't work adjacent to non-word chars (e.g. "45Z"), so use lookarounds.
-  return new RegExp(`(?<![A-Za-z0-9])${escaped}(?![A-Za-z0-9])`, "i");
-}
+import { keywordRegex } from "./util.js";
 
 const BOOST_TERMS = ["Iowa", "soybean", "soy oil"].map(keywordRegex);
 
