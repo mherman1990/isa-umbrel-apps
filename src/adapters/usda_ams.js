@@ -372,13 +372,23 @@ export async function fetchItems({ env = process.env } = {}) {
   ];
 }
 
-/** Returns [{ series, meta, points }] for store.saveSeriesPoints. Fail-soft per report. */
+/**
+ * Returns [{ series, meta, points }] for store.saveSeriesPoints. Fail-soft per report.
+ *
+ * `sourceConfig.skipBackfill` forces the incremental window even when the store is empty. That exists
+ * for READ-ONLY callers: scripts/check-market-feeds.mjs calls fetchSeries to inspect shape but never
+ * persists, so on a fresh Pi it triggered the whole ~6-year chunked backfill, discarded every point,
+ * and left the store still empty — then market-refresh immediately did the same backfill again. Two
+ * full pulls of a free public service for one deploy check. Diagnostics should observe, not fetch
+ * history nobody keeps.
+ */
 export async function fetchSeries({ env = process.env, sourceConfig = {} } = {}) {
   const window = Number(sourceConfig.incrementalDays) || INCREMENTAL_DAYS_DEFAULT;
+  const skipBackfill = sourceConfig.skipBackfill === true;
   const out = [];
   let cashPricePoints = [];
   try {
-    const deep = needsBackfill("ams:ia:cash-price");
+    const deep = !skipBackfill && needsBackfill("ams:ia:cash-price");
     if (deep) console.log(`   ${label}: first run for Iowa cash/basis — backfilling 2850 in ${BACKFILL_CHUNK_DAYS}-day chunks (one time)`);
     const rows = deep
       ? await sectionHistory(CASH_GRAIN, "Report Detail", env)
@@ -392,7 +402,7 @@ export async function fetchSeries({ env = process.env, sourceConfig = {} } = {})
   try {
     // Also deep-pull when the MARGIN is thin even though the legs are populated — that's the
     // second-run case where 2850 backfilled after 3511 had already passed its threshold.
-    const deep = needsBackfill("ams:ia:meal") || needsBackfill("ams:ia:cash-crush-margin");
+    const deep = !skipBackfill && (needsBackfill("ams:ia:meal") || needsBackfill("ams:ia:cash-crush-margin"));
     if (deep) console.log(`   ${label}: backfilling 3511 in ${BACKFILL_CHUNK_DAYS}-day chunks (one time)`);
     const rows = deep
       ? await sectionHistory(FEEDSTUFF, "Report Detail", env)

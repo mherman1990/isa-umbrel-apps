@@ -108,7 +108,10 @@ if (!env.USDA_AMS_API_KEY) {
 } else {
   try {
     const ams = await imp("src/adapters/usda_ams.js");
-    const out = await ams.fetchSeries({ env });
+    // skipBackfill: this script inspects shape and never persists, so letting it trigger the ~6-year
+    // chunked backfill means the history is fetched, discarded, and then fetched all over again by
+    // the market-refresh that follows. Observed exactly that on the first Pi deploy.
+    const out = await ams.fetchSeries({ env, sourceConfig: { skipBackfill: true } });
     for (const s of out) console.log(`     ${fmtSeries(s)}`);
 
     for (const name of ["ams:ia:cash-price", "ams:ia:basis", "ams:ia:basis-processor", "ams:ia:meal", "ams:ia:oil", "ams:ia:cash-crush-margin"]) {
@@ -129,7 +132,7 @@ if (!env.USDA_AMS_API_KEY) {
       check(last.value > 4 && last.value < 30, `Iowa cash soybean price plausible ($${last.value.toFixed(2)}/bu on ${last.period})`);
       check(cash.points.length > 0, `incremental fetch returned recent cash points (${cash.points.length})`);
       const n = stored("ams:ia:cash-price");
-      check(n > 500 || n === 0, `stored daily cash history is deep (${n} pts in the DB; 0 = not yet refreshed, which is fine on a fresh checkout)`);
+      check(n > 500 || n === 0, `stored daily cash history is deep (${n} pts in the DB${n === 0 ? " — nothing stored yet; run `node src/index.js market-refresh` to backfill, then re-run this check" : ""})`);
     }
     const basis = find(out, "ams:ia:basis");
     if (basis) {
