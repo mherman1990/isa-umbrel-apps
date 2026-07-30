@@ -61,6 +61,36 @@ function vegCondition(m) {
   };
 }
 
+// Root-zone soil moisture — the CAUSE-side companion to VCI (the effect) and the weather inputs.
+// Crop-CASMA / NASA SMAP measures the water actually available to the crop's roots. We store the
+// absolute value and read the seasonal anomaly (vs. the same-week-of-year normal) computed in-app;
+// until a cross-year baseline exists, fall back to the recent multi-week trajectory. Dry = supply
+// risk = supportive of price; a well-charged profile weighs on it. Growing-season only.
+function soilMoisture(m) {
+  const s = m.get("cropcasma:ia:rootzone-sm");
+  if (!s || !isFresh(s, 21)) return null;
+  const mon = new Date().getUTCMonth() + 1;
+  if (mon < 4 || mon > 10) return null;
+  let deltaPct = null, basis = null;
+  if (s.seasonalDeltaPct != null) {
+    deltaPct = s.seasonalDeltaPct; basis = "vs. the seasonal norm";
+  } else if (s.trail && s.trail.length >= 5) {
+    // recent trajectory: latest vs. the mean of the prior ~4 weeks
+    const t = s.trail.map((p) => p.value);
+    const latest = t[t.length - 1];
+    const prior = t.slice(-5, -1);
+    const base = prior.reduce((a, b) => a + b, 0) / prior.length;
+    if (base) { deltaPct = ((latest - base) / base) * 100; basis = "vs. the last few weeks"; }
+  }
+  if (deltaPct == null) return null;
+  const direction = deltaPct <= -8 ? "bullish" : deltaPct >= 8 ? "bearish" : "neutral";
+  return {
+    id: "soil_moisture", name: "Root-Zone Soil Moisture", direction, value: s.latest.value,
+    label: `${pctStr(deltaPct)} ${basis === "vs. the seasonal norm" ? "vs norm" : "trend"}`,
+    detail: `Iowa root-zone soil moisture ${s.latest.value.toFixed(3)} m³/m³ (${s.latest.period}), ${pctStr(deltaPct)} ${basis}. ${direction === "bullish" ? "A drying root zone in-season is supply risk that supports price — often ahead of the crop's visible response." : direction === "bearish" ? "A well-charged root zone buffers the crop and weighs on price." : "Root-zone moisture near normal for the window."}`,
+  };
+}
+
 function drought(m) {
   const s = m.get("drought_monitor:ia:d1");
   if (!s || !isFresh(s, 21)) return null;
@@ -214,7 +244,7 @@ function soyCornRatio(m) {
 // not signals a grain marketer leads with. Their DATA still shows on the Markets charts and reaches
 // the Analyst/Pulse memos via the market-data block, so nothing is lost; they're just not headline
 // farmer signals. (The functions are kept above for that context + easy reinstatement.)
-const SCORERS = [cropCondition, vegCondition, exportPace, stocksToUse, fundPositioning, crushDemand, brazilSupply, drought, soyCornRatio];
+const SCORERS = [cropCondition, vegCondition, soilMoisture, exportPace, stocksToUse, fundPositioning, crushDemand, brazilSupply, drought, soyCornRatio];
 
 /**
  * Compute the current signal board from stored market data.

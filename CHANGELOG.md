@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.23.0 — Crop-CASMA root-zone soil moisture (satellite)
+
+Adds a cause-side crop-stress feed to complement the VegScape VCI shipped in 1.22.0: NASA SMAP
+root-zone (and Iowa surface) soil moisture over cropland, via Crop-CASMA's open, keyless WPS
+zonal-statistics service. It measures the water actually available to the crop's roots, so it leads
+both the vegetation response (VCI) and the NASS condition rating.
+
+### Added
+- **`cropcasma` markets adapter** (keyless). Weekly root-zone volumetric soil moisture (m³/m³) for
+  Iowa + IL/MN/IN/NE, plus Iowa surface moisture, from the Crop-CASMA `GetStatByFips` WPS process
+  (returns a histogram CSV → pixel-weighted mean; no raster parsing). Backfills ~30 weeks on a cold
+  start and thereafter fetches only new weeks. Same Mon–Sun week numbering as VegScape.
+- **`Root-Zone Soil Moisture` signal** on the Markets board (and in the Analyst/Pulse/Ask context):
+  growing-season-gated, reads the in-app seasonal anomaly (falls back to the recent multi-week
+  trajectory until a seasonal baseline exists). Drying in-season supports price; a charged profile
+  weighs on it.
+- **"Root-zone soil moisture (satellite)"** Markets chart.
+
+### Pi go-live
+Code-only Umbrel Update, then merge `sources.cropcasma` into `/data/watchlist.json` and run one
+`market-refresh` (a one-time ~30-week backfill of small CSVs; no large downloads). No new keys.
+
 ## 1.22.0 — Congressional hearings + homepage calendar + LRD overhaul + VegScape crop VCI
 
 Release 2 of the Bean Brief review (hearings, homepage calendar, LRD overhaul), shipped together with

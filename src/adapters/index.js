@@ -38,6 +38,7 @@ import * as fred from "./fred.js";
 import * as wasde from "./wasde.js";
 import * as barchart from "./barchart.js";
 import * as vegscape from "./vegscape.js";
+import * as cropcasma from "./cropcasma.js";
 
 export const adapters = {
   [federal_register.id]: federal_register,
@@ -64,6 +65,7 @@ export const adapters = {
   [wasde.id]: wasde,
   [barchart.id]: barchart,
   [vegscape.id]: vegscape,
+  [cropcasma.id]: cropcasma,
 };
 
 // Information CLASS per source — decides which portal tab an item surfaces on, and
@@ -97,6 +99,7 @@ export const SOURCE_CLASS = {
   wasde: "markets",
   barchart: "markets",
   vegscape: "markets",
+  cropcasma: "markets",
 };
 export const classOf = (sourceId) => SOURCE_CLASS[sourceId] ?? "official";
 export const sourceIdsForClass = (cls) => Object.keys(SOURCE_CLASS).filter((s) => SOURCE_CLASS[s] === cls);

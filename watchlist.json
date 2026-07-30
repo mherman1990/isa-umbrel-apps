@@ -133,6 +133,11 @@
       "enabled": true,
       "maxItemsPerRun": 5,
       "_note": "Markets — USDA/NASS VegScape satellite crop VCI (no key): weekly 0–100 vegetation condition for Iowa + IL/MN/IN/NE cropland. Leading read on crop vigor, ahead of the NASS G/E rating (veg_condition chart + signal)."
+    },
+    "cropcasma": {
+      "enabled": true,
+      "maxItemsPerRun": 5,
+      "_note": "Markets — Crop-CASMA / NASA SMAP soil moisture (no key, open WPS): weekly root-zone (+ Iowa surface) volumetric moisture for Iowa + IL/MN/IN/NE. Cause-side crop-stress read that leads the VCI + condition reports (soil_moisture chart + signal). First market-refresh backfills ~30 weeks (tiny CSVs)."
     }
   },
   "focusAreas": [

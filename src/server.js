@@ -107,7 +107,7 @@ let _seriesLinkCache = { at: 0, map: [] };
 // never links text to a dead #chart_ anchor. Keep in sync with the chartSection list in marketsBody.
 const CHARTED_CATEGORIES = new Set([
   "biofuel_feedstock", "soy_price", "soy_corn_ratio", "soy_crush", "soy_balance_stu",
-  "soy_condition", "veg_condition", "drought", "soy_exports", "barge_freight", "positioning",
+  "soy_condition", "veg_condition", "soil_moisture", "drought", "soy_exports", "barge_freight", "positioning",
 ]);
 function seriesLinkMap() {
   if (Date.now() - _seriesLinkCache.at < 120000) return _seriesLinkCache.map; // cheap memo — metas rarely change
@@ -1525,6 +1525,7 @@ function marketsBody(notice) {
     chartSection("soy_balance_stu", "U.S. soybean stocks-to-use (WASDE)", "Ending stocks as a share of total use — the tightness ratio that drives price. Roughly: below ~8% is tight (supportive), above ~15% is ample (a drag).", 240),
     chartSection("soy_condition", "Soybean crop condition", "In-season % rated good or excellent (USDA Crop Progress) — Iowa vs. U.S. Weather's fingerprint on this year's yield potential.", 260),
     chartSection("veg_condition", "Crop vegetation index (satellite)", "Weekly VegScape VCI (0–100) of crop vigor vs. the 2000-present range — Iowa + the core belt. MODIS-derived, ~4 days after each week closes, so it leads the NASS condition rating. Low = stress; high = a vigorous crop.", 260),
+    chartSection("soil_moisture", "Root-zone soil moisture (satellite)", "Weekly Crop-CASMA / NASA SMAP volumetric soil moisture (m³/m³) — Iowa root-zone + surface, plus the core belt's root zone. The water available to the crop's roots: a cause-side stress read that leads the vegetation and condition reports.", 260),
     chartSection("drought", "Iowa drought coverage", "Share of Iowa land area in drought (D1+) and abnormally dry or worse (D0+), from the weekly U.S. Drought Monitor — a fast read on Corn Belt crop stress.", 260),
     chartSection("soy_exports", "Soybean exports (weekly)", "Weekly export activity in metric tons — inspections (actual loadings) vs. net sales (forward bookings). An export-pace / China-demand read; net sales also stands in for the (currently offline) FAS report.", 280),
     chartSection("barge_freight", "Mississippi barge freight", "Cost to move grain down the Mississippi ($/ton) — a driver of the Gulf export basis, and so of what Iowa elevators can bid.", 240),
