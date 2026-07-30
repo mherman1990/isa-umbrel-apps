@@ -12,6 +12,7 @@
 
 import * as store from "./store.js";
 import { weatherSignals } from "./weather.js";
+import { crushSignal } from "./crush.js";
 
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const monthOf = (period) => MON[(Number(String(period).slice(5, 7)) || 1) - 1];
@@ -127,7 +128,18 @@ function fundPositioning(m) {
   };
 }
 
-function crushDemand(m) {
+// RETIRED — replaced by crush.js `crushSignal()` (capacity utilization).
+//
+// Kept only as a documented cautionary example, deliberately NOT on the board. It ranked crush
+// VOLUME against full history and fired bullish above the 80th percentile. Because capacity grew
+// ~1.06M bu/day from March 2023 to May 2026, volume ratchets to a fresh record most years no matter
+// what demand is doing, so this printed "BULLISH — record-strong domestic demand" for eight straight
+// months while crush itself fell ~10%. It also had no freshness guard, so it kept voting on
+// two-month-old NASS data. If you are tempted to re-add a level-percentile scorer for any series
+// with a structural trend, read this comment first: rank the CHANGE, or rank against capacity, or
+// use a rolling window — never the full-history level.
+// eslint-disable-next-line no-unused-vars
+function crushDemand_RETIRED(m) {
   const s = m.get("nass:us:crush");
   if (!s || s.percentile == null) return null;
   const p = s.percentile;
@@ -135,7 +147,7 @@ function crushDemand(m) {
   return {
     id: "crush_demand", name: "Crush Demand", direction, value: p,
     label: `${ordinal(p)} pctile`,
-    detail: `U.S. crush ${round(s.latest.value)} (${s.latest.period}), ${s.yoyPct != null ? pctStr(s.yoyPct) + " YoY, " : ""}${ordinal(p)} percentile of its range. ${direction === "bullish" ? "Record-strong domestic demand supports basis." : direction === "bearish" ? "Soft crush demand." : "Crush demand mid-range."}`,
+    detail: `U.S. crush ${round(s.latest.value)} (${s.latest.period}), ${s.yoyPct != null ? pctStr(s.yoyPct) + " YoY, " : ""}${ordinal(p)} percentile of its range.`,
   };
 }
 
@@ -244,28 +256,127 @@ function soyCornRatio(m) {
 // not signals a grain marketer leads with. Their DATA still shows on the Markets charts and reaches
 // the Analyst/Pulse memos via the market-data block, so nothing is lost; they're just not headline
 // farmer signals. (The functions are kept above for that context + easy reinstatement.)
-const SCORERS = [cropCondition, vegCondition, soilMoisture, exportPace, stocksToUse, fundPositioning, crushDemand, brazilSupply, drought, soyCornRatio];
+const SCORERS = [cropCondition, vegCondition, soilMoisture, exportPace, stocksToUse, fundPositioning, brazilSupply, drought, soyCornRatio];
+
+// --- factor grouping: the tilt must not double-count correlated signals -----------------------
+//
+// The tilt used to be a raw count: net = bullish − bearish, ±2 flips it. That silently weights by
+// HOW MANY SCORERS happen to exist for a variable rather than by how much the variable matters.
+// In season, five of the ~13 board slots — crop condition, satellite VCI, root-zone soil moisture,
+// Iowa drought and U.S. crop weather — are all reads on the SAME underlying thing: moisture stress
+// in the belt. Adding satellite feeds (v1.22/v1.23) made that worse, not better: a single dry spell
+// could swing the headline tilt by five votes while the balance sheet, the actual supply/demand
+// anchor, contributed one. The board looked more sophisticated and got more lopsided.
+//
+// So: group scorers into FACTORS, average within a factor, and weight factors. Five agreeing
+// weather reads now move the tilt as much as weather should, and no more.
+//
+// ⚠️ Weights are informed judgement, NOT measured predictive power — they encode how much each
+// factor drives soybean price in the analyst's mental model. Once the lead-lag scan (leadlag.js)
+// has enough daily price history to measure which factors actually lead price and by how long, these
+// should be re-derived from that rather than left as-is. Documented here so nobody mistakes them for
+// fitted values. The per-signal board display is unchanged — this only affects the aggregate.
+const FACTORS = {
+  crop_stress: {
+    label: "U.S. crop stress",
+    weight: 1.0,
+    members: ["crop_condition", "veg_condition", "soil_moisture", "drought", "weather_us"],
+    note: "Five correlated reads on one variable — belt moisture/heat stress. Averaged, not summed.",
+  },
+  balance_sheet: { label: "Balance sheet", weight: 1.0, members: ["stocks_to_use"], note: "Ending stocks as a share of use — the supply/demand anchor." },
+  demand_domestic: { label: "Domestic crush demand", weight: 0.9, members: ["crush_utilization"], note: "Capacity utilization — is the installed base pulling beans through." },
+  demand_export: { label: "Export demand", weight: 0.9, members: ["export_pace"], note: "Weekly net sales pace vs. a year ago." },
+  sa_supply: { label: "S. American supply", weight: 0.8, members: ["brazil_supply", "weather_sa"], note: "Competitor supply — correlated pair (crop size + the weather making it)." },
+  positioning: { label: "Fund positioning", weight: 0.5, members: ["fund_positioning"], note: "Flow, not fundamental, and mean-reverting — deliberately half-weight." },
+  acreage: { label: "Acreage incentive", weight: 0.4, members: ["soy_corn_ratio"], note: "Next-crop supply; only bites in the Dec–Apr decision window." },
+  seasonal: { label: "Seasonal tendency", weight: 0.3, members: ["seasonal"], note: "Calendar tendency only — the weakest evidence on the board." },
+};
+const DIR_SCORE = { bullish: 1, bearish: -1, neutral: 0 };
+// Weighted net needed to call a tilt. Lower than the old ±2 count because this is a normalized
+// −1..+1 scale, not a headcount: 0.15 means the weighted evidence leans meaningfully one way.
+const TILT_THRESHOLD = 0.15;
+
+/**
+ * Collapse signals into weighted factors so correlated scorers can't dominate the tilt.
+ * @returns {{ factors: object[], net: number }} net is normalized to −1..+1 over PRESENT factors.
+ */
+function factorTilt(signals) {
+  const byId = new Map(signals.map((s) => [s.id, s]));
+  const factors = [];
+  let weighted = 0;
+  let weightSum = 0;
+  for (const [key, f] of Object.entries(FACTORS)) {
+    const present = f.members.map((id) => byId.get(id)).filter(Boolean);
+    if (!present.length) continue; // off-season scorers drop out; they don't count as neutral
+    const score = present.reduce((a, s) => a + DIR_SCORE[s.direction], 0) / present.length;
+    factors.push({
+      key,
+      label: f.label,
+      weight: f.weight,
+      score,
+      direction: score >= 0.34 ? "bullish" : score <= -0.34 ? "bearish" : "neutral",
+      members: present.map((s) => ({ id: s.id, name: s.name, direction: s.direction })),
+      note: f.note,
+    });
+    weighted += f.weight * score;
+    weightSum += f.weight;
+  }
+  // Any scorer not mapped to a factor still gets a voice at low weight, so adding a scorer without
+  // touching FACTORS degrades gracefully instead of silently dropping it out of the tilt.
+  const mapped = new Set(Object.values(FACTORS).flatMap((f) => f.members));
+  for (const s of signals) {
+    if (mapped.has(s.id)) continue;
+    weighted += 0.3 * DIR_SCORE[s.direction];
+    weightSum += 0.3;
+    factors.push({ key: s.id, label: s.name, weight: 0.3, score: DIR_SCORE[s.direction], direction: s.direction, members: [{ id: s.id, name: s.name, direction: s.direction }], note: "Unmapped scorer — add it to FACTORS in signals.js to weight it properly." });
+  }
+  return { factors, net: weightSum ? weighted / weightSum : 0 };
+}
 
 /**
  * Compute the current signal board from stored market data.
- * @returns {{ signals: object[], bullish, bearish, neutral, total, tilt: string }}
+ * @returns {{ signals, bullish, bearish, neutral, total, tilt, factors, net }}
  */
 export function computeSignals() {
   const snapshot = store.marketSnapshot();
   const m = new Map(snapshot.map((s) => [s.series, s]));
-  const signals = [...SCORERS.map((fn) => fn(m)), seasonalPrice(), ...weatherSignals(m)].filter(Boolean);
+  const signals = [...SCORERS.map((fn) => fn(m)), seasonalPrice(), crushSignal(), ...weatherSignals(m)].filter(Boolean);
   const bullish = signals.filter((s) => s.direction === "bullish").length;
   const bearish = signals.filter((s) => s.direction === "bearish").length;
   const neutral = signals.filter((s) => s.direction === "neutral").length;
-  const net = bullish - bearish;
-  const tilt = net >= 2 ? "bullish" : net <= -2 ? "bearish" : "mixed";
-  return { signals, bullish, bearish, neutral, total: signals.length, tilt };
+  const { factors, net } = factorTilt(signals);
+  const tilt = net >= TILT_THRESHOLD ? "bullish" : net <= -TILT_THRESHOLD ? "bearish" : "mixed";
+  // bullish/bearish/neutral counts are retained for the existing board UI and alert copy; the TILT
+  // itself is now the weighted-factor read, so the headline can legitimately differ from the raw
+  // headcount (that's the point).
+  return { signals, bullish, bearish, neutral, total: signals.length, tilt, factors, net };
 }
 
-/** Compact one-line text of the board, for injecting into memo/analyst prompts. */
+/**
+ * Compact text of the board for the memo/analyst prompts.
+ *
+ * The FACTOR block matters as much as the signal list: without it the model sees five separate
+ * weather-ish bullets and reasonably concludes weather is five independent pieces of evidence.
+ * Showing the grouping tells it they're one variable read five ways, and shows which factors are
+ * doing the real work in the tilt.
+ */
 export function signalsText() {
-  const { signals, bullish, bearish, neutral, tilt } = computeSignals();
+  const { signals, bullish, bearish, neutral, tilt, factors, net } = computeSignals();
   if (!signals.length) return "";
   const lines = signals.map((s) => `- ${s.name}: ${s.direction.toUpperCase()} (${s.label}) — ${s.detail}`);
-  return `Overall tilt: ${tilt.toUpperCase()} (${bullish} bullish / ${bearish} bearish / ${neutral} neutral).\n${lines.join("\n")}`;
+  const fLines = factors
+    .slice()
+    .sort((a, b) => Math.abs(b.weight * b.score) - Math.abs(a.weight * a.score))
+    .map((f) => {
+      const members = f.members.length > 1 ? ` [${f.members.map((x) => `${x.name}=${x.direction}`).join(", ")}]` : "";
+      return `- ${f.label} (weight ${f.weight.toFixed(1)}): ${f.direction.toUpperCase()}, score ${f.score >= 0 ? "+" : ""}${f.score.toFixed(2)}${members}`;
+    });
+  return (
+    `Overall tilt: ${tilt.toUpperCase()} — weighted-factor net ${net >= 0 ? "+" : ""}${net.toFixed(2)} on a −1..+1 scale ` +
+    `(raw scorer headcount, for reference only: ${bullish} bullish / ${bearish} bearish / ${neutral} neutral).\n` +
+    `The tilt is computed by FACTOR, not by counting scorers, because several scorers measure the same variable — ` +
+    `notably five reads on U.S. belt moisture stress, which are averaged into one factor rather than voting five times.\n\n` +
+    `FACTORS (most influential first):\n${fLines.join("\n")}\n\n` +
+    `INDIVIDUAL SIGNALS:\n${lines.join("\n")}`
+  );
 }

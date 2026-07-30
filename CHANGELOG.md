@@ -1,5 +1,82 @@
 # Changelog
 
+## 1.24.0 — Daily price & basis, crush utilization, forecast ledger, surprise scoring
+
+The largest analytical change since the market layer was built. Until now the tool could monitor and
+synthesize but not really *forecast*: it issued a bull/bear read twice a day against a price it could
+only observe monthly and six weeks late, several of its signals were computed in ways that produced
+confidently wrong answers, and nothing it predicted was ever recorded or scored. This release fixes
+the measurement layer and closes the feedback loop.
+
+### Added
+- **`cbot_futures` markets adapter** (keyless, via Yahoo's chart endpoint). Daily front-month CBOT
+  settles for soybeans, meal, oil and corn — ~1,256 points each over 5 years — plus a derived **board
+  crush margin** and a daily soy:corn ratio. This is the first sub-monthly price series in the system
+  and the prerequisite for scoring any signal against a subsequent price move. Keyless interim ahead
+  of Barchart; series are namespaced `cbot:*` so both can coexist and be compared.
+- **`usda_ams` rewritten** — two MARS reports on the one existing key. Report 2850 now yields daily
+  Iowa cash price, nearby basis, and a separate **processor basis** (what crush plants themselves bid,
+  ~1,478 days back to 2020-08); report 3511 yields weekly Iowa cash meal, oil and hulls (loose +
+  pellets, ~223 weeks back to 2022-02). Derived: an **Iowa cash crush margin** — the Gordon Denny
+  workbook's "Cash Margin" tab as a multi-year series. Deep history backfills once in ~6-month chunks,
+  then a 45-day rolling window.
+- **`crush.js` — capacity-utilization engine.** New `src/data/crush_capacity.json` (69 plants,
+  8,557,000 bu/day, generated from the Denny workbook; both its current-plant and capacity-addition
+  totals tie exactly to the source sheet) drives a **time-varying** nameplate denominator, so
+  utilization is measured against the plant base that actually existed at the time. Falls back to a
+  trailing-12-month-max proxy when the table lacks coverage. Cross-checks against crush margin and
+  names the divergence when margin and utilization disagree.
+- **Forecast ledger.** A new `forecasts` table plus extract → resolve → feed-back loop. Each Analyst
+  Note's falsifiable claims are extracted via **structured outputs** into typed, dated rows with the
+  series and date that settle them and the series value at the time. A resolver scores them
+  three-way, and the scored record is fed back into later Analyst/Ask prompts as a track record. New
+  `forecasts` CLI command.
+- **Report expectations & surprise scoring.** A new `report_expectations` table, extraction of
+  pre-report trade consensus from news bodies, and settlement against the published actual with the
+  miss scaled by the analyst range. Markets move on surprise, not level, and the tool previously
+  stored only actuals. New `expectations` CLI command.
+- **`leadlag.js`** — measures which series actually lead the daily price and by how long, with a
+  Bonferroni-corrected significance bar across the whole scan and price-derived series excluded as
+  untestable. Currently reports **zero** significant leads, states so explicitly, and will populate as
+  daily history accumulates.
+- **Momentum on every series** — `changeSigma`, `changeZ` and `slopePerSigma` on the market snapshot,
+  so "high and still climbing" is distinguishable from "high but rolling over".
+- New charts: daily CBOT board, crush margin (board vs. Iowa cash), Iowa basis (all bids vs.
+  processors); daily Iowa cash joins the existing price chart.
+- `scripts/check-market-feeds.mjs` — 30 live checks over the new feeds, including a cross-check of the
+  board margin against the Denny workbook (ties to within $0.01).
+
+### Fixed
+- **Crush signal was anti-informative.** It ranked crush *volume* against full history and fired
+  bullish above the 80th percentile. Capacity grew ~1.06M bu/day between March 2023 and May 2026, so
+  volume ratchets to a fresh record most years regardless of demand: the board printed "record-strong
+  domestic demand" for **eight consecutive months while crush fell ~10%**. Now measured as capacity
+  utilization vs. the same calendar month in prior years. The retired scorer is kept in place as a
+  documented cautionary example.
+- **Seasonal norms could be built from a single year.** The guard was a bare count of same-month
+  observations, so four points from July 2026 formed a "seasonal norm" for July 2026 — and on a
+  monotonically drying series that construction *guarantees* a negative anomaly, i.e. a manufactured
+  bullish bias. It affected both satellite feeds shipped in 1.22/1.23. Now requires ≥3 distinct years;
+  `seasonalYears` is exposed so a 3-year norm can be weighed differently from a 10-year one.
+- **Percent change on zero-crossing series.** Iowa basis produced a `seasonalDeltaPct` of −394.91%,
+  which fed straight into the LLM prompt. Percent deltas are now suppressed when the denominator is
+  small relative to the series' own spread; the absolute move is reported instead.
+- **The tilt double-counted correlated signals.** It was a raw bullish-minus-bearish headcount, so in
+  season five of ~13 slots — crop condition, VCI, soil moisture, drought, U.S. crop weather — all read
+  the same variable (belt moisture stress) and could swing the headline by five votes while the
+  balance sheet contributed one. Signals are now grouped into weighted factors and averaged within a
+  factor. Per-signal board display is unchanged.
+- **Alert threshold was a flat ±20% across every series** — ordinary noise on barge freight, and
+  unreachable for stocks-to-use, which moves a few percent and matters enormously. Now a 3σ move
+  measured in each series' own volatility.
+- `usda_ams` previously had **no `fetchSeries` at all**: "Iowa cash & basis" existed only as a headline
+  string parsed out of a report narrative and was never stored as a series.
+- `generateStorylines` no longer hand-parses JSON by slicing between the first `[` and last `]` inside
+  a try/catch that silently yielded zero threads; it uses structured outputs, so a quiet news window
+  is now distinguishable from a formatting failure.
+- `refreshMarketSeries` now passes each adapter its watchlist entry (`sourceConfig`), matching what
+  collect already did for `fetchItems`.
+
 ## 1.23.0 — Crop-CASMA root-zone soil moisture (satellite)
 
 Adds a cause-side crop-stress feed to complement the VegScape VCI shipped in 1.22.0: NASA SMAP

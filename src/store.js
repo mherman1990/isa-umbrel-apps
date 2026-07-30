@@ -258,7 +258,10 @@ export function marketSnapshot() {
     const latest = pts[n - 1];
     const previous = n > 1 ? pts[n - 2] : null;
     const changeAbs = previous ? latest.value - previous.value : null;
-    const changePct = previous && previous.value ? ((latest.value - previous.value) / Math.abs(previous.value)) * 100 : null;
+    // changePct / yoyPct are assigned after `spread` is known, so the zero-crossing guard below can
+    // suppress them the same way it suppresses seasonalDeltaPct.
+    let changePct = null;
+    let yoyPct = null;
 
     // Year-ago: the point closest to (latest date − 365d), if one lands within ~45 days.
     const latestMs = periodToMs(latest.period);
@@ -274,7 +277,7 @@ export function marketSnapshot() {
       }
       if (bestDiff > 50 * 864e5) yearAgo = null; // no comparable point ~a year back
     }
-    const yoyPct = yearAgo && yearAgo.value ? ((latest.value - yearAgo.value) / Math.abs(yearAgo.value)) * 100 : null;
+    // (yoyPct assigned below, once the zero-crossing guard is available.)
 
     // Full-history range, average, and the latest's percentile within it.
     let min = pts[0], max = pts[0], sum = 0;
@@ -282,13 +285,72 @@ export function marketSnapshot() {
     const avg = sum / n;
     const percentile = Math.round((pts.filter((p) => p.value <= latest.value).length / n) * 100);
 
+    // ⚠️ PERCENT CHANGE IS NONSENSE ON A SERIES THAT CROSSES ZERO. Basis is the live example:
+    // ams:ia:basis swings either side of zero, so a seasonal average near 0 produced
+    // seasonalDeltaPct = -394.91 — a number that reads as a catastrophic move and goes straight into
+    // the LLM prompt via formatMarketSnapshot. Suppress any percent whose denominator is tiny
+    // relative to the series' own full-history spread; the absolute change (changeAbs) is still
+    // reported and is the meaningful figure for these series.
+    const spread = Math.abs(max.value - min.value);
+    const pctMeaningful = (denom) => spread > 0 && Math.abs(denom) >= spread * 0.05;
+    if (previous && pctMeaningful(previous.value)) changePct = ((latest.value - previous.value) / Math.abs(previous.value)) * 100;
+    if (yearAgo && pctMeaningful(yearAgo.value)) yoyPct = ((latest.value - yearAgo.value) / Math.abs(yearAgo.value)) * 100;
+
+    // --- MOMENTUM, in units of the series' OWN volatility -------------------------------------
+    // Everything above is a level or a ratio; none of it says whether a series is accelerating.
+    // Two additions, both scale-free so they're comparable across series:
+    //   changeSigma — the typical size of one period-over-period move (stdev of consecutive diffs)
+    //   changeZ     — the latest move measured in those sigmas
+    //   slopePerSigma — trailing linear-regression slope, expressed in sigmas per period
+    // Why sigma rather than percent: a flat "±20% is a big move" rule (which alerts.js used) is
+    // meaningless across a portfolio this heterogeneous — 20% on barge freight is a normal week,
+    // 20% on stocks-to-use is a regime change. Sigma makes "unusual" mean the same thing everywhere.
+    const diffs = [];
+    for (let i = 1; i < n; i++) diffs.push(pts[i].value - pts[i - 1].value);
+    let changeSigma = null, changeZ = null, slopePerSigma = null;
+    if (diffs.length >= 8) {
+      const dMean = diffs.reduce((a, b) => a + b, 0) / diffs.length;
+      const sd = Math.sqrt(diffs.reduce((s, v) => s + (v - dMean) ** 2, 0) / diffs.length);
+      if (sd > 0) {
+        changeSigma = sd;
+        if (changeAbs != null) changeZ = changeAbs / sd;
+        // Ordinary least squares over the trailing window, x = 0..k-1 (evenly spaced periods).
+        // Deliberately index-spaced rather than time-spaced: it keeps the maths simple and the
+        // series here are individually regular, even though their cadences differ from each other.
+        const win = pts.slice(-Math.min(12, n));
+        const k = win.length;
+        if (k >= 4) {
+          const xBar = (k - 1) / 2;
+          const yBar = win.reduce((a, p) => a + p.value, 0) / k;
+          let num = 0, den = 0;
+          for (let i = 0; i < k; i++) { num += (i - xBar) * (win[i].value - yBar); den += (i - xBar) ** 2; }
+          if (den > 0) slopePerSigma = num / den / sd;
+        }
+      }
+    }
+
     // Seasonal: latest vs. the same calendar month averaged across all years.
+    //
+    // ⚠️ THE DISTINCT-YEAR REQUIREMENT IS LOAD-BEARING, don't relax it back to a bare count. The
+    // guard used to be `sameMonth.length >= 3`, which says nothing about how many YEARS those
+    // observations span. On a young weekly series every same-month point comes from the same month
+    // of the SAME year: cropcasma:ia:rootzone-sm had exactly four July-2026 points, so the "seasonal
+    // norm" was the mean of the three preceding weeks, and the delta against it got labelled
+    // "vs. the seasonal norm" downstream. Worse, on a monotonically drying series that construction
+    // GUARANTEES a negative delta — a permanent bullish bias manufactured out of nothing. It hit
+    // vegscape VCI identically, i.e. both of the newest satellite feeds.
+    //
+    // Requiring observations from ≥3 distinct years costs nothing on the mature series (a weekly
+    // series with 9 years of history has ~36 same-month points across 9 years) and correctly returns
+    // null on a young one, which routes callers to their honest recent-trajectory fallback instead.
     const lm = latest.period.slice(5, 7);
     const sameMonth = pts.filter((p) => p.period.slice(5, 7) === lm);
+    const seasonalYears = new Set(sameMonth.map((p) => p.period.slice(0, 4))).size;
     let seasonalAvg = null, seasonalDeltaPct = null, seasonalPctile = null;
-    if (sameMonth.length >= 3) {
+    if (sameMonth.length >= 3 && seasonalYears >= 3) {
       seasonalAvg = sameMonth.reduce((a, p) => a + p.value, 0) / sameMonth.length;
-      seasonalDeltaPct = seasonalAvg ? ((latest.value - seasonalAvg) / Math.abs(seasonalAvg)) * 100 : null;
+      seasonalDeltaPct = pctMeaningful(seasonalAvg) ? ((latest.value - seasonalAvg) / Math.abs(seasonalAvg)) * 100 : null;
+      // The seasonal PERCENTILE stays valid on a zero-crossing series — it's a rank, not a ratio.
       seasonalPctile = Math.round((sameMonth.filter((p) => p.value <= latest.value).length / sameMonth.length) * 100);
     }
 
@@ -297,7 +359,10 @@ export function marketSnapshot() {
       latest, previous, changeAbs, changePct,
       yearAgo, yoyPct,
       min, max, avg, percentile,
-      seasonalAvg, seasonalDeltaPct, seasonalPctile,
+      // seasonalYears = how many distinct years the seasonal comparison actually spans. Exposed so
+      // consumers (and the prompt context) can weigh a 9-year norm differently from a 3-year one.
+      seasonalAvg, seasonalDeltaPct, seasonalPctile, seasonalYears,
+      changeSigma, changeZ, slopePerSigma,
       count: n, firstPeriod: pts[0].period,
       trail: pts.slice(-12),
     });
@@ -453,6 +518,202 @@ db.exec(`
     updated_at TEXT NOT NULL
   );
 `);
+
+// --- forecast ledger -------------------------------------------------------------------------
+// The feedback loop the tool was missing entirely. The Analyst prompt already demands a falsifiable
+// read — "the setup, the RISK to that read, and the DATA OR REPORT THAT WOULD CONFIRM OR KILL IT" —
+// and then that read was rendered to a markdown file and forgotten. Nothing was dated, stored, or
+// revisited, so (a) nobody could say whether the tool had ever been right, and (b) each new Analyst
+// Note started blind to what the last one claimed.
+//
+// Each row is ONE falsifiable claim extracted from a saved brief, with the series and date that
+// settle it. A scheduled resolver marks hit/miss/unresolved, and the resolved record is fed back
+// into later prompts as a track record. `dedupe_key` is a stable hash of the claim so re-running
+// extraction over the same brief updates rather than duplicating.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS forecasts (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    dedupe_key       TEXT UNIQUE,       -- stable per (brief, claim) so re-extraction is idempotent
+    brief_path       TEXT,              -- which saved brief this came from
+    edition          TEXT,              -- analyst / pulse / weekly …
+    created_at       TEXT NOT NULL,     -- when the claim was made (not when extracted)
+    claim            TEXT NOT NULL,     -- the falsifiable statement, verbatim-ish
+    direction        TEXT,              -- up | down | flat | n/a  (direction of the series below)
+    series           TEXT,              -- market_series id that settles it, when one does
+    horizon_days     INTEGER,           -- how far out the claim reaches
+    resolve_by       TEXT,              -- ISO date after which it can be judged
+    confirming_event TEXT,              -- the report/data the model said would confirm or kill it
+    confidence       TEXT,              -- low | medium | high, as stated by the model
+    baseline_value   REAL,              -- series value at creation, captured so drift is measurable
+    baseline_period  TEXT,
+    -- resolution
+    -- pending | hit | miss | inconclusive | unresolvable | expired.
+    -- inconclusive = the series stayed inside its own flat band, so a directional call can't be
+    -- judged; unresolvable = no stored series could settle it. Both are excluded from the hit rate.
+    outcome          TEXT,
+    resolved_at      TEXT,
+    observed_value   REAL,
+    observed_period  TEXT,
+    resolution_note  TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_forecasts_outcome ON forecasts(outcome);
+  CREATE INDEX IF NOT EXISTS idx_forecasts_resolve ON forecasts(resolve_by);
+`);
+
+// --- report expectations & surprise ----------------------------------------------------------
+// Markets move on SURPRISE versus expectation, not on levels. The tool stored WASDE/NASS actuals but
+// never the pre-report trade estimate, so it could never say whether a release was bullish or
+// bearish — only what the number was. The education prompt even instructs "if a move was driven by a
+// surprise vs. expectations, teach that" with no expectations in context to do it with.
+//
+// ⚠️ SOURCING CAVEAT, verified honestly rather than assumed: the original plan was to mine pre-report
+// analyst surveys out of the collector inbox. Checked against the stored bodies and the evidence is
+// NOT there — of 68 news items only 7 carry a substantive body and none contain trade-survey language
+// ("analysts expected", "survey average", "trade guess"). That may be a thin local dev snapshot rather
+// than a true absence, so newsletter extraction is implemented and will populate this table if the
+// language does appear on the Pi. But the schema deliberately does not depend on it: `source` records
+// where an expectation came from, so a figure entered from an authoritative source is a first-class
+// citizen. Run `node src/index.js expectations --scan` on the Pi to see which path is actually working.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS report_expectations (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    dedupe_key     TEXT UNIQUE,     -- report + item + source, so re-extraction updates in place
+    report         TEXT NOT NULL,   -- e.g. "WASDE 2026-08" / "Grain Stocks 2026-09"
+    report_date    TEXT,            -- expected release date (ISO)
+    item           TEXT NOT NULL,   -- e.g. "U.S. soybean ending stocks"
+    series         TEXT,            -- market_series id holding the ACTUAL, when one does
+    unit           TEXT,
+    est_low        REAL,
+    est_avg        REAL,
+    est_high       REAL,
+    source         TEXT,            -- publication / provenance of the estimate
+    source_date    TEXT,
+    created_at     TEXT NOT NULL,
+    -- settled after the release
+    actual_value   REAL,
+    actual_period  TEXT,
+    surprise       REAL,            -- actual − est_avg, in the item's own unit
+    surprise_sigma REAL,            -- the same, scaled by the estimate range (see computeSurprises)
+    resolved_at    TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_expect_report ON report_expectations(report_date);
+  CREATE INDEX IF NOT EXISTS idx_expect_open   ON report_expectations(resolved_at);
+`);
+
+export function upsertExpectation(e) {
+  db.prepare(
+    `INSERT INTO report_expectations (dedupe_key, report, report_date, item, series, unit,
+        est_low, est_avg, est_high, source, source_date, created_at)
+     VALUES (@dedupe_key, @report, @report_date, @item, @series, @unit,
+        @est_low, @est_avg, @est_high, @source, @source_date, @created_at)
+     ON CONFLICT(dedupe_key) DO UPDATE SET
+        est_low=excluded.est_low, est_avg=excluded.est_avg, est_high=excluded.est_high,
+        report_date=excluded.report_date, series=excluded.series, unit=excluded.unit`
+  ).run({
+    dedupe_key: e.dedupeKey,
+    report: e.report,
+    report_date: e.reportDate ?? null,
+    item: e.item,
+    series: e.series ?? null,
+    unit: e.unit ?? null,
+    est_low: e.estLow ?? null,
+    est_avg: e.estAvg ?? null,
+    est_high: e.estHigh ?? null,
+    source: e.source ?? null,
+    source_date: e.sourceDate ?? null,
+    created_at: new Date().toISOString(),
+  });
+}
+
+/** Expectations not yet joined to an actual. */
+export function openExpectations() {
+  return db.prepare(`SELECT * FROM report_expectations WHERE resolved_at IS NULL ORDER BY report_date`).all();
+}
+
+export function settleExpectation(id, { actualValue, actualPeriod, surprise, surpriseSigma }) {
+  db.prepare(
+    `UPDATE report_expectations SET actual_value=?, actual_period=?, surprise=?, surprise_sigma=?, resolved_at=? WHERE id=?`
+  ).run(actualValue, actualPeriod, surprise, surpriseSigma, new Date().toISOString(), id);
+}
+
+export function listExpectations({ settledOnly = false, limit = 40 } = {}) {
+  return settledOnly
+    ? db.prepare(`SELECT * FROM report_expectations WHERE resolved_at IS NOT NULL ORDER BY report_date DESC LIMIT ?`).all(limit)
+    : db.prepare(`SELECT * FROM report_expectations ORDER BY report_date DESC LIMIT ?`).all(limit);
+}
+
+/** Insert a forecast, or update it in place if this exact claim was already extracted. */
+export function upsertForecast(f) {
+  db.prepare(
+    `INSERT INTO forecasts (dedupe_key, brief_path, edition, created_at, claim, direction, series,
+        horizon_days, resolve_by, confirming_event, confidence, baseline_value, baseline_period, outcome)
+     VALUES (@dedupe_key, @brief_path, @edition, @created_at, @claim, @direction, @series,
+        @horizon_days, @resolve_by, @confirming_event, @confidence, @baseline_value, @baseline_period, 'pending')
+     ON CONFLICT(dedupe_key) DO UPDATE SET
+        claim=excluded.claim, direction=excluded.direction, series=excluded.series,
+        horizon_days=excluded.horizon_days, resolve_by=excluded.resolve_by,
+        confirming_event=excluded.confirming_event, confidence=excluded.confidence`
+  ).run({
+    dedupe_key: f.dedupeKey,
+    brief_path: f.briefPath ?? null,
+    edition: f.edition ?? null,
+    created_at: f.createdAt,
+    claim: f.claim,
+    direction: f.direction ?? null,
+    series: f.series ?? null,
+    horizon_days: f.horizonDays ?? null,
+    resolve_by: f.resolveBy ?? null,
+    confirming_event: f.confirmingEvent ?? null,
+    confidence: f.confidence ?? null,
+    baseline_value: f.baselineValue ?? null,
+    baseline_period: f.baselinePeriod ?? null,
+  });
+}
+
+/** Forecasts still pending whose resolve_by date has passed. */
+export function forecastsDueForResolution(nowISO = new Date().toISOString().slice(0, 10)) {
+  return db
+    .prepare(`SELECT * FROM forecasts WHERE outcome = 'pending' AND resolve_by IS NOT NULL AND resolve_by <= ? ORDER BY resolve_by`)
+    .all(nowISO);
+}
+
+export function resolveForecast(id, { outcome, observedValue = null, observedPeriod = null, note = null }) {
+  db.prepare(
+    `UPDATE forecasts SET outcome=?, resolved_at=?, observed_value=?, observed_period=?, resolution_note=? WHERE id=?`
+  ).run(outcome, new Date().toISOString(), observedValue, observedPeriod, note, id);
+}
+
+export function listForecasts({ outcome = null, limit = 50 } = {}) {
+  return outcome
+    ? db.prepare(`SELECT * FROM forecasts WHERE outcome = ? ORDER BY created_at DESC LIMIT ?`).all(outcome, limit)
+    : db.prepare(`SELECT * FROM forecasts ORDER BY created_at DESC LIMIT ?`).all(limit);
+}
+
+/** Hit rate over judged forecasts (hit + miss only — pending/unresolvable are excluded). */
+export function forecastScorecard() {
+  const rows = db.prepare(`SELECT outcome, confidence, COUNT(*) n FROM forecasts GROUP BY outcome, confidence`).all();
+  const total = {};
+  for (const r of rows) total[r.outcome] = (total[r.outcome] ?? 0) + r.n;
+  const hit = total.hit ?? 0;
+  const miss = total.miss ?? 0;
+  const judged = hit + miss;
+  const byConfidence = {};
+  for (const r of rows) {
+    if (r.outcome !== "hit" && r.outcome !== "miss") continue;
+    const c = r.confidence || "unstated";
+    byConfidence[c] = byConfidence[c] ?? { hit: 0, miss: 0 };
+    byConfidence[c][r.outcome] += r.n;
+  }
+  return {
+    hit, miss, judged,
+    pending: total.pending ?? 0,
+    inconclusive: total.inconclusive ?? 0,
+    unresolvable: total.unresolvable ?? 0,
+    expired: total.expired ?? 0,
+    hitRate: judged ? hit / judged : null,
+    byConfidence,
+  };
+}
 export function upsertStoryline(s) {
   const now = new Date().toISOString();
   db.prepare(

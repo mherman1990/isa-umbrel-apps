@@ -10,6 +10,11 @@ import { computeSignals } from "./signals.js";
 
 const fmt = (v) => (v == null ? "—" : Math.abs(v) >= 1000 ? Math.round(v).toLocaleString() : String(Math.round(v * 100) / 100));
 
+// How many of a series' own standard deviations a single-period move must be to raise an alert.
+// 3σ is roughly a 1-in-370 event under normality and empirically fires a handful of times a year
+// across ~50 series — frequent enough to be useful, rare enough that the feed stays worth reading.
+const MOVE_SIGMA = 3;
+
 export function detectChanges() {
   const news = [];
 
@@ -40,10 +45,24 @@ export function detectChanges() {
       }
       store.setState(ek, String(s.percentile));
     }
+    // Big single-period moves, scored in the series' OWN volatility rather than a flat percentage.
+    //
+    // This used to fire on `Math.abs(s.changePct) >= 20`, one threshold for every series. That is
+    // wrong in both directions at once: a 20% week in Mississippi barge freight is ordinary noise
+    // and generated recurring non-alerts, while stocks-to-use — which moves a few percent and matters
+    // enormously — could shift regime without ever tripping it. A 3-sigma move means the same thing
+    // on every series regardless of unit or typical amplitude. changeSigma/changeZ come from
+    // marketSnapshot; the percent is kept in the message only when it's meaningful (it's suppressed
+    // on zero-crossing series like basis), otherwise the absolute move carries the message.
     const mk = `mv:${s.series}`;
     const prevPeriod = store.getState(mk);
-    if (prevPeriod && prevPeriod !== s.latest.period && s.changePct != null && Math.abs(s.changePct) >= 20 && s.count >= 6) {
-      news.push({ category: "move", title: `${s.label} ${s.changePct >= 0 ? "jumped" : "dropped"} ${Math.abs(s.changePct).toFixed(0)}%`, detail: `${fmt(s.previous.value)} → ${fmt(s.latest.value)} (${s.latest.period}).` });
+    if (prevPeriod && prevPeriod !== s.latest.period && s.changeZ != null && Math.abs(s.changeZ) >= MOVE_SIGMA && s.count >= 12) {
+      const mag = s.changePct != null ? `${Math.abs(s.changePct).toFixed(0)}%` : `${fmt(Math.abs(s.changeAbs))} ${s.unit || ""}`.trim();
+      news.push({
+        category: "move",
+        title: `${s.label} ${s.changeAbs >= 0 ? "jumped" : "dropped"} ${mag}`,
+        detail: `${fmt(s.previous.value)} → ${fmt(s.latest.value)} (${s.latest.period}) — a ${Math.abs(s.changeZ).toFixed(1)}σ move against this series' own typical ${fmt(s.changeSigma)} ${s.unit || ""} period-to-period swing.`.replace(/\s+/g, " "),
+      });
     }
     store.setState(mk, s.latest.period);
   }

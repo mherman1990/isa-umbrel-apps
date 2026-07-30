@@ -18,6 +18,8 @@ import { syncRegistryFromSeed } from "./registry.js";
 import { EDUCATION_SYSTEM_PROMPT, seedCurriculum } from "./curriculum.js";
 import { signalsText } from "./signals.js";
 import { weatherRiskText } from "./weather.js";
+import { crushText } from "./crush.js";
+import { leadLagText } from "./leadlag.js";
 import { upcomingReportsText, upcomingReports, upcomingPolicyEventsText } from "./calendar.js";
 import { fetchDocumentText } from "./summarize.js";
 import { emailBodyToText } from "./emailhtml.js";
@@ -178,7 +180,10 @@ export async function refreshMarketSeries(env = process.env) {
   // are synchronous (better-sqlite3) so they serialize safely even though the fetches overlap.
   const counts = await mapPool(seriesAdapters, SERIES_CONCURRENCY, async (adapter) => {
     try {
-      const list = await adapter.fetchSeries({ env });
+      // Pass the adapter's watchlist entry through, same as collect does for fetchItems — it lets a
+      // series adapter take per-deployment tuning without a code change (e.g. cbot_futures'
+      // hullsUsdPerTon, usda_ams' incremental-window size).
+      const list = await adapter.fetchSeries({ env, sourceConfig: watchlist.sources?.[adapter.id] ?? {} });
       let n = 0;
       for (const s of list) {
         store.saveSeriesPoints(s.series, s.meta, s.points);
@@ -286,6 +291,24 @@ export async function runPipeline({ edition = "am", dryRun = false, source = nul
       await generateStorylines(env);
     } catch (err) {
       console.log(`⚠️  Storylines skipped: ${err.message}`);
+    }
+    // Judge any forecasts whose horizon has elapsed. Pure arithmetic over stored series — no model
+    // call, no cost — so it rides the heartbeat rather than needing its own schedule.
+    try {
+      resolveForecasts();
+    } catch (err) {
+      console.log(`⚠️  Forecast resolution skipped: ${err.message}`);
+    }
+    // Pre-report consensus in, surprises out. Extraction costs one cheap Haiku call; scoring is free.
+    try {
+      await extractExpectations(env);
+    } catch (err) {
+      console.log(`⚠️  Expectation extraction skipped: ${err.message}`);
+    }
+    try {
+      computeSurprises();
+    } catch (err) {
+      console.log(`⚠️  Surprise scoring skipped: ${err.message}`);
     }
   }
 
@@ -418,12 +441,24 @@ function formatMarketSnapshot(snapshot) {
     lines.push(`# ${cat}`);
     for (const s of list) {
       const parts = [`${fmt(s.latest.value)} ${s.unit} (${s.latest.period})`];
+      // Percent deltas are suppressed on zero-crossing series (basis) where they'd be nonsense —
+      // fall back to the absolute move so the model still sees the direction and size.
       if (s.changePct != null) parts.push(`Δ ${pct(s.changePct)} vs prior`);
+      else if (s.changeAbs != null) parts.push(`Δ ${fmt(s.changeAbs)} ${s.unit} vs prior`);
       if (s.yoyPct != null) parts.push(`YoY ${pct(s.yoyPct)}`);
       parts.push(`range ${fmt(s.min.value)}–${fmt(s.max.value)}, now ${s.percentile}th pctile of ${s.count} obs since ${s.firstPeriod}`);
+      // MOMENTUM, in the series' own volatility units — lets the model distinguish "high and still
+      // climbing" from "high but rolling over", which no level/percentile statistic can express.
+      if (s.changeZ != null) parts.push(`last move ${s.changeZ >= 0 ? "+" : ""}${s.changeZ.toFixed(1)}σ of its typical swing`);
+      if (s.slopePerSigma != null) {
+        const dir = s.slopePerSigma > 0.15 ? "rising" : s.slopePerSigma < -0.15 ? "falling" : "flat";
+        parts.push(`trend ${dir} (${s.slopePerSigma >= 0 ? "+" : ""}${s.slopePerSigma.toFixed(2)}σ/period over last 12)`);
+      }
       if (s.seasonalDeltaPct != null) {
         const mon = MONTHS[(Number(s.latest.period.slice(5, 7)) || 1) - 1];
-        parts.push(`seasonal ${pct(s.seasonalDeltaPct)} vs ${mon} avg (${s.seasonalPctile}th pctile for ${mon})`);
+        // seasonalYears is stated because a 3-year "norm" deserves far less weight than a 10-year
+        // one, and the model cannot tell them apart otherwise.
+        parts.push(`seasonal ${pct(s.seasonalDeltaPct)} vs ${mon} avg across ${s.seasonalYears} yrs (${s.seasonalPctile}th pctile for ${mon})`);
       }
       let line = `- ${s.label}: ${parts.join("; ")}`;
       if (s.trail && s.trail.length > 1) line += ` — recent: ${s.trail.map((p) => fmt(p.value)).join(" → ")}`;
@@ -498,6 +533,10 @@ export async function answerQuery(question, env) {
     `Question: ${question}\n\n` +
     `=== MARKET DATA (latest value, change vs prior, recent trail) ===\n${marketBlock || "(no market data stored yet)"}\n\n` +
     (weatherRiskText() ? `=== CROP-WEATHER READ (anomaly vs. normal → supply/price) ===\n${weatherRiskText()}\n\n` : "") +
+    (crushText() ? `=== CRUSH DEMAND (capacity utilization, cause→effect with margin) ===\n${crushText()}\n\n` : "") +
+    (leadLagText() ? `=== MEASURED LEAD-LAG vs. DAILY PRICE (read the caveats) ===\n${leadLagText()}\n\n` : "") +
+    (forecastTrackRecordText() ? `=== THIS TOOL'S OWN TRACK RECORD (past calls, scored) ===\n${forecastTrackRecordText()}\n\n` : "") +
+    (surpriseText() ? `=== EXPECTATIONS vs. ACTUALS (surprise is what moves price, not the level) ===\n${surpriseText()}\n\n` : "") +
     (marketIntelText() ? `=== MARKET INTEL FROM NEWSLETTERS (distilled from the collector inbox, cited) ===\n${marketIntelText()}\n\n` : "") +
     `=== LAWS/RULES/DECISIONS + NEWS items (JSON) ===\n${JSON.stringify(compactHits, null, 1)}\n\n` +
     `=== TRACKED ITEMS (pinned) ===\n${tracked.length ? tracked.map((t) => `- ${t.title}${t.jurisdiction ? ` (${t.jurisdiction})` : ""}${t.url ? ` ${t.url}` : ""}`).join("\n") : "(none)"}\n\n` +
@@ -622,6 +661,10 @@ Length: scannable in ~90 seconds (250–400 words). No preamble, no sign-off. St
     effort: "high",
     injectSignals: true,
     web: true,
+    // The Analyst Note is the one preset whose whole job is forward-looking falsifiable claims, so
+    // it's the one worth filing in the forecast ledger. Weekly/monthly summarize the period and
+    // education teaches — extracting "forecasts" from those would fill the ledger with restatements.
+    extractForecasts: true,
     system: (dateLabel) => `You are the senior market-and-policy analyst for the Iowa Soybean Association's demand & policy team — an INTERNAL audience (sharp, no hand-holding, wants to see around the corner). Write a forward-looking ANALYST NOTE grounded in the stored data provided (the market signal board, full-history trend stats, laws/rules/decisions + news, the release calendar, tracked items, recent briefs). You also have a WEB SEARCH tool: when the stored data leaves a gap that matters to the read — a very recent development, a number more current than the last pipeline run, or a fact worth verifying — search for it, and cite any web source inline as a markdown link so it stands apart from the internal streams. Lean on the stored data first; reach for the web only when it sharpens the analysis.
 
 Do NOT summarize the period. Do the analysis a headline can't give:
@@ -711,6 +754,10 @@ export async function generateMemo(presetId, env) {
     const trig = triggersText();
     signalsBlock =
       `\n\n=== MARKET SIGNAL BOARD (bull/bear read for soybean price) ===\n${sig || "(no signals computed yet)"}` +
+      `\n\n=== CRUSH DEMAND (capacity utilization, cause→effect with margin) ===\n${crushText() || "(not computable yet)"}` +
+      `\n\n=== MEASURED LEAD-LAG vs. DAILY PRICE (read the caveats) ===\n${leadLagText()}` +
+      (forecastTrackRecordText() ? `\n\n=== YOUR OWN TRACK RECORD (past calls from this tool, scored) ===\n${forecastTrackRecordText()}` : "") +
+      (surpriseText() ? `\n\n=== EXPECTATIONS vs. ACTUALS (surprise is what moves price, not the level) ===\n${surpriseText()}` : "") +
       `\n\n=== UPCOMING REPORT RELEASES ===\n${cal || "(none in the next two weeks)"}` +
       `\n\n=== UPCOMING POLICY/POLITICAL DEADLINES (farm bill, appropriations, elections, sessions) ===\n${pol || "(none on the calendar)"}` +
       `\n\n=== ACTIVE MARKETING TRIGGERS (seasonal / report / positioning states) ===\n${trig || "(none active today)"}`;
@@ -766,6 +813,16 @@ export async function generateMemo(presetId, env) {
   // Web-augmented notes can span several text blocks (interleaved with search-result blocks) — join them.
   const markdown = response.content.filter((b) => b.type === "text").map((b) => b.text).join("").trim();
   const filePath = saveBrief(markdown, preset.edition, timezone);
+
+  // File the note's falsifiable claims so they can be scored later. Fail-soft: a memo is worth
+  // saving even if extraction hiccups, and the ledger self-heals on the next run.
+  if (preset.extractForecasts) {
+    try {
+      await extractForecasts(markdown, { edition: preset.edition, briefPath: path.relative(store.DATA_DIR, filePath), env });
+    } catch (err) {
+      console.log(`⚠️  Forecast extraction skipped: ${err.message}`);
+    }
+  }
   return { markdown, filePath, edition: preset.edition };
 }
 
@@ -964,31 +1021,39 @@ export async function generateStorylines(env = process.env) {
   const system =
     `You maintain the "storylines" for the Iowa Soybean Association's policy & market monitor — the handful of ongoing THREADS the news is really about (e.g. "45Z Clean Fuel Production Credit", "EU Deforestation Regulation (EUDR)", "Summit Carbon CO2 Pipeline", "Renewable diesel & soybean-oil demand", "China soybean trade"). Cluster the monitoring items below into 3–7 active storylines. For each, write what recently changed and why it matters to Iowa soybeans, plus a short dated timeline.\n\n` +
     `CONTINUE existing threads by their EXACT name where items fit one (list provided) — do not rename or fork a thread that already exists. Only include storylines with genuine recent activity in these items; ignore one-off noise that belongs to no thread.\n\n` +
-    `Return ONLY a JSON array (no prose, no code fence). Each element:\n` +
-    `{"key":"<stable-kebab-slug>","name":"<thread name>","focus":"<one line: what this thread is>","whatChanged":"<2–3 sentences: what developed recently and why it matters to Iowa soy>","timeline":[{"date":"YYYY-MM-DD","event":"<short>","url":"<source url or empty>"}]}\n` +
-    `Timeline most-recent-first, max 5 entries, dates from the item dates. Keys are stable slugs so a thread keeps its key across updates.`;
+    `Timeline most-recent-first, max 5 entries, dates from the item dates. Keys are stable kebab slugs so a thread keeps its key across updates. Use an empty string for a timeline url when the item has none.`;
   const user =
     `EXISTING STORYLINE NAMES (continue these where they fit):\n${existing.length ? existing.map((n) => `- ${n}`).join("\n") : "(none yet)"}\n\n` +
     `MONITORING ITEMS (last 21 days):\n${lines.join("\n")}`;
 
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   const model = env.BRIEF_MODEL || "claude-sonnet-5";
-  // Disable thinking: this is a structured-JSON clustering task, not a reasoning one. On Sonnet 5
-  // (our BRIEF_MODEL) adaptive thinking is ON by default and counts against max_tokens — left on it
-  // eats the whole budget and returns an empty text block. max_tokens is generous because the full
-  // JSON (up to 7 threads × a paragraph + a 5-entry timeline) runs a few thousand tokens; too small
-  // truncates the array mid-object and it won't parse.
-  const resp = await client.messages.create({ model, max_tokens: 4500, thinking: { type: "disabled" }, system, messages: [{ role: "user", content: user }] });
+  // STRUCTURED OUTPUTS replace what used to be "ask for a JSON array, then slice between the first
+  // '[' and last ']' inside a try/catch". That parse failed silently — a stray sentence or a response
+  // truncated mid-object produced `arr = []` and the run logged "model returned no parseable threads"
+  // with no way to tell a genuinely quiet news week from a formatting accident. Schema-constrained
+  // decoding removes the failure mode entirely.
+  //
+  // Thinking stays disabled: this is clustering, not reasoning, and on Sonnet 5 adaptive thinking is
+  // on by default and counts against max_tokens — left on, it ate the budget and returned empty text.
+  const resp = await client.messages.create({
+    model,
+    max_tokens: 4500,
+    thinking: { type: "disabled" },
+    output_config: { format: { type: "json_schema", schema: STORYLINE_SCHEMA } },
+    system,
+    messages: [{ role: "user", content: user }],
+  });
   store.recordUsage(model, "storylines", resp.usage.input_tokens, resp.usage.output_tokens);
-  const text = resp.content.find((b) => b.type === "text")?.text ?? "";
+  const text = resp.content.filter((b) => b.type === "text").map((b) => b.text).join("");
   let arr = [];
   try {
-    arr = JSON.parse(text.slice(text.indexOf("["), text.lastIndexOf("]") + 1)); // tolerate stray prose around the array
+    arr = JSON.parse(text)?.storylines ?? [];
   } catch {
     arr = [];
   }
   if (!Array.isArray(arr) || !arr.length) {
-    console.log("⚠️  Storylines: model returned no parseable threads");
+    console.log("⚠️  Storylines: no threads returned (a genuinely quiet window, not a parse failure — the schema guarantees shape)");
     return null;
   }
   const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
@@ -1022,6 +1087,460 @@ export async function generateStorylines(env = process.env) {
   console.log(`🧵 Storylines: ${saved} active thread${saved === 1 ? "" : "s"} updated`);
   return { count: saved };
 }
+
+// --- forecast ledger: extract → store → resolve → feed back ---------------------------------
+//
+// The Analyst prompt already asks for a falsifiable read (setup / risk / what would confirm or kill
+// it). This turns that prose into typed, dated rows so the tool can be SCORED, and then feeds the
+// scored record back into later prompts. Without this the system had no memory of its own claims and
+// no way to answer "has this thing been right?".
+//
+// Extraction uses STRUCTURED OUTPUTS (output_config.format + a json_schema) rather than asking for
+// JSON in the prompt and parsing it. That matters here: generateStorylines does the latter and has to
+// slice between the first "[" and last "]" inside a try/catch that silently yields zero threads on a
+// malformed response. Schema-constrained decoding removes that whole failure mode.
+const FORECAST_SCHEMA = {
+  type: "object",
+  properties: {
+    forecasts: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          claim: { type: "string", description: "The falsifiable claim in one sentence, as the note stated it." },
+          direction: { type: "string", enum: ["up", "down", "flat", "n/a"], description: "Which way the named series is claimed to move. 'n/a' when the claim is not about a stored series." },
+          series: { type: "string", description: "EXACT market_series id from the provided list that would settle this, or empty string if none applies." },
+          horizonDays: { type: "integer", description: "Days until the claim can be judged. Use 30 if the note implies 'the next month', 90 for 'this quarter'." },
+          confirmingEvent: { type: "string", description: "The report or data release the note said would confirm or kill it." },
+          confidence: { type: "string", enum: ["low", "medium", "high"], description: "How firmly the note asserted it — hedged language is low." },
+        },
+        required: ["claim", "direction", "series", "horizonDays", "confirmingEvent", "confidence"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["forecasts"],
+  additionalProperties: false,
+};
+
+/** Stable id for a claim so re-extracting the same brief updates instead of duplicating. */
+function forecastKey(briefPath, claim) {
+  const norm = String(claim).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().slice(0, 160);
+  let h = 0;
+  for (let i = 0; i < norm.length; i++) h = (h * 31 + norm.charCodeAt(i)) | 0;
+  return `${briefPath ?? "adhoc"}#${(h >>> 0).toString(36)}`;
+}
+
+/**
+ * Pull falsifiable claims out of a just-generated memo and file them in the ledger.
+ * Cheap extraction model — this is parsing, not analysis.
+ * @returns {{ stored: number } | null}
+ */
+export async function extractForecasts(markdown, { edition, briefPath, env = process.env } = {}) {
+  if (!env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not set in .env");
+  if (!markdown || markdown.length < 200) return null;
+
+  const snapshot = store.marketSnapshot();
+  // Give the model the real series ids so `series` can be joined mechanically at resolution time.
+  // Without this it invents plausible-looking ids and every forecast resolves as unresolvable.
+  const seriesList = snapshot.map((s) => `${s.series} — ${s.label} (${s.unit})`).join("\n");
+
+  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  const model = env.TRIAGE_MODEL || "claude-haiku-4-5";
+  const resp = await client.messages.create({
+    model,
+    max_tokens: 3000,
+    output_config: { format: { type: "json_schema", schema: FORECAST_SCHEMA } },
+    system:
+      "You extract FALSIFIABLE FORECASTS from an analyst note so they can be scored later. A forecast is a claim about which way something will move, or what a release will show, that could be checked against data at a future date. Extract at most 6, preferring the most specific and consequential. " +
+      "Do NOT extract: descriptions of what already happened, definitions, general context, or advice. If the note makes no falsifiable claim, return an empty array — that is a valid and useful answer. " +
+      "For `series`, pick the EXACT id from the provided list that would settle the claim, or an empty string when no stored series can. For `direction`, state which way that series is claimed to move. Be conservative about `confidence`: hedged language ('may', 'could', 'risks') is low.",
+    messages: [
+      {
+        role: "user",
+        content: `AVAILABLE MARKET SERIES (use exact ids for the \`series\` field):\n${seriesList}\n\n=== ANALYST NOTE (${edition}) ===\n${markdown.slice(0, 20000)}`,
+      },
+    ],
+  });
+  store.recordUsage(model, "forecast_extract", resp.usage.input_tokens, resp.usage.output_tokens);
+
+  const text = resp.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    console.log("⚠️  Forecast extraction: response was not valid JSON despite the schema — skipping");
+    return null;
+  }
+  const list = Array.isArray(parsed?.forecasts) ? parsed.forecasts : [];
+  const bySeries = new Map(snapshot.map((s) => [s.series, s]));
+  const createdAt = new Date().toISOString();
+  let stored = 0;
+  for (const f of list) {
+    if (!f?.claim) continue;
+    const seriesId = f.series && bySeries.has(f.series) ? f.series : null;
+    const base = seriesId ? bySeries.get(seriesId) : null;
+    const horizon = Number.isFinite(f.horizonDays) && f.horizonDays > 0 ? Math.min(f.horizonDays, 365) : 30;
+    store.upsertForecast({
+      dedupeKey: forecastKey(briefPath, f.claim),
+      briefPath,
+      edition,
+      createdAt,
+      claim: String(f.claim).slice(0, 600),
+      direction: f.direction ?? null,
+      series: seriesId,
+      horizonDays: horizon,
+      resolveBy: new Date(Date.now() + horizon * 864e5).toISOString().slice(0, 10),
+      confirmingEvent: f.confirmingEvent ? String(f.confirmingEvent).slice(0, 300) : null,
+      confidence: f.confidence ?? null,
+      // Baseline is captured NOW so the resolver compares against the state of the world when the
+      // claim was made, not against whatever the series looked like at resolution time.
+      baselineValue: base ? base.latest.value : null,
+      baselinePeriod: base ? base.latest.period : null,
+    });
+    stored++;
+  }
+  if (stored) console.log(`🔮 Forecast ledger: ${stored} claim${stored === 1 ? "" : "s"} filed from ${edition}`);
+  return { stored };
+}
+
+/**
+ * Judge every pending forecast whose resolve_by has passed.
+ *
+ * A claim is judged ONLY when it named a stored series and that series has moved on since the
+ * baseline; anything else is marked `unresolvable` and excluded from the hit rate rather than
+ * silently counted as a miss.
+ *
+ * SCORING IS THREE-WAY, and that detail is what makes the hit rate honest. The flat band is half a
+ * standard deviation of historical moves over the same horizon, so "flat" means flat relative to how
+ * far this series normally travels in that many periods rather than an arbitrary percentage. Then:
+ *   - directional claim, moved that way beyond the band       → hit
+ *   - directional claim, moved the OPPOSITE way beyond it     → miss
+ *   - directional claim, stayed inside the band               → INCONCLUSIVE, not counted
+ *   - flat claim                                              → hit inside the band, miss outside
+ * The inconclusive bucket exists because the first version scored a correct call as a miss: price
+ * rose 1154→1188.5 (+3%) against a ±51¢ band, so a right-but-modest "up" call was punished. Being
+ * directionally right on a quiet market is not a forecasting error, and folding those into "miss"
+ * would understate the tool's accuracy and teach the model to hedge for the wrong reason.
+ * @returns {{ judged, hit, miss, inconclusive, unresolvable }}
+ */
+export function resolveForecasts() {
+  const due = store.forecastsDueForResolution();
+  let hit = 0, miss = 0, unresolvable = 0, inconclusive = 0;
+  for (const f of due) {
+    if (!f.series || !f.direction || f.direction === "n/a" || f.baseline_value == null) {
+      store.resolveForecast(f.id, { outcome: "unresolvable", note: "No stored series / direction to settle this claim mechanically." });
+      unresolvable++;
+      continue;
+    }
+    let pts = [];
+    try {
+      pts = store.getSeries(f.series);
+    } catch {
+      pts = [];
+    }
+    const after = pts.filter((p) => p.period > (f.baseline_period ?? ""));
+    if (!after.length) {
+      store.resolveForecast(f.id, { outcome: "unresolvable", note: `No new ${f.series} observations since ${f.baseline_period}.` });
+      unresolvable++;
+      continue;
+    }
+    const observed = after[after.length - 1];
+    const move = observed.value - f.baseline_value;
+
+    // Threshold: half a standard deviation of historical h-period moves, h = however many
+    // observations of this series fall inside the forecast horizon.
+    const baseIdx = pts.findIndex((p) => p.period === f.baseline_period);
+    const h = Math.max(1, baseIdx >= 0 ? after.length : 1);
+    const hMoves = [];
+    for (let i = h; i < pts.length; i++) hMoves.push(pts[i].value - pts[i - h].value);
+    let thresh = 0;
+    if (hMoves.length >= 8) {
+      const mu = hMoves.reduce((a, b) => a + b, 0) / hMoves.length;
+      thresh = 0.5 * Math.sqrt(hMoves.reduce((s, v) => s + (v - mu) ** 2, 0) / hMoves.length);
+    }
+    const actual = move > thresh ? "up" : move < -thresh ? "down" : "flat";
+    let outcome;
+    if (f.direction === "flat") {
+      outcome = actual === "flat" ? "hit" : "miss";
+    } else if (actual === "flat") {
+      // Directionally right or wrong is unknowable when the series barely moved — don't guess.
+      outcome = "inconclusive";
+    } else {
+      outcome = actual === f.direction ? "hit" : "miss";
+    }
+    if (outcome === "hit") hit++;
+    else if (outcome === "miss") miss++;
+    else inconclusive++;
+    store.resolveForecast(f.id, {
+      outcome,
+      observedValue: observed.value,
+      observedPeriod: observed.period,
+      note:
+        `Claimed ${f.direction}; ${f.series} went ${actual} (${f.baseline_value} → ${observed.value}, move ${move >= 0 ? "+" : ""}${move.toFixed(2)} vs flat-band ±${thresh.toFixed(2)}).` +
+        (outcome === "inconclusive" ? " Inside the band, so the direction call is not judgeable — excluded from the hit rate." : ""),
+    });
+  }
+  const judged = hit + miss;
+  if (due.length) console.log(`🔮 Forecast ledger: resolved ${due.length} — ${hit} hit / ${miss} miss / ${inconclusive} inconclusive / ${unresolvable} unresolvable`);
+  return { judged, hit, miss, inconclusive, unresolvable };
+}
+
+/**
+ * The track record, for injection into later prompts. This is the loop closing: the model sees what
+ * it previously claimed and how those claims turned out, so it can calibrate instead of starting
+ * fresh every time. Says so explicitly when the sample is too small to mean anything.
+ */
+export function forecastTrackRecordText(limit = 10) {
+  const card = store.forecastScorecard();
+  const resolved = [...store.listForecasts({ outcome: "hit", limit }), ...store.listForecasts({ outcome: "miss", limit })]
+    .sort((a, b) => String(b.resolved_at).localeCompare(String(a.resolved_at)))
+    .slice(0, limit);
+  if (!card.judged && !card.pending) return "";
+  const head =
+    card.judged >= 5
+      ? `Track record of this tool's own past calls: ${card.hit} hit / ${card.miss} miss on ${card.judged} judged forecasts (${Math.round((card.hitRate ?? 0) * 100)}%). ${card.pending} still open.`
+      : `Track record: only ${card.judged} forecast${card.judged === 1 ? "" : "s"} judged so far (${card.pending} still open) — TOO FEW to infer any skill. Do not cite a hit rate; the ledger is still filling.`;
+  const lines = resolved.map(
+    (r) => `- [${r.outcome.toUpperCase()}] (${String(r.created_at).slice(0, 10)}, conf ${r.confidence ?? "?"}) ${r.claim}${r.resolution_note ? ` → ${r.resolution_note}` : ""}`
+  );
+  const conf = Object.entries(card.byConfidence)
+    .map(([c, v]) => `${c}: ${v.hit}/${v.hit + v.miss}`)
+    .join("; ");
+  return `${head}${conf ? `\nBy stated confidence — ${conf}.` : ""}${lines.length ? `\nMost recently judged:\n${lines.join("\n")}` : ""}\nUse this to calibrate: if past high-confidence calls missed, hedge harder this time.`;
+}
+
+// --- report expectations → surprise ----------------------------------------------------------
+const EXPECTATION_SCHEMA = {
+  type: "object",
+  properties: {
+    expectations: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          report: { type: "string", description: 'Report name plus period, e.g. "WASDE 2026-08" or "Grain Stocks 2026-09".' },
+          reportDate: { type: "string", description: "Expected release date as YYYY-MM-DD, or empty string if not stated." },
+          item: { type: "string", description: 'What is being estimated, e.g. "U.S. soybean ending stocks".' },
+          series: { type: "string", description: "EXACT market_series id from the provided list that will hold the actual, or empty string." },
+          unit: { type: "string" },
+          estLow: { type: "number", description: "Low end of the analyst range. Repeat estAvg if only an average is given." },
+          estAvg: { type: "number", description: "Average / consensus estimate." },
+          estHigh: { type: "number", description: "High end of the range. Repeat estAvg if only an average is given." },
+          source: { type: "string", description: "Publication the estimate came from." },
+        },
+        required: ["report", "reportDate", "item", "series", "unit", "estLow", "estAvg", "estHigh", "source"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["expectations"],
+  additionalProperties: false,
+};
+
+/**
+ * Mine recent news bodies for PRE-REPORT trade estimates and file them so the next release can be
+ * scored as a surprise rather than just a number.
+ *
+ * Returns `{ stored: 0, scanned: n }` when the inbox carries no estimate language — which, on the
+ * evidence available locally, is the likely case. That is reported plainly rather than dressed up:
+ * see the sourcing caveat on report_expectations in store.js.
+ */
+export async function extractExpectations(env = process.env) {
+  if (!env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not set in .env");
+  const items = store.listItems({ days: 10, sourceIds: sourceIdsForClass("news"), limit: 80 });
+  const withBody = items.filter((it) => emailBodyToText(it.body).length > 120);
+  if (!withBody.length) return { stored: 0, scanned: 0 };
+
+  const snapshot = store.marketSnapshot();
+  const seriesList = snapshot.map((s) => `${s.series} — ${s.label} (${s.unit})`).join("\n");
+  const lines = withBody.map((it, i) => {
+    const when = (it.published_at || it.first_seen_at || "").slice(0, 10);
+    return `[${i + 1}] ${it.title}${when ? ` — ${when}` : ""}\n    ${emailBodyToText(it.body).slice(0, 1600)}`;
+  });
+
+  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  const model = env.TRIAGE_MODEL || "claude-haiku-4-5";
+  const resp = await client.messages.create({
+    model,
+    max_tokens: 2500,
+    output_config: { format: { type: "json_schema", schema: EXPECTATION_SCHEMA } },
+    system:
+      "You extract PRE-REPORT TRADE ESTIMATES from ag newsletters — the analyst survey / consensus figures published BEFORE a USDA release (WASDE, Grain Stocks, Acreage, Crop Production, NOPA crush). " +
+      "Extract ONLY forward-looking estimates of a number not yet published. Do NOT extract: actual reported figures, last month's number, a prior USDA estimate being revised, or a general opinion with no figure. " +
+      "If a range is given use estLow/estHigh; if only an average is given, repeat it in all three fields. Return an empty array if there are no genuine pre-report estimates — that is a valid and common answer, and a wrong extraction is far worse than none.",
+    messages: [{ role: "user", content: `AVAILABLE MARKET SERIES (exact ids for \`series\`):\n${seriesList}\n\n=== RECENT NEWS BODIES ===\n${lines.join("\n\n")}` }],
+  });
+  store.recordUsage(model, "expectations", resp.usage.input_tokens, resp.usage.output_tokens);
+
+  let parsed;
+  try {
+    parsed = JSON.parse(resp.content.filter((b) => b.type === "text").map((b) => b.text).join(""));
+  } catch {
+    return { stored: 0, scanned: withBody.length };
+  }
+  const bySeries = new Set(snapshot.map((s) => s.series));
+  let stored = 0;
+  for (const e of parsed?.expectations ?? []) {
+    if (!e?.report || !e?.item || !Number.isFinite(e.estAvg)) continue;
+    store.upsertExpectation({
+      dedupeKey: `${e.report}|${e.item}|${e.source || "?"}`.toLowerCase().slice(0, 200),
+      report: String(e.report).slice(0, 120),
+      reportDate: /^\d{4}-\d{2}-\d{2}$/.test(e.reportDate) ? e.reportDate : null,
+      item: String(e.item).slice(0, 200),
+      series: e.series && bySeries.has(e.series) ? e.series : null,
+      unit: e.unit ? String(e.unit).slice(0, 40) : null,
+      estLow: Number.isFinite(e.estLow) ? e.estLow : null,
+      estAvg: e.estAvg,
+      estHigh: Number.isFinite(e.estHigh) ? e.estHigh : null,
+      source: e.source ? String(e.source).slice(0, 120) : null,
+      sourceDate: new Date().toISOString().slice(0, 10),
+    });
+    stored++;
+  }
+  console.log(
+    stored
+      ? `🎯 Expectations: ${stored} pre-report estimate${stored === 1 ? "" : "s"} filed from ${withBody.length} news bodies`
+      : `🎯 Expectations: no pre-report trade estimates found in ${withBody.length} news bodies (the inbox may simply not carry them — see the sourcing caveat in store.js)`
+  );
+  return { stored, scanned: withBody.length };
+}
+
+/**
+ * Join open expectations to their actual once the series publishes, and score the surprise.
+ *
+ * `surpriseSigma` scales the miss by the analyst range (high − low), which is the market's own
+ * measure of how uncertain the number was: landing 2 units above consensus is a shock when the whole
+ * range was 1 unit wide and a non-event when it was 10. Falls back to the series' historical move
+ * volatility when only a point estimate was published, and reports nothing when it can do neither
+ * rather than inventing a denominator.
+ * @returns {{ settled: number }}
+ */
+export function computeSurprises() {
+  const open = store.openExpectations();
+  let settled = 0;
+  for (const e of open) {
+    if (!e.series || e.est_avg == null) continue;
+    let pts = [];
+    try {
+      pts = store.getSeries(e.series);
+    } catch {
+      continue;
+    }
+    if (!pts.length) continue;
+    // The actual must postdate the estimate — otherwise we'd "settle" against a figure that was
+    // already public when the estimate was made, which measures nothing.
+    //
+    // ⚠️ COMPARE PERIODS AS DATES, NOT STRINGS. Series periods come in three granularities ("2026",
+    // "2026-07", "2026-07-30") and a raw string compare silently breaks across them: a monthly
+    // series' "2026-07" sorts BELOW a "2026-07-01" cutoff because it's a prefix, so the July WASDE
+    // was filtered out of its own July release window and nothing ever settled. Pad to a full date
+    // first — for a monthly series the release period and the cutoff month must compare equal.
+    const asDate = (p) => {
+      const s = String(p);
+      const full = s.length === 4 ? `${s}-01-01` : s.length === 7 ? `${s}-01` : s;
+      const t = Date.parse(full);
+      return Number.isNaN(t) ? null : t;
+    };
+    const cutoffMs = asDate(e.report_date || e.source_date || e.created_at.slice(0, 10));
+    const after = cutoffMs == null ? pts.slice() : pts.filter((p) => { const t = asDate(p.period); return t != null && t >= cutoffMs; });
+    if (!after.length) continue;
+    const actual = after[0];
+    const surprise = actual.value - e.est_avg;
+
+    let denom = null;
+    if (e.est_high != null && e.est_low != null && e.est_high > e.est_low) denom = (e.est_high - e.est_low) / 2;
+    if (!denom) {
+      const diffs = [];
+      for (let i = 1; i < pts.length; i++) diffs.push(pts[i].value - pts[i - 1].value);
+      if (diffs.length >= 8) {
+        const mu = diffs.reduce((a, b) => a + b, 0) / diffs.length;
+        const sd = Math.sqrt(diffs.reduce((s, v) => s + (v - mu) ** 2, 0) / diffs.length);
+        if (sd > 0) denom = sd;
+      }
+    }
+    store.settleExpectation(e.id, {
+      actualValue: actual.value,
+      actualPeriod: actual.period,
+      surprise,
+      surpriseSigma: denom ? surprise / denom : null,
+    });
+    settled++;
+  }
+  if (settled) console.log(`🎯 Expectations: ${settled} release${settled === 1 ? "" : "s"} scored against consensus`);
+  return { settled };
+}
+
+/** Labelled surprise history + open consensus, for the Analyst / Ask / Education prompts. */
+export function surpriseText(limit = 6) {
+  const settled = store.listExpectations({ settledOnly: true, limit });
+  const open = store.openExpectations().filter((e) => e.est_avg != null);
+  if (!settled.length && !open.length) return "";
+  const parts = [];
+  if (open.length) {
+    parts.push(
+      "AHEAD OF THE NEXT RELEASE — consensus on file (the number to beat, not a forecast):\n" +
+        open
+          .slice(0, 6)
+          .map((e) => {
+            const n = (v) => (v == null ? "?" : String(Math.round(v * 1000) / 1000));
+            return `- ${e.report} · ${e.item}: consensus ${n(e.est_avg)}${e.est_low != null && e.est_high != null ? ` (range ${n(e.est_low)}–${n(e.est_high)})` : ""} ${e.unit ?? ""}${e.source ? ` [${e.source}]` : ""}`;
+          })
+          .join("\n")
+    );
+  }
+  if (settled.length) {
+    parts.push(
+      "PAST RELEASES SCORED AS SURPRISES (actual vs. what the trade expected — this is what actually moves price):\n" +
+        settled
+          .map((e) => {
+            const dir = e.surprise > 0 ? "above" : e.surprise < 0 ? "below" : "on";
+            const sig = e.surprise_sigma != null ? ` (${Math.abs(e.surprise_sigma).toFixed(1)}× the analyst range)` : "";
+            // Round for the prompt — raw floats like 6.8584070796460175 are noise that costs tokens
+            // and invites the model to quote spurious precision back at the reader.
+            const n = (v) => (v == null ? "?" : String(Math.round(v * 1000) / 1000));
+            return `- ${e.report} · ${e.item}: actual ${n(e.actual_value)} vs consensus ${n(e.est_avg)} → ${Math.abs(e.surprise).toFixed(2)} ${e.unit ?? ""} ${dir} expectations${sig}`;
+          })
+          .join("\n")
+    );
+  }
+  return parts.join("\n\n");
+}
+
+const STORYLINE_SCHEMA = {
+  type: "object",
+  properties: {
+    storylines: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          key: { type: "string", description: "Stable kebab-case slug; reuse the existing thread's slug when continuing one." },
+          name: { type: "string", description: "Thread name. Match an existing name EXACTLY when continuing that thread." },
+          focus: { type: "string", description: "One line: what this thread is about." },
+          whatChanged: { type: "string", description: "2-3 sentences: what developed recently and why it matters to Iowa soybeans." },
+          timeline: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                date: { type: "string", description: "YYYY-MM-DD, taken from the item date." },
+                event: { type: "string" },
+                url: { type: "string", description: "Source url, or empty string when the item has none." },
+              },
+              required: ["date", "event", "url"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["key", "name", "focus", "whatChanged", "timeline"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["storylines"],
+  additionalProperties: false,
+};
 
 /** Metadata about the last storyline generation ({ generatedAt, count }) or null. */
 export function getStorylinesMeta() {

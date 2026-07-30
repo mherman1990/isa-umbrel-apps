@@ -1,0 +1,683 @@
+{
+  "_provenance": {
+    "source": "US Soybean Crush — Gordon Denny, LLC (workbook, as of July 15, 2026)",
+    "suppliedBy": "Matt Herman, ISA",
+    "sheets": [
+      "Current Crush",
+      "Old & New Plants",
+      "Future Crush",
+      "Analysis",
+      "Cash Margin"
+    ],
+    "regenerate": "Denny reissues this workbook periodically. To update: extract the .xlsx (it is a zip) and re-run this import. Capacity changes a few times a year, so a stale table degrades gracefully rather than breaking — see the utilization scorer fallback in signals.js.",
+    "verified": "Current-plant capacities sum to 8,557,000 bu/day, matching the workbook Analysis tab total of 8,557 thousand bu/day. Addition capacities sum to 2,135,000 bu/day, matching the Old-&-New-Plants stated total of 2,135."
+  },
+  "asOf": "2026-07-15",
+  "unit": "bu/day",
+  "currentTotalBuPerDay": 8557000,
+  "benchmarks": {
+    "workingUtilization": 0.88,
+    "workingUtilizationNote": "Workbook Future Crush tab: 7,530,160 bu/day quoted as 88% of the 8,557,000 nameplate — the industry working assumption.",
+    "realisticMax": 0.91,
+    "realisticMaxNote": "Workbook Analysis tab: Realistic Daily BU @ 91% Max = 7,786.87 thousand bu/day.",
+    "operatingDaysPerYear": 350
+  },
+  "_closuresNote": "Closure YEARS parse cleanly but closure CAPACITIES do not — that column collides with stray spreadsheet index values in the source sheet, so they are recorded as null rather than guessed. The historical capacity curve therefore accounts for ADDITIONS only. That is the dominant effect for the period that matters (the 2020-2026 renewable-diesel buildout added 2.135M bu/day, ~25% of todays nameplate), and omitting closures makes historical capacity a slight UNDER-estimate, i.e. historical utilization a slight OVER-estimate — conservative in the direction that matters, since it understates how much softer todays utilization is.",
+  "currentPlants": [
+    {
+      "company": "ADM",
+      "city": "Decatur (both)",
+      "state": "IL",
+      "nopaRegion": "Illinois",
+      "buPerDay": 310000
+    },
+    {
+      "company": "Incobrasa",
+      "city": "Gilman",
+      "state": "IL",
+      "nopaRegion": "Illinois",
+      "buPerDay": 280000
+    },
+    {
+      "company": "ADM",
+      "city": "Quincy (both)",
+      "state": "IL",
+      "nopaRegion": "Illinois",
+      "buPerDay": 245000
+    },
+    {
+      "company": "Bunge",
+      "city": "Council Bluffs",
+      "state": "IA",
+      "nopaRegion": "Iowa",
+      "buPerDay": 240000
+    },
+    {
+      "company": "CHS",
+      "city": "Fairmont",
+      "state": "MN",
+      "nopaRegion": "MN, ND, SD, MT",
+      "buPerDay": 240000
+    },
+    {
+      "company": "Cargill",
+      "city": "Kansas City",
+      "state": "MO",
+      "nopaRegion": "Southwest",
+      "buPerDay": 230000
+    },
+    {
+      "company": "Bunge",
+      "city": "Morristown",
+      "state": "IN",
+      "nopaRegion": "IN, KY, OH, MI",
+      "buPerDay": 220000
+    },
+    {
+      "company": "AGP",
+      "city": "Hastings",
+      "state": "NE",
+      "nopaRegion": "Southwest",
+      "buPerDay": 200000
+    },
+    {
+      "company": "Cargill",
+      "city": "Sidney",
+      "state": "OH",
+      "nopaRegion": "IN, KY, OH, MI",
+      "buPerDay": 195000
+    },
+    {
+      "company": "ADM",
+      "city": "Des Moines",
+      "state": "IA",
+      "nopaRegion": "Iowa",
+      "buPerDay": 177000
+    },
+    {
+      "company": "ADM",
+      "city": "Lincoln",
+      "state": "NE",
+      "nopaRegion": "Southwest",
+      "buPerDay": 175000
+    },
+    {
+      "company": "Dreyfus",
+      "city": "Claypool",
+      "state": "IN",
+      "nopaRegion": "IN, KY, OH, MI",
+      "buPerDay": 175000
+    },
+    {
+      "company": "ADM",
+      "city": "Mankato",
+      "state": "MN",
+      "nopaRegion": "MN, ND, SD, MT",
+      "buPerDay": 165000
+    },
+    {
+      "company": "Cargill",
+      "city": "Sioux City",
+      "state": "IA",
+      "nopaRegion": "Iowa",
+      "buPerDay": 160000
+    },
+    {
+      "company": "ADM/Marathon",
+      "city": "Spiritwood",
+      "state": "ND",
+      "nopaRegion": "MN, ND, SD, MT",
+      "buPerDay": 150000
+    },
+    {
+      "company": "AGP",
+      "city": "Sgt. Bluff",
+      "state": "IA",
+      "nopaRegion": "Iowa",
+      "buPerDay": 150000
+    },
+    {
+      "company": "AGP",
+      "city": "St. Joe",
+      "state": "MO",
+      "nopaRegion": "Southwest",
+      "buPerDay": 150000
+    },
+    {
+      "company": "AGP",
+      "city": "Aberdeen",
+      "state": "SD",
+      "nopaRegion": "MN, ND, SD, MT",
+      "buPerDay": 150000
+    },
+    {
+      "company": "AGP",
+      "city": "David City",
+      "state": "NE",
+      "nopaRegion": "Southwest",
+      "buPerDay": 150000
+    },
+    {
+      "company": "Bunge",
+      "city": "Decatur",
+      "state": "AL",
+      "nopaRegion": "Southeast",
+      "buPerDay": 150000
+    },
+    {
+      "company": "Cargill",
+      "city": "Cedar Rapids-2",
+      "state": "IA",
+      "nopaRegion": "Iowa",
+      "buPerDay": 150000
+    },
+    {
+      "company": "Cargill",
+      "city": "Owensboro",
+      "state": "KY",
+      "nopaRegion": "IN, KY, OH, MI",
+      "buPerDay": 150000
+    },
+    {
+      "company": "CHS",
+      "city": "Mankato",
+      "state": "MN",
+      "nopaRegion": "MN, ND, SD, MT",
+      "buPerDay": 140000
+    },
+    {
+      "company": "Bunge",
+      "city": "Cairo",
+      "state": "IL",
+      "nopaRegion": "Illinois",
+      "buPerDay": 135000
+    },
+    {
+      "company": "Bunge",
+      "city": "Decatur",
+      "state": "IN",
+      "nopaRegion": "IN, KY, OH, MI",
+      "buPerDay": 135000
+    },
+    {
+      "company": "CGB",
+      "city": "Mt Vernon",
+      "state": "IN",
+      "nopaRegion": "IN, KY, OH, MI",
+      "buPerDay": 135000
+    },
+    {
+      "company": "Zeeland Farms",
+      "city": "Ithaca",
+      "state": "MI",
+      "nopaRegion": "IN, KY, OH, MI",
+      "buPerDay": 135000
+    },
+    {
+      "company": "Bartlett Grain",
+      "city": "Cherryvale",
+      "state": "KS",
+      "nopaRegion": "Southwest",
+      "buPerDay": 130000
+    },
+    {
+      "company": "Bunge",
+      "city": "Destrehan",
+      "state": "LA",
+      "nopaRegion": "Southeast",
+      "buPerDay": 130000
+    },
+    {
+      "company": "ADM",
+      "city": "Frankfort",
+      "state": "IN",
+      "nopaRegion": "IN, KY, OH, MI",
+      "buPerDay": 125000
+    },
+    {
+      "company": "Cargill",
+      "city": "Fayetteville",
+      "state": "NC",
+      "nopaRegion": "Southeast",
+      "buPerDay": 125000
+    },
+    {
+      "company": "NDSP / CGB",
+      "city": "Casselton",
+      "state": "ND",
+      "nopaRegion": "MN, ND, SD, MT",
+      "buPerDay": 125000
+    },
+    {
+      "company": "AGP",
+      "city": "Eagle Grove",
+      "state": "IA",
+      "nopaRegion": "Iowa",
+      "buPerDay": 120000
+    },
+    {
+      "company": "Norfolk Crush",
+      "city": "Norfolk",
+      "state": "NE",
+      "nopaRegion": "Southwest",
+      "buPerDay": 120000
+    },
+    {
+      "company": "Platinum",
+      "city": "Alta",
+      "state": "IA",
+      "nopaRegion": "Iowa",
+      "buPerDay": 120000
+    },
+    {
+      "company": "Shell Rock/P66",
+      "city": "Shell Rock",
+      "state": "IA",
+      "nopaRegion": "Iowa",
+      "buPerDay": 120000
+    },
+    {
+      "company": "MnSP",
+      "city": "Brewster",
+      "state": "MN",
+      "nopaRegion": "MN, ND, SD, MT",
+      "buPerDay": 115000
+    },
+    {
+      "company": "AGP",
+      "city": "Dawson",
+      "state": "MN",
+      "nopaRegion": "MN, ND, SD, MT",
+      "buPerDay": 110000
+    },
+    {
+      "company": "ADM",
+      "city": "Valdosta",
+      "state": "GA",
+      "nopaRegion": "Southeast",
+      "buPerDay": 105000
+    },
+    {
+      "company": "Cargill",
+      "city": "Wichita",
+      "state": "KS",
+      "nopaRegion": "Southwest",
+      "buPerDay": 105000
+    },
+    {
+      "company": "ADM",
+      "city": "Deerfield",
+      "state": "MO",
+      "nopaRegion": "Southwest",
+      "buPerDay": 100000
+    },
+    {
+      "company": "Cargill",
+      "city": "Gainesville",
+      "state": "GA",
+      "nopaRegion": "Southeast",
+      "buPerDay": 100000
+    },
+    {
+      "company": "High Plains Part (Swing)",
+      "city": "Mitchell",
+      "state": "SD",
+      "nopaRegion": "MN, ND, SD, MT",
+      "buPerDay": 100000
+    },
+    {
+      "company": "Cargill",
+      "city": "Guntersville",
+      "state": "AL",
+      "nopaRegion": "Southeast",
+      "buPerDay": 95000
+    },
+    {
+      "company": "Cargill",
+      "city": "Iowa Falls",
+      "state": "IA",
+      "nopaRegion": "Iowa",
+      "buPerDay": 95000
+    },
+    {
+      "company": "SDSP",
+      "city": "Volga",
+      "state": "SD",
+      "nopaRegion": "MN, ND, SD, MT",
+      "buPerDay": 95000
+    },
+    {
+      "company": "Bunge",
+      "city": "Bellevue",
+      "state": "OH",
+      "nopaRegion": "IN, KY, OH, MI",
+      "buPerDay": 92000
+    },
+    {
+      "company": "AGP",
+      "city": "Emmetsburg",
+      "state": "IA",
+      "nopaRegion": "Iowa",
+      "buPerDay": 90000
+    },
+    {
+      "company": "AGP",
+      "city": "Manning",
+      "state": "IA",
+      "nopaRegion": "Iowa",
+      "buPerDay": 90000
+    },
+    {
+      "company": "AGP",
+      "city": "Mason City",
+      "state": "IA",
+      "nopaRegion": "Iowa",
+      "buPerDay": 90000
+    },
+    {
+      "company": "AGP",
+      "city": "Sheldon",
+      "state": "IA",
+      "nopaRegion": "Iowa",
+      "buPerDay": 90000
+    },
+    {
+      "company": "Bunge",
+      "city": "Emporia",
+      "state": "KS",
+      "nopaRegion": "Southwest",
+      "buPerDay": 90000
+    },
+    {
+      "company": "Riceland",
+      "city": "Stuttgart",
+      "state": "AR",
+      "nopaRegion": "Southeast",
+      "buPerDay": 90000
+    },
+    {
+      "company": "Cargill",
+      "city": "Lafayette",
+      "state": "IN",
+      "nopaRegion": "IN, KY, OH, MI",
+      "buPerDay": 85000
+    },
+    {
+      "company": "Perdue",
+      "city": "Chesapeake",
+      "state": "VA",
+      "nopaRegion": "Southeast",
+      "buPerDay": 85000
+    },
+    {
+      "company": "ADM",
+      "city": "Fostoria",
+      "state": "OH",
+      "nopaRegion": "IN, KY, OH, MI",
+      "buPerDay": 75000
+    },
+    {
+      "company": "ADM",
+      "city": "Mexico",
+      "state": "MO",
+      "nopaRegion": "Southwest",
+      "buPerDay": 75000
+    },
+    {
+      "company": "ADM",
+      "city": "Freemont",
+      "state": "NE",
+      "nopaRegion": "Southwest",
+      "buPerDay": 70000
+    },
+    {
+      "company": "Bunge",
+      "city": "Delphos",
+      "state": "OH",
+      "nopaRegion": "IN, KY, OH, MI",
+      "buPerDay": 65000
+    },
+    {
+      "company": "Perdue",
+      "city": "Salisbury",
+      "state": "MD",
+      "nopaRegion": "Southeast",
+      "buPerDay": 63000
+    },
+    {
+      "company": "Bunge",
+      "city": "Gibson City",
+      "state": "IL",
+      "nopaRegion": "Illinois",
+      "buPerDay": 62000
+    },
+    {
+      "company": "Perdue",
+      "city": "Bainbridge",
+      "state": "PA",
+      "nopaRegion": "IN, KY, OH, MI",
+      "buPerDay": 60000
+    },
+    {
+      "company": "Cargill",
+      "city": "Bloomington",
+      "state": "IL",
+      "nopaRegion": "Illinois",
+      "buPerDay": 50000
+    },
+    {
+      "company": "ADM (Swing Plant)",
+      "city": "Enderlin",
+      "state": "ND",
+      "nopaRegion": "MN, ND, SD, MT",
+      "buPerDay": 40000
+    },
+    {
+      "company": "Perdue",
+      "city": "Cofield",
+      "state": "NC",
+      "nopaRegion": "Southeast",
+      "buPerDay": 40000
+    },
+    {
+      "company": "Scoular (Swing Plant)",
+      "city": "Goodland",
+      "state": "KS",
+      "nopaRegion": "Southwest",
+      "buPerDay": 35000
+    },
+    {
+      "company": "Zeeland Farms",
+      "city": "Zeeland",
+      "state": "MI",
+      "nopaRegion": "IN, KY, OH, MI",
+      "buPerDay": 35000
+    },
+    {
+      "company": "White River Soy Proc",
+      "city": "Seymour",
+      "state": "IN",
+      "nopaRegion": "IN, KY, OH, MI",
+      "buPerDay": 30000
+    },
+    {
+      "company": "White River Soy Proc",
+      "city": "Creston",
+      "state": "IA",
+      "nopaRegion": "Iowa",
+      "buPerDay": 28000
+    }
+  ],
+  "capacityAdditions": [
+    {
+      "plant": "CHS, Fairmont, MN",
+      "effective": "2003-01-01",
+      "effectiveIsYearOnly": true,
+      "buPerDay": 215000
+    },
+    {
+      "plant": "MN Soy Proc, Brewster, MN",
+      "effective": "2003-01-01",
+      "effectiveIsYearOnly": true,
+      "buPerDay": 120000
+    },
+    {
+      "plant": "AGP, Emmetsburg, IA",
+      "effective": "2004-01-01",
+      "effectiveIsYearOnly": true,
+      "buPerDay": 90000
+    },
+    {
+      "plant": "ADM, Deerfield, IL",
+      "effective": "2006-01-01",
+      "effectiveIsYearOnly": true,
+      "buPerDay": 100000
+    },
+    {
+      "plant": "LDC, Claypool, IN",
+      "effective": "2007-01-01",
+      "effectiveIsYearOnly": true,
+      "buPerDay": 175000
+    },
+    {
+      "plant": "Perdue, Bainbridge, PA",
+      "effective": "2018-01-01",
+      "effectiveIsYearOnly": true,
+      "buPerDay": 90000
+    },
+    {
+      "plant": "AGP, Aberdeen, SD",
+      "effective": "2019-01-01",
+      "effectiveIsYearOnly": true,
+      "buPerDay": 150000
+    },
+    {
+      "plant": "Zealand, Ithaca, MI",
+      "effective": "2020-01-01",
+      "effectiveIsYearOnly": true,
+      "buPerDay": 140000
+    },
+    {
+      "plant": "Shell Rock/Phillips 66,Shell Rock,IA",
+      "effective": "2023-03-01",
+      "effectiveIsYearOnly": false,
+      "buPerDay": 120000
+    },
+    {
+      "plant": "ADM/Marathon, Spiritwood,ND",
+      "effective": "2023-11-01",
+      "effectiveIsYearOnly": false,
+      "buPerDay": 150000
+    },
+    {
+      "plant": "Platinum Crush, Alta IA",
+      "effective": "2024-05-01",
+      "effectiveIsYearOnly": false,
+      "buPerDay": 120000
+    },
+    {
+      "plant": "Bartlett Grain, Cherryvale, KS",
+      "effective": "2024-09-24",
+      "effectiveIsYearOnly": false,
+      "buPerDay": 125000
+    },
+    {
+      "plant": "Norfolk Crush, Norfolk, NE",
+      "effective": "2024-09-24",
+      "effectiveIsYearOnly": false,
+      "buPerDay": 120000
+    },
+    {
+      "plant": "CGB / NDSB Processors, Casselton, ND",
+      "effective": "2024-10-24",
+      "effectiveIsYearOnly": false,
+      "buPerDay": 125000
+    },
+    {
+      "plant": "Scoular, Goodland, KS (Swing Plant)",
+      "effective": "2024-10-24",
+      "effectiveIsYearOnly": false,
+      "buPerDay": 35000
+    },
+    {
+      "plant": "AGP, David City, NE",
+      "effective": "2025-09-25",
+      "effectiveIsYearOnly": false,
+      "buPerDay": 150000
+    },
+    {
+      "plant": "High Plains Partners, Mitchell, SD",
+      "effective": "2025-10-25",
+      "effectiveIsYearOnly": false,
+      "buPerDay": 95000
+    },
+    {
+      "plant": "Bunge, Morristown, Soy Protein Conc",
+      "effective": "2026-05-26",
+      "effectiveIsYearOnly": false,
+      "buPerDay": 15000
+    }
+  ],
+  "closures": [
+    {
+      "plant": "ADM, Helena, AR",
+      "year": 2001,
+      "buPerDay": null
+    },
+    {
+      "plant": "ADM, Little Rock, AR",
+      "year": 2001,
+      "buPerDay": null
+    },
+    {
+      "plant": "ADM, North Kansas City, MO",
+      "year": 2003,
+      "buPerDay": null
+    },
+    {
+      "plant": "ADM, Fedonia, KS",
+      "year": 2003,
+      "buPerDay": null
+    },
+    {
+      "plant": "Bunge, Marks, MS",
+      "year": 2007,
+      "buPerDay": null
+    },
+    {
+      "plant": "Bunge, Marion, OH",
+      "year": 2008,
+      "buPerDay": null
+    },
+    {
+      "plant": "Carolina Soya, Estil, SC",
+      "year": 2009,
+      "buPerDay": null
+    },
+    {
+      "plant": "Bunge, Danville, IL",
+      "year": 2010,
+      "buPerDay": null
+    },
+    {
+      "plant": "ADM, Galesburg, IL",
+      "year": 2011,
+      "buPerDay": null
+    },
+    {
+      "plant": "Cargill, Raleigh, NC",
+      "year": 2014,
+      "buPerDay": null
+    },
+    {
+      "plant": "Oxbow, Greenwood, MS",
+      "year": 2023,
+      "buPerDay": null
+    },
+    {
+      "plant": "ADM, Kershaw, SC",
+      "year": 2025,
+      "buPerDay": null
+    }
+  ]
+}

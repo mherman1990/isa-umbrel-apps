@@ -97,7 +97,7 @@
     "usda_ams": {
       "enabled": true,
       "maxItemsPerRun": 5,
-      "_note": "Markets tab — USDA AMS Iowa cash soybean price + basis (report 2850). Free key USDA_AMS_API_KEY."
+      "_note": "Markets — USDA AMS MARS API, TWO reports on one key (USDA_AMS_API_KEY). 2850 Iowa Daily Cash Grain Bids → daily Iowa cash price + basis + a separate PROCESSOR basis (crush plants' own bid), ~1,478 days back to 2020-08. 3511 National Grain & Oilseed Processor Feedstuff → weekly Iowa cash meal / oil / hulls (loose + pellets), ~223 weeks back to 2022-02. Derived: ams:ia:cash-crush-margin (Denny workbook yields on observed AMS cash). Charts: soy_basis, soy_crush_margin, and the daily cash line on soy_price."
     },
     "agtransport": {
       "enabled": true,
@@ -138,6 +138,12 @@
       "enabled": true,
       "maxItemsPerRun": 5,
       "_note": "Markets — Crop-CASMA / NASA SMAP soil moisture (no key, open WPS): weekly root-zone (+ Iowa surface) volumetric moisture for Iowa + IL/MN/IN/NE. Cause-side crop-stress read that leads the VCI + condition reports (soil_moisture chart + signal). First market-refresh backfills ~30 weeks (tiny CSVs)."
+    },
+    "cbot_futures": {
+      "enabled": true,
+      "maxItemsPerRun": 3,
+      "hullsUsdPerTon": 140,
+      "_note": "Markets — DAILY CBOT settles (no key, Yahoo chart endpoint): beans/meal/oil/corn front-month + derived board crush margin + daily soy:corn ratio. ~1,256 daily points (5y) per leg. This is the first sub-monthly price series in the tool and the prerequisite for scoring any signal against a subsequent price move. KEYLESS INTERIM ahead of Barchart — series are namespaced cbot:* so both can coexist. hullsUsdPerTon is a static assumption for the board margin's hulls leg (no futures market for hulls); the Iowa CASH margin in usda_ams uses the real AMS hulls quote instead."
     }
   },
   "focusAreas": [

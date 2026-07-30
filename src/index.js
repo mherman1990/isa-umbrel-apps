@@ -104,6 +104,76 @@ program
   });
 
 program
+  .command("expectations")
+  .description("Show pre-report consensus on file and past releases scored as surprises")
+  .option("--scan", "First mine recent news bodies for pre-report trade estimates")
+  .option("--settle", "Join any open expectations to their published actual and score the surprise")
+  .action(async (opts) => {
+    const { extractExpectations, computeSurprises, surpriseText } = await import("./pipeline.js");
+    const store = await import("./store.js");
+    if (opts.scan) {
+      const r = await extractExpectations(process.env);
+      console.log(`   scanned ${r.scanned} news bodies, filed ${r.stored} estimates\n`);
+      if (!r.stored) {
+        console.log("   NOTE: no trade-survey language found. This is the open question about this feature —");
+        console.log("   the collector inbox may simply not carry pre-report analyst surveys. If this keeps");
+        console.log("   returning 0 on the Pi, the fix is a subscription that does (or entering the figure");
+        console.log("   directly), not more prompt tuning — the extraction works, the source may be absent.\n");
+      }
+    }
+    if (opts.settle) {
+      const s = computeSurprises();
+      console.log(`   settled ${s.settled}\n`);
+    }
+    const rows = store.listExpectations({ limit: 30 });
+    if (!rows.length) {
+      console.log("🎯 No expectations on file yet. Try: node src/index.js expectations --scan");
+      return;
+    }
+    console.log("🎯 Report expectations");
+    for (const e of rows) {
+      const tag = e.resolved_at ? "✓" : "…";
+      console.log(`   ${tag} ${e.report} · ${e.item}`);
+      console.log(`      consensus ${e.est_avg}${e.est_low != null ? ` (${e.est_low}–${e.est_high})` : ""} ${e.unit ?? ""}${e.source ? `  [${e.source}]` : ""}`);
+      if (e.resolved_at) console.log(`      actual ${e.actual_value} @ ${e.actual_period} → surprise ${e.surprise > 0 ? "+" : ""}${Number(e.surprise).toFixed(2)}${e.surprise_sigma != null ? ` (${Number(e.surprise_sigma).toFixed(1)}× range)` : ""}`);
+    }
+    const txt = surpriseText();
+    if (txt) console.log(`\n   --- as injected into prompts ---\n${txt.split("\n").map((l) => "   " + l).join("\n")}`);
+  });
+
+program
+  .command("forecasts")
+  .description("Show the forecast ledger — this tool's own past calls and how they scored")
+  .option("--resolve", "First judge any forecasts whose horizon has elapsed")
+  .action(async (opts) => {
+    const { resolveForecasts, forecastTrackRecordText } = await import("./pipeline.js");
+    const store = await import("./store.js");
+    if (opts.resolve) {
+      const r = resolveForecasts();
+      console.log(`🔮 Resolved ${r.judged + r.unresolvable}: ${r.hit} hit / ${r.miss} miss / ${r.unresolvable} unresolvable\n`);
+    }
+    const card = store.forecastScorecard();
+    console.log("📊 Forecast scorecard");
+    console.log(`   judged ${card.judged}  (hit ${card.hit} / miss ${card.miss})${card.hitRate != null ? `  → ${Math.round(card.hitRate * 100)}% hit rate` : ""}`);
+    console.log(`   pending ${card.pending}   unresolvable ${card.unresolvable}`);
+    if (card.judged < 5) console.log("   ⚠️  too few judged forecasts to infer skill — the ledger is still filling");
+    const rows = store.listForecasts({ limit: 25 });
+    if (!rows.length) {
+      console.log("\n   (ledger is empty — run an Analyst Note to start filing claims)");
+      return;
+    }
+    console.log("\n   most recent claims:");
+    for (const r of rows) {
+      const tag = r.outcome === "pending" ? "…" : r.outcome === "hit" ? "✓" : r.outcome === "miss" ? "✗" : "–";
+      console.log(`   ${tag} [${String(r.created_at).slice(0, 10)}] ${r.direction ?? "?"} ${r.series ?? "(no series)"} by ${r.resolve_by ?? "?"}`);
+      console.log(`      ${String(r.claim).slice(0, 150)}`);
+      if (r.resolution_note) console.log(`      → ${r.resolution_note}`);
+    }
+    const txt = forecastTrackRecordText();
+    if (txt) console.log(`\n   --- as injected into prompts ---\n${txt.split("\n").map((l) => "   " + l).join("\n")}`);
+  });
+
+program
   .command("news-digest")
   .description("Generate the News-of-the-day digest from the last two days of news items")
   .action(async () => {

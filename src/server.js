@@ -108,6 +108,7 @@ let _seriesLinkCache = { at: 0, map: [] };
 const CHARTED_CATEGORIES = new Set([
   "biofuel_feedstock", "soy_price", "soy_corn_ratio", "soy_crush", "soy_balance_stu",
   "soy_condition", "veg_condition", "soil_moisture", "drought", "soy_exports", "barge_freight", "positioning",
+  "soy_futures", "soy_crush_margin", "soy_basis",
 ]);
 function seriesLinkMap() {
   if (Date.now() - _seriesLinkCache.at < 120000) return _seriesLinkCache.map; // cheap memo — metas rarely change
@@ -1519,7 +1520,10 @@ function dataHealth() {
 function marketsBody(notice) {
   const charts = [
     chartSection("biofuel_feedstock", "Biofuel feedstock demand", "Lipid feedstocks used in U.S. biodiesel + renewable diesel — soybean oil vs. the competition (corn oil, canola, used cooking oil, tallow…). Hover for the value + month.", 320),
-    chartSection("soy_price", "Soybean price received", "Monthly average price ($/bu) — Iowa vs. U.S.", 260),
+    chartSection("soy_futures", "CBOT soybeans (daily board)", "Front-month soybean futures settle (¢/bu), daily. The price the whole signal board is actually a read ON — before this feed the newest price the tool could see was a monthly average published weeks late. Front-month continuous, so it carries a small step at each contract roll.", 280),
+    chartSection("soy_crush_margin", "Crush margin — board vs. Iowa cash", "What a bushel is worth crushed, minus what it costs ($/bu). BOARD margin is computed from CBOT meal/oil/beans; IOWA CASH uses observed AMS cash quotes. Yields follow the Gordon Denny workbook (meal 0.0221 t/bu, oil 11.71 lb/bu, hulls 0.0018 t/bu). Cash normally reads above board because observed Iowa cash meal and oil run over the synthetic board-plus-basis the workbook assumes. This is the cause side of crush demand — it leads plant utilization.", 280),
+    chartSection("soy_basis", "Iowa soybean basis — all bids vs. processors", "Cash bid minus futures (¢/bu), nearby month. The processor line is what crush plants themselves are bidding; when it runs above the all-Iowa average, crushers are paying up to pull beans in — a demand read no other series carries. Negative basis is normal.", 260),
+    chartSection("soy_price", "Soybean price received", "Iowa daily cash ($/bu, AMS) against the monthly average price received — Iowa vs. U.S.", 260),
     chartSection("soy_corn_ratio", "Soybean:corn price ratio (Iowa)", "Iowa soybean price ÷ corn price — the relative-value read behind acreage decisions. Historically ~2.3–2.5 is the rough pivot between favoring beans and corn.", 240),
     chartSection("soy_crush", "U.S. soybean crush", "Monthly crush — the domestic-demand engine, near record highs on renewable-diesel demand.", 260),
     chartSection("soy_balance_stu", "U.S. soybean stocks-to-use (WASDE)", "Ending stocks as a share of total use — the tightness ratio that drives price. Roughly: below ~8% is tight (supportive), above ~15% is ample (a drag).", 240),
