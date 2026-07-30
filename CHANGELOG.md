@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.20.1 — Reliability: crash-safe collection + config writes (code review)
+
+Two fixes from Ethan Cail's review (PRs #5 and #6), each with a zero-dependency regression test that
+fails on the previous code and passes with the fix.
+
+### Fixed
+- **Silent data loss on interrupted runs** (`src/collect.js`, `src/pipeline.js`; PR #5). Collection
+  advanced each source's `last_success_at` watermark the moment its fetch succeeded — but items only
+  become durable later, at `markSeen` during triage. A run that died in between (missing/invalid
+  `ANTHROPIC_API_KEY`, an Anthropic 429/5xx, a crash) left the watermark past items that were never
+  recorded, and `getSince` never re-fetched them: silent, permanent loss. Collection is now read-only
+  with respect to watermarks — it returns pending advances that are applied once, after every fetched
+  item is durably in `seen_items`. Die earlier and nothing advances; the next run re-fetches and dedupes.
+- **Non-atomic config write** (`src/pipeline.js`, `src/server.js`; PR #6). `saveWatchlist` wrote straight
+  onto the live `watchlist.json` (truncate-then-write), so a crash mid-write could corrupt the whole
+  config — including the quota-critical `sourceTerms` / `maxQueriesPerRun` / `fullTextStates` added in
+  1.20.0 — and the app won't boot without it. It now writes a temp file and atomically renames it into
+  place. The settings handler also range-checks schedule times, so `25:00` / `12:99` are rejected instead
+  of being accepted and then silently never firing.
+
 ## 1.20.0 — LegiScan quota fix: 19× fewer API queries, complete session coverage
 
 On 2026-07-16 the LegiScan key hit its 30,000/month free-tier cap. It was structural, not a spike: the

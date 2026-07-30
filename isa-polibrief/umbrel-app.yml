@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-polibrief
 category: automation
 name: The Bean Brief
-version: "1.20.0"
+version: "1.20.1"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
@@ -28,12 +28,12 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  Fixes the LegiScan state-bill feed, which ran out of its monthly free allowance on 16 July. The old
-  code asked LegiScan a separate question for every search term in every state — 721 questions every
-  run, about 45,000 a month against a 30,000 limit — and, oddly, it cost the most when the legislatures
-  were quietest. It now asks each state for its full bill list once (7 questions), matches your Focus
-  Area terms on this machine for free, and only pays for deep full-text searching in Iowa. That's about
-  38 questions a run, roughly 2,400 a month, and the state bill coverage is actually better: it now sees
-  every bill in a session rather than the first page of each search. Just Update — no new keys.
+  Two reliability fixes from a code review. First, no more silently dropped items: the app used to mark a
+  source "read up to here" the instant it fetched, before those items were saved — so an interrupted run
+  (a bad API key, a rate limit, a crash) could lose them for good. It now advances that marker only after
+  everything is safely stored. Second, crash-safe settings: saving your watchlist now writes to a
+  temporary file and swaps it in, so an interruption can't corrupt the config and stop the app from
+  starting, and impossible schedule times like 25:00 are rejected instead of silently never running.
+  Just Update — no new keys.
 submitter: Matt
 submission: https://github.com/mherman1990/isa-umbrel-apps
