@@ -18,16 +18,26 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const imp = (rel) => import(pathToFileURL(path.join(ROOT, rel)).href);
 
-// Load .env the same way local dev does, without pulling in a dependency.
+// Load .env exactly the way src/index.js does — DATA_DIR first, then the project root:
+//   dotenv.config({ path: [DATA_DIR/.env, PROJECT_ROOT/.env] })
+//
+// ⚠️ Getting this wrong produced a false failure on the Pi. This script originally read only
+// `<repo>/.env`, which is correct for local dev but is `/app/.env` inside the container — the real
+// file lives on the mounted data volume at `/data/.env`. The result was
+// "✗ USDA_AMS_API_KEY is not set" on a Pi where the key was set the whole time and the app itself
+// was reading it fine. A checker that reports a phantom failure is worse than no checker.
 function loadEnv() {
-  const p = path.join(ROOT, ".env");
+  const dataDir = process.env.POLIBRIEF_DATA_DIR ? path.resolve(process.env.POLIBRIEF_DATA_DIR) : ROOT;
   const env = { ...process.env };
-  if (!fs.existsSync(p)) return env;
-  for (const line of fs.readFileSync(p, "utf8").split(/\r?\n/)) {
-    if (!line.includes("=") || line.trim().startsWith("#")) continue;
-    const i = line.indexOf("=");
-    const k = line.slice(0, i).trim();
-    if (!(k in env)) env[k] = line.slice(i + 1).trim();
+  for (const p of [path.join(dataDir, ".env"), path.join(ROOT, ".env")]) {
+    if (!fs.existsSync(p)) continue;
+    for (const line of fs.readFileSync(p, "utf8").split(/\r?\n/)) {
+      if (!line.includes("=") || line.trim().startsWith("#")) continue;
+      const i = line.indexOf("=");
+      const k = line.slice(0, i).trim();
+      // First file wins, matching dotenv's precedence (DATA_DIR overrides the project root).
+      if (!(k in env)) env[k] = line.slice(i + 1).trim().replace(/^["']|["']$/g, "");
+    }
   }
   return env;
 }
