@@ -101,6 +101,8 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_seen_first_seen  ON seen_items(first_seen_at);
   CREATE INDEX IF NOT EXISTS idx_seen_source_seen ON seen_items(source_id, first_seen_at);
   CREATE INDEX IF NOT EXISTS idx_seen_verdict     ON seen_items(triage_verdict);
+  CREATE INDEX IF NOT EXISTS idx_seen_deadline    ON seen_items(comment_deadline);
+  CREATE INDEX IF NOT EXISTS idx_seen_doctype     ON seen_items(doc_type);
 `);
 
 // Cached on-demand AI document summaries (web UI "AI summary" panel). Summaries are
@@ -727,12 +729,27 @@ export function summarizedUids() {
  * Filterable listing of stored items for the /items page.
  * filters: { q, topicId, sourceId, verdict, days, limit }
  */
-export function listItems({ q = "", topicId = "", sourceId = "", sourceIds = null, verdict = "", days = 30, limit = 200, archived = null } = {}) {
+// Grace period (days) after a comment period closes / a hearing date passes before the item retires
+// out of the default LRD view. Non-destructive — a "closed" lifecycle view still shows them.
+const RETIRE_GRACE_DAYS = 3;
+
+export function listItems({ q = "", topicId = "", sourceId = "", sourceIds = null, verdict = "", days = 30, limit = 200, archived = null, sort = "newest", lifecycle = "all" } = {}) {
   const clauses = ["first_seen_at >= ?"];
   const params = [new Date(Date.now() - days * 86400e3).toISOString()];
   if (archived !== null) {
     clauses.push("COALESCE(archived, 0) = ?");
     params.push(archived ? 1 : 0);
+  }
+  // Lifecycle (Politico-Pro-style retirement): an item is "closed" once its comment period ended
+  // (comment_deadline in the past) or, for a hearing, its meeting date passed — both beyond a short
+  // grace. "active" hides those from the default feed; "closed" shows only them; "all" = no filter.
+  if (lifecycle === "active" || lifecycle === "closed") {
+    const graceISO = new Date(Date.now() - RETIRE_GRACE_DAYS * 86400e3).toISOString().slice(0, 10);
+    const closedExpr =
+      "((comment_deadline IS NOT NULL AND substr(comment_deadline,1,10) < ?) " +
+      "OR (COALESCE(doc_type,'')='hearing' AND substr(COALESCE(published_at,'9999'),1,10) < ?))";
+    clauses.push(lifecycle === "active" ? `NOT ${closedExpr}` : closedExpr);
+    params.push(graceISO, graceISO);
   }
   if (q) {
     clauses.push("(title LIKE ? COLLATE NOCASE OR one_line LIKE ? COLLATE NOCASE)");
@@ -755,12 +772,17 @@ export function listItems({ q = "", topicId = "", sourceId = "", sourceIds = nul
     clauses.push("triage_verdict = ?");
     params.push(verdict);
   }
+  // Sort: newest-seen (default) or by comment deadline (soonest open deadlines first, nulls last).
+  const orderBy =
+    sort === "deadline"
+      ? "(comment_deadline IS NULL), comment_deadline ASC, first_seen_at DESC"
+      : "first_seen_at DESC";
   return db
     .prepare(
       `SELECT uid, source_id, title, url, jurisdiction, doc_type, triage_verdict, triage_topics,
               one_line, comment_deadline, published_at, first_seen_at, feedback, feedback_note, entity_id, item_type, geo, body
          FROM seen_items WHERE ${clauses.join(" AND ")}
-        ORDER BY first_seen_at DESC LIMIT ?`
+        ORDER BY ${orderBy} LIMIT ?`
     )
     .all(...params, Math.min(limit, 500));
 }
@@ -833,6 +855,21 @@ export function upcomingDeadlines(limit = 100, { includeArchived = false } = {})
         ORDER BY comment_deadline ASC LIMIT ?`
     )
     .all(today, limit);
+}
+
+/** Upcoming congressional hearings (doc_type='hearing'), soonest first — the meeting date is stored
+ *  in published_at. Powers the homepage calendar. Past meetings drop off automatically. */
+export function upcomingHearings(limit = 100, { days = 120 } = {}) {
+  const today = new Date(Date.now() - 86400e3).toISOString().slice(0, 10);
+  const endISO = new Date(Date.now() + days * 86400e3).toISOString().slice(0, 10);
+  return db
+    .prepare(
+      `SELECT uid, title, url, published_at, one_line, source_id, jurisdiction FROM seen_items
+        WHERE doc_type = 'hearing' AND published_at IS NOT NULL
+          AND substr(published_at, 1, 10) >= ? AND substr(published_at, 1, 10) <= ?
+        ORDER BY published_at ASC LIMIT ?`
+    )
+    .all(today, endISO, limit);
 }
 
 /** Dismiss / restore a comment deadline (separate archive from the LRD set-aside). */

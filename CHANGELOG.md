@@ -1,5 +1,48 @@
 # Changelog
 
+## 1.22.0 — Congressional hearings + homepage calendar + LRD overhaul + VegScape crop VCI
+
+Release 2 of the Bean Brief review (hearings, homepage calendar, LRD overhaul), shipped together with
+the new VegScape satellite crop-vegetation adapter.
+
+### Added
+- **VegScape satellite crop VCI** (`src/adapters/vegscape.js`, class `markets`; `src/signals.js`
+  `vegCondition`; `src/util.js` `fetchBuffer`). Keyless USDA/NASS VegScape Vegetation Condition Index
+  (0–100 vs. each pixel's 2000-present range) for Iowa + IL/MN/IN/NE cropland, averaged from
+  FIPS-clipped GeoTIFFs by a zero-dependency TIFF reader. Published ~4 days after each week closes, so
+  it front-runs the Monday NASS condition rating — a leading crop-vigor signal on the board (Apr–Oct)
+  and a `veg_condition` chart. First `market-refresh` does a one-time ~12-week × 5-state backfill
+  (~180 MB of tiles); steady state is ~5 small fetches/week. No key.
+- **Congressional hearing tracker** (`src/adapters/congress_hearings.js`, class `official`). Pulls
+  committee hearings & markups from the Congress.gov `committee-meeting` endpoint (reuses
+  `CONGRESS_GOV_API_KEY`), fetching each meeting's detail for committee, date, status, witnesses, and
+  linked bills. Volume is controlled by a **two-tier committee whitelist** matched on the systemCode
+  prefix: Tier A keeps every meeting from House Ag, Senate Ag, both Ag-Appropriations subcommittees,
+  and Senate EPW; Tier B keeps a hearing from Ways & Means, Senate Finance, House Energy & Commerce,
+  House T&I, or Senate Commerce **only** when its title or a linked bill matches a Focus-Area keyword.
+  Each hearing is tagged Federal, flags any Iowa delegation member on the committee, carries the
+  meeting date, and links to the meeting page. Register on the Pi by adding `congress_hearings` to
+  `watchlist.json`.
+- **Homepage calendar** (`src/server.js` `homeCalendar`). A month-grid calendar on Home merging four
+  dated streams — USDA/market report releases, public-comment deadlines, congressional hearings, and
+  political/policy dates — color-coded, with month navigation and click-a-day detail.
+- **Political/policy calendar data** (`src/data/policy_events.2026.json`, `src/calendar.js`
+  `upcomingPolicyEvents`/`…Text`). Seeded with 2026 elections + Iowa filing deadlines, the Sept 30
+  farm bill deadline, the Dec 4 FY2027 funding deadline, and the 2027 Iowa session — extend the
+  regulatory category over time. Upcoming policy deadlines are also injected into the Analyst Note /
+  Market Pulse prompts.
+- `.ics` calendar (`/calendar.ics`) now includes hearings alongside comment deadlines; a Subscribe
+  link sits on the LRD tab.
+
+### Changed
+- **Laws, Rules & Decisions overhaul** (`src/server.js` `itemsBody`, `src/store.js` `listItems`).
+  Group the feed by **state vs. federal** (normalized from the inconsistent per-adapter jurisdiction
+  strings via `jurisdictionLevel`), by **topic**, or by **source**; **sort** by newest or by comment
+  deadline; and every rule shows an **at-a-glance status chip** — "open · Nd left" / "closing · Nd
+  left" / "comment closed" (and "in Nd" / "held" for hearings). Rules **auto-retire** from the active
+  view once their comment period closes (+3-day grace), and past hearings likewise — non-destructive,
+  surfaced under a new **🗂 Closed** view. New indexes on `comment_deadline` and `doc_type`.
+
 ## 1.21.0 — News inbox redesign + newsletter market-intel extraction + one-box map
 
 Three improvements. The News collector reads like a real second inbox, the market intelligence inside

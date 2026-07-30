@@ -18,6 +18,7 @@
 
 import * as federal_register from "./federal_register.js";
 import * as congress_gov from "./congress_gov.js";
+import * as congress_hearings from "./congress_hearings.js";
 import * as legiscan from "./legiscan.js";
 import * as eurlex_oj from "./eurlex_oj.js";
 import * as iowa_admin_rules from "./iowa_admin_rules.js";
@@ -36,10 +37,12 @@ import * as ibge_brazil from "./ibge_brazil.js";
 import * as fred from "./fred.js";
 import * as wasde from "./wasde.js";
 import * as barchart from "./barchart.js";
+import * as vegscape from "./vegscape.js";
 
 export const adapters = {
   [federal_register.id]: federal_register,
   [congress_gov.id]: congress_gov,
+  [congress_hearings.id]: congress_hearings,
   [legiscan.id]: legiscan,
   [eurlex_oj.id]: eurlex_oj,
   [iowa_admin_rules.id]: iowa_admin_rules,
@@ -60,6 +63,7 @@ export const adapters = {
   [fred.id]: fred,
   [wasde.id]: wasde,
   [barchart.id]: barchart,
+  [vegscape.id]: vegscape,
 };
 
 // Information CLASS per source — decides which portal tab an item surfaces on, and
@@ -71,6 +75,7 @@ export const adapters = {
 export const SOURCE_CLASS = {
   federal_register: "official",
   congress_gov: "official",
+  congress_hearings: "official",
   legiscan: "official",
   eurlex_oj: "official",
   iowa_admin_rules: "official",
@@ -91,6 +96,7 @@ export const SOURCE_CLASS = {
   fred: "markets",
   wasde: "markets",
   barchart: "markets",
+  vegscape: "markets",
 };
 export const classOf = (sourceId) => SOURCE_CLASS[sourceId] ?? "official";
 export const sourceIdsForClass = (cls) => Object.keys(SOURCE_CLASS).filter((s) => SOURCE_CLASS[s] === cls);

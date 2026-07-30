@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "year": 2026,
+  "default_timezone": "America/Chicago",
+  "source_note": "Political/policy dates for the Bean Brief homepage calendar. Elections + Iowa filing deadlines from the Iowa Secretary of State; farm bill + appropriations deadlines from Congress.gov/CRS (as of 2026-07-30). Comment deadlines are NOT here — they are captured dynamically per-rule from the Federal Register / Regulations.gov feeds.",
+  "review_note": "REVIEW & EXTEND: the regulatory category is seeded light — Matt tracks EPA RFS/RVO annual-rule windows, 45Z clean-fuel-credit guidance, WOTUS timelines, and trade/tariff deadlines more closely than public calendars capture. Add them here as concrete dates land; keep impact honest (very_high/high/medium/low).",
+  "categories": {
+    "election": "Elections & candidate filing",
+    "legislative": "Legislative session calendar",
+    "budget": "Appropriations & farm bill",
+    "regulatory": "Regulatory deadlines"
+  },
+  "events": [
+    {
+      "id": "ia-filing-state-federal-2026",
+      "category": "election",
+      "type": "FILING_DEADLINE",
+      "title": "Iowa candidate filing deadline (state & federal offices)",
+      "date": "2026-03-13",
+      "impact": "medium",
+      "note": "Last day for state and federal candidates to file nomination papers for the June 2 primary (filing opened Feb 23).",
+      "tags": ["election", "iowa", "candidates", "filing"]
+    },
+    {
+      "id": "ia-filing-county-2026",
+      "category": "election",
+      "type": "FILING_DEADLINE",
+      "title": "Iowa candidate filing deadline (county offices)",
+      "date": "2026-03-20",
+      "impact": "low",
+      "note": "Last day for county candidates to file for the June 2 primary.",
+      "tags": ["election", "iowa", "candidates", "filing"]
+    },
+    {
+      "id": "ia-primary-2026",
+      "category": "election",
+      "type": "ELECTION",
+      "title": "Iowa Primary Election",
+      "date": "2026-06-02",
+      "impact": "high",
+      "note": "Closed primary — sets the November ballot, incl. Governor, Secretary of Agriculture, all 4 U.S. House seats, and the Iowa Legislature.",
+      "tags": ["election", "iowa", "primary"]
+    },
+    {
+      "id": "us-general-2026",
+      "category": "election",
+      "type": "ELECTION",
+      "title": "General Election",
+      "date": "2026-11-03",
+      "impact": "very_high",
+      "note": "Midterm general election — Governor, Secretary of Agriculture, all 4 Iowa U.S. House seats, Iowa House + half the Iowa Senate. Reshapes the delegation the Bean Brief tracks.",
+      "tags": ["election", "iowa", "general", "midterm"]
+    },
+    {
+      "id": "farm-bill-house-hr7567-2026",
+      "category": "budget",
+      "type": "FARM_BILL",
+      "title": "House Ag approved Farm, Food, and National Security Act of 2026 (H.R. 7567)",
+      "date": "2026-03-05",
+      "impact": "high",
+      "note": "House Agriculture Committee approved H.R. 7567 (34–17). A milestone toward farm bill reauthorization.",
+      "tags": ["farm-bill", "congress", "house-ag"]
+    },
+    {
+      "id": "farm-bill-senate-draft-2026",
+      "category": "budget",
+      "type": "FARM_BILL",
+      "title": "Senate Ag discussion draft — Agricultural Act of 2026",
+      "date": "2026-07-15",
+      "impact": "medium",
+      "note": "Senate Agriculture Committee (Chair Boozman) released its discussion draft for a new five-year farm bill.",
+      "tags": ["farm-bill", "congress", "senate-ag"]
+    },
+    {
+      "id": "farm-bill-extension-expires-2026",
+      "category": "budget",
+      "type": "FARM_BILL",
+      "title": "Farm bill extension EXPIRES",
+      "date": "2026-09-30",
+      "impact": "very_high",
+      "note": "The current farm bill extension lapses. Without reauthorization or another extension, programs face the 'permanent law' cliff. The central ag-policy deadline of 2026.",
+      "tags": ["farm-bill", "deadline", "congress", "commodity-programs"]
+    },
+    {
+      "id": "fy2027-begins-2026",
+      "category": "budget",
+      "type": "APPROPRIATIONS",
+      "title": "Federal fiscal year 2027 begins",
+      "date": "2026-10-01",
+      "impact": "low",
+      "note": "Start of FY2027; funding runs under the FY2027 continuing resolution until the Dec 4 deadline.",
+      "tags": ["appropriations", "budget", "usda-funding"]
+    },
+    {
+      "id": "fy2027-cr-deadline-2026",
+      "category": "budget",
+      "type": "APPROPRIATIONS",
+      "title": "Federal funding deadline (FY2027 continuing resolution expires)",
+      "date": "2026-12-04",
+      "impact": "high",
+      "note": "The FY2027 CR expires; Congress must pass appropriations or another CR to avoid a shutdown. USDA/FSA/RMA operations at stake.",
+      "tags": ["appropriations", "shutdown", "deadline", "usda-funding"]
+    },
+    {
+      "id": "ia-legislature-convenes-2027",
+      "category": "legislative",
+      "type": "SESSION",
+      "title": "Iowa Legislature convenes (2027 session)",
+      "date": "2027-01-11",
+      "impact": "medium",
+      "note": "Second regular session of the 92nd General Assembly convenes (second Monday of January). Watch for water-quality, ag-land, biofuel, and eminent-domain (CO2 pipeline) bills.",
+      "tags": ["iowa", "legislature", "session"]
+    }
+  ]
+}

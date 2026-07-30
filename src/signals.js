@@ -41,6 +41,26 @@ function cropCondition(m) {
   };
 }
 
+// Satellite vegetation condition — the leading companion to Crop Condition. VegScape VCI is a
+// 0–100 index of crop vigor vs. each pixel's own 2000-present range, published ~4 days after each
+// week closes → it front-runs the Monday NASS G/E rating. Low VCI = vegetation stress = a supply-
+// risk read that supports price; high VCI = a lush crop that weighs on it. Growing-season only
+// (off-season the cropland mask sees bare soil/residue, not the crop).
+function vegCondition(m) {
+  const s = m.get("vegscape:ia:vci");
+  if (!s || !isFresh(s, 21)) return null; // weekly; a stale series drops off
+  const mon = new Date().getUTCMonth() + 1;
+  if (mon < 4 || mon > 10) return null; // Apr–Oct — otherwise not the standing crop
+  const v = s.latest.value;
+  const direction = v <= 40 ? "bullish" : v >= 65 ? "bearish" : "neutral";
+  const trend = s.changeAbs == null ? "" : ` ${s.changeAbs >= 0 ? "▲" : "▼"}${Math.abs(Math.round(s.changeAbs))}pts wk/wk.`;
+  return {
+    id: "veg_condition", name: "Crop Vegetation (VCI)", direction, value: v,
+    label: `${Math.round(v)}/100 VCI`,
+    detail: `Iowa satellite VCI ${Math.round(v)}/100 (${s.latest.period}) — crop vigor vs. its 2000-present range.${trend} ${direction === "bullish" ? "Stressed vegetation (low VCI) is a supply-risk read that supports price, often ahead of the USDA condition rating." : direction === "bearish" ? "A vigorous crop (high VCI) points to good yield potential and weighs on price." : "Vegetation near the middle of its historical range."}`,
+  };
+}
+
 function drought(m) {
   const s = m.get("drought_monitor:ia:d1");
   if (!s || !isFresh(s, 21)) return null;
@@ -194,7 +214,7 @@ function soyCornRatio(m) {
 // not signals a grain marketer leads with. Their DATA still shows on the Markets charts and reaches
 // the Analyst/Pulse memos via the market-data block, so nothing is lost; they're just not headline
 // farmer signals. (The functions are kept above for that context + easy reinstatement.)
-const SCORERS = [cropCondition, exportPace, stocksToUse, fundPositioning, crushDemand, brazilSupply, drought, soyCornRatio];
+const SCORERS = [cropCondition, vegCondition, exportPace, stocksToUse, fundPositioning, crushDemand, brazilSupply, drought, soyCornRatio];
 
 /**
  * Compute the current signal board from stored market data.

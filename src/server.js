@@ -23,7 +23,7 @@ import zlib from "node:zlib";
 import * as store from "./store.js";
 import { runPipeline, runMemo, answerQuery, loadWatchlist, saveWatchlist, generateNewsDigest, getCachedNewsDigest, extractMarketIntel, getCachedMarketIntel, generateMarketCards, getCachedMarketCards, generateStorylines, getStorylinesMeta } from "./pipeline.js";
 import { computeSignals } from "./signals.js";
-import { upcomingReports } from "./calendar.js";
+import { upcomingReports, upcomingPolicyEvents } from "./calendar.js";
 import { adapters, sourceIdsForClass, classOf } from "./adapters/index.js";
 import { postToTeams } from "./deliver.js";
 import { summarizeItem } from "./summarize.js";
@@ -107,7 +107,7 @@ let _seriesLinkCache = { at: 0, map: [] };
 // never links text to a dead #chart_ anchor. Keep in sync with the chartSection list in marketsBody.
 const CHARTED_CATEGORIES = new Set([
   "biofuel_feedstock", "soy_price", "soy_corn_ratio", "soy_crush", "soy_balance_stu",
-  "soy_condition", "drought", "soy_exports", "barge_freight", "positioning",
+  "soy_condition", "veg_condition", "drought", "soy_exports", "barge_freight", "positioning",
 ]);
 function seriesLinkMap() {
   if (Date.now() - _seriesLinkCache.at < 120000) return _seriesLinkCache.map; // cheap memo — metas rarely change
@@ -741,6 +741,102 @@ function marketCardsSection() {
     <form method="post" action="/market-cards"><button class="ghost">Generate today's cards</button></form></details>`;
 }
 
+// The homepage calendar — merges the four dated streams the Bean Brief tracks into one month view:
+// USDA/market report releases, comment deadlines, congressional hearings, and political/policy dates.
+function homeCalendarEvents() {
+  const out = [];
+  for (const r of upcomingReports(160)) out.push({ date: r.date, label: r.name, kind: "report", impact: r.impact, note: r.note || "", url: "" });
+  for (const p of upcomingPolicyEvents(240)) out.push({ date: p.date, label: p.name, kind: "policy", impact: p.impact, note: p.note || "", url: "" });
+  for (const d of store.upcomingDeadlines(60)) out.push({ date: (d.comment_deadline || "").slice(0, 10), label: `Comment deadline — ${d.title}`, kind: "deadline", impact: "medium", note: d.one_line || "", url: d.url || "" });
+  for (const h of store.upcomingHearings(80)) out.push({ date: (h.published_at || "").slice(0, 10), label: h.title, kind: "hearing", impact: "medium", note: h.one_line || "", url: h.url || "" });
+  return out.filter((e) => e.date).sort((a, b) => a.date.localeCompare(b.date) || a.kind.localeCompare(b.kind));
+}
+
+function homeCalendar() {
+  const events = homeCalendarEvents();
+  const blob = JSON.stringify(events).replace(/</g, "\\u003c");
+  return `<h2 style="margin-bottom:2px">📅 Calendar</h2>
+<p class="muted" style="margin-top:0">Major dates ahead — <span style="color:var(--isa-blue)">reports</span>, <span style="color:var(--isa-rust)">comment deadlines</span>, <span style="color:#4a7c1f">hearings</span>, and <span style="color:var(--isa-gold)">policy milestones</span>. Click a highlighted day.</p>
+<style>
+  .bbcal-layout{display:grid;grid-template-columns:minmax(0,330px) 1fr;gap:20px;align-items:start}
+  @media(max-width:640px){.bbcal-layout{grid-template-columns:1fr}}
+  .bbcal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+  .bbcal-mon{font-weight:700}
+  .bbcal-nav{background:none;border:1px solid var(--isa-blue-40);border-radius:6px;cursor:pointer;padding:1px 9px;font-size:.9em}
+  .bbcal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+  .bbcal-wd{text-align:center;font-size:.68em;color:var(--muted);padding:2px 0;font-weight:600}
+  .bbcal-cell{min-height:40px;border:1px solid transparent;border-radius:6px;padding:3px}
+  .bbcal-num{font-size:.78em}
+  .bbcal-today{background:var(--isa-blue-40)}
+  .bbcal-has{cursor:pointer;background:rgba(0,0,0,.04)}
+  .bbcal-has:hover{border-color:var(--isa-blue-40)}
+  .bbcal-sel{outline:2px solid var(--isa-blue);outline-offset:-1px}
+  .bbcal-dots{display:flex;gap:2px;flex-wrap:wrap;margin-top:3px}
+  .bbcal-dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex:0 0 auto}
+  .bbcal-dtitle{font-weight:700;margin-bottom:8px}
+  .bbcal-elist{list-style:none;padding:0;margin:0}
+  .bbcal-elist li{margin:0 0 10px;font-size:.9em;line-height:1.45}
+  .bbcal-ekind{font-size:.7em;font-weight:700;text-transform:uppercase;letter-spacing:.03em;margin-right:5px}
+  .bbcal-note{font-size:.85em;margin-top:1px}
+  .bbcal-imp{color:var(--isa-rust);font-weight:700}
+</style>
+<div class="bbcal-layout">
+  <div id="bbcal"></div>
+  <div id="bbcal-detail"></div>
+</div>
+<script id="bbcal-data" type="application/json">${blob}</script>
+<script>
+(function(){
+  var el=document.getElementById('bbcal'); if(!el) return;
+  var data; try{ data=JSON.parse(document.getElementById('bbcal-data').textContent);}catch(e){data=[];}
+  var byDate={}; data.forEach(function(e){ (byDate[e.date]=byDate[e.date]||[]).push(e); });
+  var KIND={report:{c:'#2C6FB0',l:'Report'},policy:{c:'#C77D0A',l:'Policy'},deadline:{c:'#C0392B',l:'Deadline'},hearing:{c:'#4a7c1f',l:'Hearing'}};
+  var MON=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var today=new Date(), todayISO=today.getFullYear()+'-'+('0'+(today.getMonth()+1)).slice(-2)+'-'+('0'+today.getDate()).slice(-2);
+  var cur=new Date(today.getFullYear(),today.getMonth(),1), sel=null;
+  function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+  function iso(y,m,d){return y+'-'+('0'+(m+1)).slice(-2)+'-'+('0'+d).slice(-2);}
+  function fmt(d){var p=d.split('-');return MON[+p[1]-1].slice(0,3)+' '+(+p[2])+', '+p[0];}
+  function detail(date){
+    var box=document.getElementById('bbcal-detail');
+    var evs=(date&&byDate[date])?byDate[date]:data.filter(function(e){return e.date>=todayISO;}).slice(0,8);
+    var h='<div class="bbcal-dtitle">'+esc(date?fmt(date):'Upcoming')+'</div>';
+    if(!evs.length){box.innerHTML=h+'<p class="muted">No dates in view.</p>';return;}
+    h+='<ul class="bbcal-elist">';
+    evs.forEach(function(e){
+      var k=KIND[e.kind]||{c:'#888',l:e.kind};
+      h+='<li><span class="bbcal-ekind" style="color:'+k.c+'">'+esc(k.l)+'</span>'
+        +(date?'':'<span class="muted">'+esc(fmt(e.date))+' · </span>')
+        +(e.url?'<a href="'+esc(e.url)+'" target="_blank" rel="noopener">'+esc(e.label)+'</a>':esc(e.label))
+        +(e.impact==='very_high'?' <span class="bbcal-imp">★</span>':'')
+        +(e.note?'<div class="bbcal-note muted">'+esc(e.note)+'</div>':'')+'</li>';
+    });
+    box.innerHTML=h+'</ul>';
+  }
+  function render(){
+    var y=cur.getFullYear(),m=cur.getMonth();
+    var first=new Date(y,m,1).getDay(), days=new Date(y,m+1,0).getDate();
+    var h='<div class="bbcal-head"><button class="bbcal-nav" id="bbcal-prev">&#9664;</button><span class="bbcal-mon">'+MON[m]+' '+y+'</span><button class="bbcal-nav" id="bbcal-next">&#9654;</button></div><div class="bbcal-grid">';
+    ['S','M','T','W','T','F','S'].forEach(function(d){h+='<div class="bbcal-wd">'+d+'</div>';});
+    for(var i=0;i<first;i++) h+='<div class="bbcal-cell"></div>';
+    for(var d=1;d<=days;d++){
+      var ds=iso(y,m,d), evs=byDate[ds]||[], kinds={};
+      evs.forEach(function(e){kinds[e.kind]=1;});
+      var dots=''; Object.keys(kinds).slice(0,4).forEach(function(k){dots+='<span class="bbcal-dot" style="background:'+((KIND[k]||{}).c||'#888')+'"></span>';});
+      var cls='bbcal-cell'+(ds===todayISO?' bbcal-today':'')+(evs.length?' bbcal-has':'')+(ds===sel?' bbcal-sel':'');
+      h+='<div class="'+cls+'" data-date="'+ds+'"><span class="bbcal-num">'+d+'</span>'+(dots?'<span class="bbcal-dots">'+dots+'</span>':'')+'</div>';
+    }
+    el.innerHTML=h+'</div>';
+    document.getElementById('bbcal-prev').onclick=function(){cur=new Date(y,m-1,1);render();};
+    document.getElementById('bbcal-next').onclick=function(){cur=new Date(y,m+1,1);render();};
+    Array.prototype.forEach.call(el.querySelectorAll('.bbcal-has'),function(c){c.onclick=function(){sel=c.getAttribute('data-date');render();detail(sel);};});
+  }
+  render(); detail(null);
+})();
+</script>
+<hr style="border:none;border-top:1px solid var(--isa-blue-40);margin:16px 0">`;
+}
+
 function homeBody(notice, openId = null, search = null) {
   const briefs = store.listBriefs(60);
   const items = briefs
@@ -779,6 +875,7 @@ ${lastRunProblem ? `<div class="banner err">❌ ${esc(lastRunProblem.message)} <
 ${notice ? `<div class="banner">${esc(notice)}</div>` : ""}
 ${searchSection}
 ${whatChangedSection()}
+${homeCalendar()}
 <style>
   .reports form{margin:0}
   .reports .report{display:flex;flex-direction:column;gap:3px}
@@ -1427,6 +1524,7 @@ function marketsBody(notice) {
     chartSection("soy_crush", "U.S. soybean crush", "Monthly crush — the domestic-demand engine, near record highs on renewable-diesel demand.", 260),
     chartSection("soy_balance_stu", "U.S. soybean stocks-to-use (WASDE)", "Ending stocks as a share of total use — the tightness ratio that drives price. Roughly: below ~8% is tight (supportive), above ~15% is ample (a drag).", 240),
     chartSection("soy_condition", "Soybean crop condition", "In-season % rated good or excellent (USDA Crop Progress) — Iowa vs. U.S. Weather's fingerprint on this year's yield potential.", 260),
+    chartSection("veg_condition", "Crop vegetation index (satellite)", "Weekly VegScape VCI (0–100) of crop vigor vs. the 2000-present range — Iowa + the core belt. MODIS-derived, ~4 days after each week closes, so it leads the NASS condition rating. Low = stress; high = a vigorous crop.", 260),
     chartSection("drought", "Iowa drought coverage", "Share of Iowa land area in drought (D1+) and abnormally dry or worse (D0+), from the weekly U.S. Drought Monitor — a fast read on Corn Belt crop stress.", 260),
     chartSection("soy_exports", "Soybean exports (weekly)", "Weekly export activity in metric tons — inspections (actual loadings) vs. net sales (forward bookings). An export-pace / China-demand read; net sales also stands in for the (currently offline) FAS report.", 280),
     chartSection("barge_freight", "Mississippi barge freight", "Cost to move grain down the Mississippi ($/ton) — a driver of the Gulf export basis, and so of what Iowa elevators can bid.", 240),
@@ -1460,6 +1558,47 @@ function marketsBody(notice) {
     ${chartAssets}`;
 }
 
+// Normalize the inconsistent per-adapter `jurisdiction` strings into a clean state/fed enum for
+// grouping the LRD feed. Source id is the primary signal (jurisdiction text is a fallback).
+const LEVEL_ORDER = ["Federal", "Iowa", "Other states", "Courts", "EU", "Other"];
+const FEDERAL_SOURCES = new Set(["congress_gov", "congress_hearings", "federal_register", "regulations_gov"]);
+function jurisdictionLevel(sourceId, jurisdiction) {
+  const j = String(jurisdiction || "").trim();
+  if (sourceId === "legiscan") {
+    if (/^IA$/i.test(j) || /iowa/i.test(j)) return "Iowa";
+    if (/^US$/i.test(j) || /federal/i.test(j)) return "Federal";
+    return "Other states";
+  }
+  if (FEDERAL_SOURCES.has(sourceId)) return "Federal";
+  if (sourceId === "courtlistener") return "Courts";
+  if (sourceId === "eurlex_oj") return "EU";
+  if (sourceId === "iowa_admin_rules") return "Iowa";
+  if (/iowa|^IA$/i.test(j)) return "Iowa";
+  if (/court/i.test(j)) return "Courts";
+  if (/^EU$|europe/i.test(j)) return "EU";
+  if (/federal|US-Federal|^US$/i.test(j)) return "Federal";
+  return "Other";
+}
+
+// A lifecycle status chip: comment-period countdown for rules/dockets, meeting timing for hearings.
+function statusBadge(r) {
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const daysBetween = (iso) => Math.round((Date.parse(iso.slice(0, 10) + "T00:00:00Z") - Date.parse(todayISO + "T00:00:00Z")) / 86400e3);
+  if (r.doc_type === "hearing" && r.published_at) {
+    const d = daysBetween(r.published_at);
+    return d >= 0
+      ? `<span class="lb lb-open" title="Hearing date">📅 in ${d}d</span>`
+      : `<span class="lb lb-closed" title="Hearing has passed">📅 held</span>`;
+  }
+  if (r.comment_deadline) {
+    const d = daysBetween(r.comment_deadline);
+    if (d < 0) return `<span class="lb lb-closed" title="Comment period closed ${esc(r.comment_deadline.slice(0, 10))}">comment closed</span>`;
+    if (d <= 7) return `<span class="lb lb-soon" title="Comment closes ${esc(r.comment_deadline.slice(0, 10))}">closing · ${d}d left</span>`;
+    return `<span class="lb lb-open" title="Comment closes ${esc(r.comment_deadline.slice(0, 10))}">open · ${d}d left</span>`;
+  }
+  return "";
+}
+
 function itemsBody(params, notice) {
   let watchlist = null;
   try {
@@ -1474,13 +1613,20 @@ function itemsBody(params, notice) {
     verdict: params.get("verdict") ?? "relevant",
     days: Number(params.get("days") ?? 30) || 30,
   };
+  const sort = params.get("sort") === "deadline" ? "deadline" : "newest";
+  const group = ["level", "topic", "source"].includes(params.get("group")) ? params.get("group") : "";
   // Items tab = the clean regulatory/legal flow only. News (collector/press) and Markets
   // (demand data) live on their own tabs so they don't dilute this feed. Archived (set-aside)
-  // items drop out of the main list into a recoverable archive view.
+  // items drop out of the main list into a recoverable archive view. The lifecycle view retires
+  // closed-comment rules + past hearings out of the default "active" feed into a "Closed" view.
   const viewingArchive = params.get("archived") === "1";
+  const viewingClosed = params.get("closed") === "1";
   const viewingDismissedDeadlines = params.get("deadlines_archived") === "1";
-  const rows = store.listItems({ ...filters, sourceIds: sourceIdsForClass("official"), limit: 200, archived: viewingArchive ? 1 : 0 });
+  const lifecycle = viewingArchive ? "all" : viewingClosed ? "closed" : "active";
+  const rows = store.listItems({ ...filters, sort, lifecycle, sourceIds: sourceIdsForClass("official"), limit: group ? 400 : 200, archived: viewingArchive ? 1 : 0 });
   const nArchived = store.archivedCount();
+  const nClosed = store.listItems({ verdict: filters.verdict, days: filters.days, lifecycle: "closed", sourceIds: sourceIdsForClass("official"), limit: 500 }).length;
+  const topicLabelById = new Map((watchlist?.topics ?? []).map((t) => [t.id, t.label]));
   const trackedKeys = new Set(store.listTracked().map((t) => t.uid));
   const back = `/items?${params.toString()}`;
 
@@ -1506,8 +1652,7 @@ function itemsBody(params, notice) {
     : "";
 
   const summarizedSet = store.summarizedUids();
-  const itemRows = rows
-    .map((r) => {
+  const renderRow = (r) => {
       const isTracked = trackedKeys.has(r.uid);
       const hasSummary = summarizedSet.has(r.uid);
       const summaryPanel = `<details class="summary" data-uid="${esc(r.uid)}"${hasSummary ? " data-stored=\"1\"" : ""}>
@@ -1525,25 +1670,83 @@ function itemsBody(params, notice) {
           ${r.one_line ? `<br><span class="muted">${esc(r.one_line)}</span>` : ""}
           ${r.feedback_note ? `<br><span class="muted">📝 ${esc(r.feedback_note)}</span>` : ""}
           ${summaryPanel}</td>
-        <td class="muted">${esc(r.jurisdiction ?? "")}<br>${esc((r.published_at ?? r.first_seen_at ?? "").slice(0, 10))}</td>
+        <td class="muted">${esc(jurisdictionLevel(r.source_id, r.jurisdiction))}<br>${esc((r.published_at ?? r.first_seen_at ?? "").slice(0, 10))}${statusBadge(r) ? `<br>${statusBadge(r)}` : ""}</td>
         <td class="muted">${esc(r.triage_verdict ?? "")}</td>
         <td><div class="toolbar" style="margin:0">${trackBtn}${fb("up", "👍")}${fb("down", "👎")}${archiveBtn}</div></td>
       </tr>`;
-    })
-    .join("\n");
+  };
+
+  // Flat table, or grouped into sections (by state/fed level, focus-area topic, or source).
+  const TABLE_HEAD = `<tr><th>Item</th><th>Where / when</th><th>Verdict</th><th>Actions</th></tr>`;
+  const tableOf = (rs) => `<div class="tablewrap" style="overflow-x:auto"><table class="items">${TABLE_HEAD}${rs.map(renderRow).join("\n") || '<tr><td colspan="4" class="muted">Nothing here.</td></tr>'}</table></div>`;
+  const groupKey = (r) =>
+    group === "level" ? jurisdictionLevel(r.source_id, r.jurisdiction)
+    : group === "source" ? (adapters[r.source_id]?.label ?? r.source_id)
+    : /* topic */ (() => { try { return (JSON.parse(r.triage_topics || "[]")[0]) || ""; } catch { return ""; } })();
+  let itemsHtml;
+  if (!group) {
+    itemsHtml = rows.length ? tableOf(rows) : '<p class="muted">Nothing matches these filters.</p>';
+  } else {
+    const groups = new Map();
+    for (const r of rows) {
+      const k = groupKey(r) || (group === "topic" ? "__untagged" : "Other");
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(r);
+    }
+    const orderKeys = (keys) =>
+      group === "level" ? LEVEL_ORDER.filter((l) => keys.includes(l)).concat(keys.filter((k) => !LEVEL_ORDER.includes(k))) : [...keys].sort();
+    const labelOf = (k) => (group === "topic" ? (k === "__untagged" ? "Untagged" : topicLabelById.get(k) ?? k) : k);
+    const sections = orderKeys([...groups.keys()])
+      .map((k) => `<h3 class="lrd-group">${esc(labelOf(k))} <span class="muted" style="font-weight:400">(${groups.get(k).length})</span></h3>${tableOf(groups.get(k))}`)
+      .join("\n");
+    itemsHtml = rows.length ? sections : '<p class="muted">Nothing matches these filters.</p>';
+  }
+
+  // Preserve the current query while overriding a few params (for the Active/Closed + archive links).
+  const cloneParams = (over) => {
+    const p = new URLSearchParams(params);
+    for (const [k, v] of Object.entries(over)) { if (v === null || v === "") p.delete(k); else p.set(k, String(v)); }
+    const s = p.toString();
+    return `/items${s ? `?${s}` : ""}`;
+  };
+  const lifecycleToggle = viewingArchive
+    ? ""
+    : viewingClosed
+      ? `<a href="${cloneParams({ closed: null })}">← back to active</a>`
+      : nClosed
+        ? `<a href="${cloneParams({ closed: "1" })}" title="Comment periods closed + hearings held">🗂 View closed (${nClosed})</a>`
+        : "";
 
   return `
 ${notice ? `<div class="banner">${esc(notice)}</div>` : ""}
 ${trackedBlock}
 ${deadlinesSection(viewingDismissedDeadlines)}
-<h2>Laws, Rules &amp; Decisions${viewingArchive ? " · 🗄 Archive" : ""}</h2>
-${viewingArchive
-  ? '<p><a href="/items">← back to the main list</a></p>'
-  : nArchived
-    ? `<p class="muted"><a href="/items?archived=1">🗄 View archive (${nArchived} set aside)</a></p>`
-    : ""}
+<style>
+  .lb{display:inline-block;font-size:.72em;font-weight:600;padding:1px 6px;border-radius:9px;margin-top:2px;white-space:nowrap}
+  .lb-open{background:#e6f2e6;color:#1f6b2e}
+  .lb-soon{background:#fdf0d8;color:#8a5a00}
+  .lb-closed{background:#eceff1;color:#607d8b}
+  .lrd-group{margin:18px 0 4px;padding-bottom:2px;border-bottom:2px solid var(--isa-blue-40)}
+  .lrd-views{display:flex;gap:14px;flex-wrap:wrap;font-size:.9em;margin:2px 0 8px}
+</style>
+<h2 style="margin-bottom:2px">Laws, Rules &amp; Decisions${viewingArchive ? " · 🗄 Archive" : viewingClosed ? " · 🗂 Closed" : ""}</h2>
+<div class="lrd-views muted">
+  ${viewingArchive ? '<a href="/items">← back to the main list</a>' : lifecycleToggle}
+  ${!viewingArchive && nArchived ? `<a href="${cloneParams({ archived: "1", closed: null })}">🗄 Archive (${nArchived})</a>` : ""}
+  ${viewingArchive ? "" : `<a href="/calendar.ics" title="Subscribe to comment deadlines + hearings in your calendar">📆 Subscribe (.ics)</a>`}
+</div>
 <form method="get" action="/items" class="toolbar">
   <input type="text" name="q" placeholder="search title / summary…" value="${esc(filters.q)}">
+  <select name="group" title="Group the feed">
+    <option value=""${group === "" ? " selected" : ""}>no grouping</option>
+    <option value="level"${group === "level" ? " selected" : ""}>group: state / federal</option>
+    <option value="topic"${group === "topic" ? " selected" : ""}>group: topic</option>
+    <option value="source"${group === "source" ? " selected" : ""}>group: source</option>
+  </select>
+  <select name="sort" title="Sort order">
+    <option value="newest"${sort === "newest" ? " selected" : ""}>sort: newest</option>
+    <option value="deadline"${sort === "deadline" ? " selected" : ""}>sort: comment deadline</option>
+  </select>
   <select name="topic"><option value="">any topic</option>${topicOptions}</select>
   <select name="source"><option value="">any source</option>${sourceOptions}</select>
   <select name="verdict">
@@ -1552,15 +1755,11 @@ ${viewingArchive
     <option value="irrelevant"${filters.verdict === "irrelevant" ? " selected" : ""}>irrelevant</option>
   </select>
   <select name="days">${[7, 30, 90, 365].map((d) => `<option value="${d}"${filters.days === d ? " selected" : ""}>last ${d} days</option>`).join("")}</select>
-  <button>Filter</button>
+  ${viewingClosed ? '<input type="hidden" name="closed" value="1">' : ""}
+  <button>Apply</button>
 </form>
-<p class="muted">👍/👎 teach the AI triage what you consider relevant — corrections are fed into future runs. 📌 tracks an item so new activity is flagged in briefs.</p>
-<div class="tablewrap" style="overflow-x:auto">
-<table class="items">
-  <tr><th>Item</th><th>Where / when</th><th>Verdict</th><th>Actions</th></tr>
-  ${itemRows || '<tr><td colspan="4" class="muted">Nothing matches these filters.</td></tr>'}
-</table>
-</div>
+<p class="muted">👍/👎 teach the AI triage what you consider relevant — corrections are fed into future runs. 📌 tracks an item so new activity is flagged in briefs. Rules retire from this view once their comment period closes (see 🗂 Closed).</p>
+${itemsHtml}
 <script>
 document.querySelectorAll('details.summary').forEach(function(d){
   d.addEventListener('toggle', function(){
@@ -1635,22 +1834,25 @@ function icsEscape(s) {
   return String(s).replace(/\\/g, "\\\\").replace(/[,;]/g, (m) => "\\" + m).replace(/\r?\n/g, "\\n");
 }
 function icsCalendar() {
-  const events = store
-    .upcomingDeadlines(200)
-    .map((d) => {
-      const date = d.comment_deadline.replace(/-/g, "");
-      return [
-        "BEGIN:VEVENT",
-        `UID:${d.uid.replace(/[^A-Za-z0-9:_-]/g, "")}@polibrief`,
-        `DTSTART;VALUE=DATE:${date}`,
-        `SUMMARY:${icsEscape(`Comment deadline: ${(d.title ?? "").slice(0, 120)}`)}`,
-        `DESCRIPTION:${icsEscape(`${d.one_line ?? ""}\n${d.url ?? ""}`)}`,
-        `URL:${d.url ?? ""}`,
-        "END:VEVENT",
-      ].join("\r\n");
-    })
-    .join("\r\n");
-  return ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//polibrief//EN", "X-WR-CALNAME:ISA Policy Deadlines", events, "END:VCALENDAR"].join("\r\n");
+  const vevent = ({ uid, date, summary, desc, url }) =>
+    [
+      "BEGIN:VEVENT",
+      `UID:${String(uid).replace(/[^A-Za-z0-9:_-]/g, "")}@polibrief`,
+      `DTSTART;VALUE=DATE:${String(date).slice(0, 10).replace(/-/g, "")}`,
+      `SUMMARY:${icsEscape(summary)}`,
+      `DESCRIPTION:${icsEscape(desc)}`,
+      `URL:${url ?? ""}`,
+      "END:VEVENT",
+    ].join("\r\n");
+  const deadlineEvents = store.upcomingDeadlines(200).map((d) =>
+    vevent({ uid: d.uid, date: d.comment_deadline, summary: `Comment deadline: ${(d.title ?? "").slice(0, 120)}`, desc: `${d.one_line ?? ""}\n${d.url ?? ""}`, url: d.url })
+  );
+  // Congressional hearings (meeting date in published_at) join the same feed.
+  const hearingEvents = store.upcomingHearings(200).map((h) =>
+    vevent({ uid: h.uid, date: h.published_at, summary: `${(h.title ?? "").slice(0, 140)}`, desc: `${h.one_line ?? ""}\n${h.url ?? ""}`, url: h.url })
+  );
+  const events = [...deadlineEvents, ...hearingEvents].join("\r\n");
+  return ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//polibrief//EN", "X-WR-CALNAME:Bean Brief — Deadlines & Hearings", events, "END:VCALENDAR"].join("\r\n");
 }
 
 function xmlEscape(s) {

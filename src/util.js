@@ -52,6 +52,15 @@ export async function fetchText(url, options = {}) {
   return res.text();
 }
 
+/** GET a URL and return the raw body as a Node Buffer (for binary payloads, e.g. GeoTIFFs). */
+export async function fetchBuffer(url, options = {}) {
+  const res = await fetchWithTimeout(url, options);
+  if (!res.ok) {
+    throw new SourceError(`HTTP ${res.status} from ${describeUrl(url)}${hintForStatus(res.status)}`);
+  }
+  return Buffer.from(await res.arrayBuffer());
+}
+
 function hintForStatus(status) {
   if (status === 401 || status === 403) return " (check the API key in .env)";
   if (status === 429) return " (rate limited — try again later)";

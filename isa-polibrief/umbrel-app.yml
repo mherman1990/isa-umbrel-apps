@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-polibrief
 category: automation
 name: The Bean Brief
-version: "1.21.0"
+version: "1.22.0"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
@@ -28,14 +28,17 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  A better News inbox and a cleaner map. The News tab's "What's flowing in" now reads like a real
-  inbox: each newsletter shows its actual sender, and opening one displays the real message —
-  headings, lists, and working links — instead of a wall of run-on text. The market intelligence
-  buried in those newsletters (cash bids, basis, crush margins, China demand, policy signals) is now
-  distilled into a short cited block that feeds the Analyst Note, Market Pulse, and Ask box, so the
-  model actually reasons on what your inbox is telling it (see the new "Market intel from the inbox"
-  panel on the News tab). On the Iowa map, clicking a district now shows just one info box — the hover
-  tooltip steps aside while a card is pinned, so the two no longer stack and clutter the view. Just
-  Update — no new keys.
+  Congressional hearings, a homepage calendar, and a reworked rules feed. The Bean Brief now tracks
+  committee hearings and markups from Congress — filtered to the committees that matter to Iowa
+  soybeans (House & Senate Ag, Ag-Appropriations, Ways & Means, Finance, EPW, and more), with the
+  Iowa delegation flagged. A new Calendar on the home page shows every date ahead in one month view:
+  USDA reports, public-comment deadlines, hearings, and political/policy milestones (elections, the
+  Sept 30 farm bill deadline, the Dec 4 funding deadline). And Laws, Rules & Decisions was overhauled:
+  group the feed by state vs. federal, topic, or source; sort by comment deadline; see an at-a-glance
+  "open / closing soon / closed" status on every rule; and rules automatically retire from the active
+  view once their comment period closes (still there under "Closed"). Also new: a VegScape satellite
+  crop-vegetation signal (0–100 VCI) for Iowa and the belt, a leading read on crop vigor ahead of the
+  USDA condition rating. After Update, add the new congress_hearings and vegscape sources to your
+  watchlist; the first market-refresh backfills ~12 weeks of VegScape tiles (~180 MB, one time).
 submitter: Matt
 submission: https://github.com/mherman1990/isa-umbrel-apps

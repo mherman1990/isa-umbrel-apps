@@ -27,6 +27,10 @@
       "enabled": true,
       "maxItemsPerRun": 30
     },
+    "congress_hearings": {
+      "enabled": true,
+      "maxDetailPerRun": 120
+    },
     "legiscan": {
       "enabled": true,
       "maxItemsPerRun": 40,
@@ -124,6 +128,11 @@
       "enabled": false,
       "maxItemsPerRun": 5,
       "_note": "Markets — Barchart OnDemand (needs BARCHART_API_KEY). SCAFFOLD: no-ops without a key. Enable + confirm response fields once the key lands."
+    },
+    "vegscape": {
+      "enabled": true,
+      "maxItemsPerRun": 5,
+      "_note": "Markets — USDA/NASS VegScape satellite crop VCI (no key): weekly 0–100 vegetation condition for Iowa + IL/MN/IN/NE cropland. Leading read on crop vigor, ahead of the NASS G/E rating (veg_condition chart + signal)."
     }
   },
   "focusAreas": [

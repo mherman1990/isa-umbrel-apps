@@ -22,6 +22,40 @@ function loadCal() {
   return CAL;
 }
 
+// Political/policy dates (elections, farm bill / appropriations deadlines, legislative sessions,
+// regulatory milestones) — a separate authored file so the homepage calendar shows more than USDA
+// reports. Comment deadlines are NOT here (captured dynamically per-rule in store.upcomingDeadlines).
+let POL = null;
+function loadPolicy() {
+  if (POL) return POL;
+  try {
+    POL = JSON.parse(fs.readFileSync(path.join(DATA_DIR, "policy_events.2026.json"), "utf8"));
+  } catch {
+    POL = { events: [] };
+  }
+  return POL;
+}
+
+/**
+ * Upcoming political/policy events within `days`, soonest first. Each: { date, name, category,
+ * impact, type, note }. Category ∈ election|legislative|budget|regulatory.
+ */
+export function upcomingPolicyEvents(days = 120, from = new Date()) {
+  const startISO = from.toISOString().slice(0, 10);
+  const endISO = new Date(from.getTime() + days * 86400e3).toISOString().slice(0, 10);
+  return (loadPolicy().events ?? [])
+    .filter((e) => e.date && e.date >= startISO && e.date <= endISO)
+    .map((e) => ({ date: e.date, name: e.title, category: e.category || "policy", impact: e.impact || "medium", type: e.type, note: e.note || "" }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/** Compact text of upcoming policy deadlines (with impact) for injecting into memo/analyst prompts. */
+export function upcomingPolicyEventsText(days = 120) {
+  const list = upcomingPolicyEvents(days);
+  if (!list.length) return "";
+  return list.slice(0, 8).map((e) => `- ${e.date}: ${e.name} (${e.category}, impact ${e.impact}) — ${e.note}`).join("\n");
+}
+
 const AGENCY = { WASDE: "USDA", GRAIN_STOCKS: "USDA NASS", ACREAGE: "USDA NASS", PROSPECTIVE_PLANTINGS: "USDA NASS", CROP_PROGRESS: "USDA NASS", EXPORT_SALES: "USDA FAS", INSURANCE_MILESTONE: "USDA RMA", COT: "CFTC" };
 const agencyOf = (type) => AGENCY[type] || "USDA";
 

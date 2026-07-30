@@ -18,7 +18,7 @@ import { syncRegistryFromSeed } from "./registry.js";
 import { EDUCATION_SYSTEM_PROMPT, seedCurriculum } from "./curriculum.js";
 import { signalsText } from "./signals.js";
 import { weatherRiskText } from "./weather.js";
-import { upcomingReportsText, upcomingReports } from "./calendar.js";
+import { upcomingReportsText, upcomingReports, upcomingPolicyEventsText } from "./calendar.js";
 import { fetchDocumentText } from "./summarize.js";
 import { emailBodyToText } from "./emailhtml.js";
 import { evaluateTriggers, triggersText } from "./triggers.js";
@@ -707,12 +707,14 @@ export async function generateMemo(presetId, env) {
   if (preset.injectSignals) {
     const sig = signalsText();
     const cal = upcomingReportsText(14);
+    const pol = upcomingPolicyEventsText(120);
     const trig = triggersText();
     signalsBlock =
       `\n\n=== MARKET SIGNAL BOARD (bull/bear read for soybean price) ===\n${sig || "(no signals computed yet)"}` +
       `\n\n=== UPCOMING REPORT RELEASES ===\n${cal || "(none in the next two weeks)"}` +
+      `\n\n=== UPCOMING POLICY/POLITICAL DEADLINES (farm bill, appropriations, elections, sessions) ===\n${pol || "(none on the calendar)"}` +
       `\n\n=== ACTIVE MARKETING TRIGGERS (seasonal / report / positioning states) ===\n${trig || "(none active today)"}`;
-    console.log(`   📊 signal board + release calendar + triggers injected`);
+    console.log(`   📊 signal board + release calendar + policy deadlines + triggers injected`);
   }
 
   // Per-report model: the Analyst Note runs on the deep-reasoning model (Opus +
