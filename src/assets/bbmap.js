@@ -19,6 +19,11 @@
   var TONE = { R: "#C0392B", D: "#2C6FB0", other: "#C77D0A", none: "#CBD3DA" };
   var HUC_COLOR = "#2E86AB";
 
+  // Only one info box at a time: a click opens a pinned popup; while any popup is open we add a
+  // `bb-pinned` class to the map container, and CSS hides every hover tooltip (display:none) so the
+  // two boxes never stack. (closeTooltip() proved unreliable for these sticky tooltips — the CSS
+  // hide is bulletproof and also covers hovering OTHER districts while one is pinned.)
+
   function esc(s) {
     return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
@@ -211,6 +216,15 @@
     map.getPane("hucBg").style.zIndex = 350;
 
     legend().addTo(map);
+
+    // One box at a time: mark the container while a click-popup is pinned so CSS hides the hover
+    // tooltips (see the `.bb-pinned .leaflet-tooltip` rule on the /map page); unmark on close.
+    map.on("popupopen", function () {
+      L.DomUtil.addClass(box, "bb-pinned");
+    });
+    map.on("popupclose", function () {
+      L.DomUtil.removeClass(box, "bb-pinned");
+    });
 
     var G = "/assets/geo/";
     Promise.all([

@@ -21,7 +21,7 @@ import path from "node:path";
 import zlib from "node:zlib";
 
 import * as store from "./store.js";
-import { runPipeline, runMemo, answerQuery, loadWatchlist, saveWatchlist, generateNewsDigest, getCachedNewsDigest, generateMarketCards, getCachedMarketCards, generateStorylines, getStorylinesMeta } from "./pipeline.js";
+import { runPipeline, runMemo, answerQuery, loadWatchlist, saveWatchlist, generateNewsDigest, getCachedNewsDigest, extractMarketIntel, getCachedMarketIntel, generateMarketCards, getCachedMarketCards, generateStorylines, getStorylinesMeta } from "./pipeline.js";
 import { computeSignals } from "./signals.js";
 import { upcomingReports } from "./calendar.js";
 import { adapters, sourceIdsForClass, classOf } from "./adapters/index.js";
@@ -29,6 +29,7 @@ import { postToTeams } from "./deliver.js";
 import { summarizeItem } from "./summarize.js";
 import { syncRegistryFromSeed } from "./registry.js";
 import { studioBody, studioCatalog, studioSeries, studioSeriesCSV, studioEvents } from "./studio.js";
+import { sanitizeEmailHtml, emailBodyToText } from "./emailhtml.js";
 
 // All user-facing timestamps render in Central time (the ISA org timezone).
 const CENTRAL_TZ = "America/Chicago";
@@ -1140,6 +1141,8 @@ function mapBody() {
   .leaflet-tooltip.map-tip { background: #fff; border: 1px solid var(--isa-dark-40); border-radius: 8px;
     box-shadow: 0 2px 8px rgba(0,0,0,.18); padding: 8px 11px; max-width: 260px; white-space: normal; font-family: system-ui, sans-serif; }
   .leaflet-tooltip.map-tip::before { display: none; }
+  /* One info box at a time: while a click-popup is pinned (bbmap adds .bb-pinned), hide hover tooltips. */
+  #ia-map.bb-pinned .leaflet-tooltip { display: none !important; }
   .map-tip .tip-title { font-weight: 700; color: var(--isa-dark); font-size: .95em; margin-bottom: 4px; }
   .map-tip .tip-row { display: flex; align-items: baseline; gap: 6px; margin: 2px 0; font-size: .86em; }
   .map-tip .tip-role { color: var(--muted); font-size: .82em; min-width: 74px; opacity: .8; }
@@ -1217,24 +1220,44 @@ function inboxFeed() {
   if (!rows.length) {
     return `<p class="muted">No news items yet — they appear once the pipeline runs with the collector (email_intake) enabled on the Pi.</p>`;
   }
-  const item = (r) => {
-    const src = adapters[r.source_id]?.label ?? r.source_id;
-    const when = (r.first_seen_at || "").slice(0, 10);
-    const body = decodeEntities((r.body || "").trim());
-    const title = decodeEntities(r.title || "(untitled)");
-    let preview = decodeEntities(r.one_line || "");
-    if (!preview && body) {
-      preview = body.slice(0, 180);
-      if (body.length > 180) { const sp = preview.lastIndexOf(" "); preview = (sp > 120 ? preview.slice(0, sp) : preview) + "…"; }
+  // Show the actual sender (the resolved registry entity, e.g. "Growth Energy") like a real inbox,
+  // falling back to the adapter label. Cached so a page of 200 rows doesn't hit the DB per row.
+  const entCache = new Map();
+  const senderName = (r) => {
+    if (r.entity_id) {
+      if (!entCache.has(r.entity_id)) {
+        try { entCache.set(r.entity_id, store.getEntity(r.entity_id)?.name || null); } catch { entCache.set(r.entity_id, null); }
+      }
+      const n = entCache.get(r.entity_id);
+      if (n) return n;
     }
+    return adapters[r.source_id]?.label ?? r.source_id;
+  };
+  const item = (r) => {
+    const from = senderName(r);
+    const when = (r.first_seen_at || "").slice(0, 10);
+    const rawBody = (r.body || "").trim();
+    const title = decodeEntities(r.title || "(untitled)");
+    // Snippet: the triage one-liner if present, else the first words of the body as plain text.
+    let preview = decodeEntities(r.one_line || "");
+    if (!preview && rawBody) {
+      const flat = emailBodyToText(rawBody);
+      preview = flat.slice(0, 180);
+      if (flat.length > 180) { const sp = preview.lastIndexOf(" "); preview = (sp > 120 ? preview.slice(0, sp) : preview) + "…"; }
+    }
+    // Re-sanitize the stored body at render time (defence in depth for every source, incl. legacy
+    // RSS rows never cleaned at ingest), then render it as real HTML so links/lists/headings show.
+    const bodyHtml = rawBody
+      ? sanitizeEmailHtml(rawBody).replace(/<a href=/g, '<a target="_blank" rel="noopener noreferrer" href=')
+      : "";
     return `<details class="mailitem">
       <summary>
+        <span class="mi-line"><span class="mi-from">${esc(from)}</span><span class="mi-date muted">${esc(when)}</span></span>
         <span class="mi-title">${esc(title)}</span>
-        <span class="mi-meta muted">${esc(src)} · ${esc(when)}</span>
         ${preview ? `<span class="mi-prev muted">${esc(preview)}</span>` : ""}
       </summary>
       <div class="mailbody">
-        ${body ? `<div class="mi-body">${esc(body)}</div>` : `<p class="muted" style="margin:.3em 0">No stored text for this one — open the source to read it.</p>`}
+        ${bodyHtml ? `<div class="mi-body">${bodyHtml}</div>` : `<p class="muted" style="margin:.3em 0">No stored text for this one — open the source to read it.</p>`}
         ${r.url ? `<a class="mi-link" href="${esc(r.url)}" target="_blank" rel="noopener">Open original ↗</a>` : `<span class="muted mi-nolink">Email — no external link; the text above is the message.</span>`}
       </div>
     </details>`;
@@ -1247,6 +1270,20 @@ function inboxFeed() {
   return `<div class="inbox">${recent}</div>${olderBlock}`;
 }
 
+// The market-intel block distilled from newsletter bodies (extractMarketIntel). Shown collapsed so
+// staff can see WHAT the model is now being fed from the inbox — the same text is injected into the
+// Analyst Note, Market Pulse, and Ask box reasoning.
+function intelPanel() {
+  const intel = getCachedMarketIntel();
+  if (!intel?.markdown) return "";
+  return `<details class="topic" style="margin-top:10px">
+    <summary style="cursor:pointer;font-weight:600">📈 Market intel from the inbox <span class="muted" style="font-weight:400">— feeds the Analyst, Pulse & Ask box</span></summary>
+    <div class="answer" style="margin-top:8px">${markdownToHtml(intel.markdown)}
+      <div class="muted" style="margin-top:8px;font-size:.85em">Distilled from ${intel.count} newsletter item${intel.count === 1 ? "" : "s"} · ${esc(intel.date)}</div>
+    </div>
+  </details>`;
+}
+
 function newsBody(notice) {
   const cached = getCachedNewsDigest();
   const digestBlock = cached
@@ -1257,16 +1294,28 @@ function newsBody(notice) {
   return `<h1>📰 News</h1>
     ${notice ? `<div class="banner">${esc(notice)}</div>` : ""}
     <style>
+      .inbox{border-top:1px solid var(--isa-blue-40)}
       .mailitem{border-bottom:1px solid var(--isa-blue-40);padding:9px 0}
       .mailitem>summary{cursor:pointer;list-style:none;display:block}
       .mailitem>summary::-webkit-details-marker{display:none}
-      .mailitem>summary::before{content:"▸";display:inline-block;width:14px;opacity:.55}
+      .mailitem>summary::before{content:"▸";display:inline-block;width:14px;opacity:.55;vertical-align:top}
       .mailitem[open]>summary::before{content:"▾"}
-      .mailitem .mi-title{font-weight:600}
-      .mailitem .mi-meta{display:block;font-size:.8em;margin:1px 0 0 14px}
+      .mailitem[open]{background:var(--isa-blue-40);border-radius:6px;padding:9px 10px;margin:0 -10px}
+      .mailitem .mi-line{display:flex;justify-content:space-between;gap:10px;margin-left:14px}
+      .mailitem .mi-from{font-weight:600;font-size:.82em;color:var(--isa-blue);text-transform:uppercase;letter-spacing:.02em}
+      .mailitem .mi-date{font-size:.8em;white-space:nowrap}
+      .mailitem .mi-title{display:block;font-weight:600;margin:1px 0 0 14px}
       .mailitem .mi-prev{display:block;font-size:.9em;margin:2px 0 0 14px}
-      .mailitem .mailbody{margin:6px 0 4px 14px;font-size:.92em;line-height:1.55;max-width:72ch}
-      .mailitem .mi-body{white-space:pre-wrap;margin-bottom:8px}
+      .mailitem .mailbody{margin:8px 0 4px 14px;font-size:.93em;line-height:1.6;max-width:74ch}
+      .mailitem .mi-body{margin-bottom:10px}
+      .mailitem .mi-body p{margin:.5em 0}
+      .mailitem .mi-body a{color:var(--isa-blue);text-decoration:underline;word-break:break-word}
+      .mailitem .mi-body ul,.mailitem .mi-body ol{margin:.5em 0;padding-left:1.4em}
+      .mailitem .mi-body li{margin:.2em 0}
+      .mailitem .mi-body h1,.mailitem .mi-body h2,.mailitem .mi-body h3,.mailitem .mi-body h4{font-size:1em;font-weight:700;margin:.8em 0 .2em}
+      .mailitem .mi-body blockquote{margin:.5em 0;padding-left:.8em;border-left:3px solid var(--isa-blue);opacity:.85}
+      .mailitem .mi-body hr{border:none;border-top:1px solid var(--isa-blue-40);margin:.8em 0}
+      .mailitem .mi-body pre{white-space:pre-wrap;font-size:.9em;overflow-x:auto}
       .mailitem .mi-link{font-size:.9em}
       .mi-older{margin-top:16px}
       .mi-older>summary{cursor:pointer;font-weight:600}
@@ -1274,6 +1323,7 @@ function newsBody(notice) {
     <h2 style="margin-bottom:2px">🧠 News of the day</h2>
     <p class="muted" style="margin-top:0">A distillation of the collector inbox + press RSS — themes and why they matter, not a relist.</p>
     ${digestBlock}
+    ${intelPanel()}
     ${storylinesSection()}
     <hr style="border:none;border-top:1px solid var(--isa-blue-40);margin:20px 0">
     <h2 style="margin-bottom:2px">📬 What's flowing in</h2>
@@ -1791,7 +1841,11 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
         let notice;
         try {
           const d = await generateNewsDigest(process.env);
-          notice = d ? `News digest updated (${d.count} items distilled).` : "No news items in the last two days to digest yet.";
+          // Refresh the newsletter market-intel block too (feeds the Analyst/Pulse/Ask reasoning).
+          const intel = await extractMarketIntel(process.env).catch(() => null);
+          notice = d
+            ? `News digest updated (${d.count} items distilled)${intel ? ` · market intel refreshed (${intel.count})` : ""}.`
+            : "No news items in the last two days to digest yet.";
         } catch (err) {
           notice = `Digest failed: ${err.message}`;
         }

@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-polibrief
 category: automation
 name: The Bean Brief
-version: "1.20.1"
+version: "1.21.0"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
@@ -28,12 +28,14 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  Two reliability fixes from a code review. First, no more silently dropped items: the app used to mark a
-  source "read up to here" the instant it fetched, before those items were saved — so an interrupted run
-  (a bad API key, a rate limit, a crash) could lose them for good. It now advances that marker only after
-  everything is safely stored. Second, crash-safe settings: saving your watchlist now writes to a
-  temporary file and swaps it in, so an interruption can't corrupt the config and stop the app from
-  starting, and impossible schedule times like 25:00 are rejected instead of silently never running.
-  Just Update — no new keys.
+  A better News inbox and a cleaner map. The News tab's "What's flowing in" now reads like a real
+  inbox: each newsletter shows its actual sender, and opening one displays the real message —
+  headings, lists, and working links — instead of a wall of run-on text. The market intelligence
+  buried in those newsletters (cash bids, basis, crush margins, China demand, policy signals) is now
+  distilled into a short cited block that feeds the Analyst Note, Market Pulse, and Ask box, so the
+  model actually reasons on what your inbox is telling it (see the new "Market intel from the inbox"
+  panel on the News tab). On the Iowa map, clicking a district now shows just one info box — the hover
+  tooltip steps aside while a card is pinned, so the two no longer stack and clutter the view. Just
+  Update — no new keys.
 submitter: Matt
 submission: https://github.com/mherman1990/isa-umbrel-apps

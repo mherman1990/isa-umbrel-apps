@@ -107,9 +107,20 @@ program
   .command("news-digest")
   .description("Generate the News-of-the-day digest from the last two days of news items")
   .action(async () => {
-    const { generateNewsDigest } = await import("./pipeline.js");
+    const { generateNewsDigest, extractMarketIntel } = await import("./pipeline.js");
     const d = await generateNewsDigest(process.env);
     console.log(d ? `🧠 News digest updated (${d.count} items).` : "   (no news items in the last two days)");
+    const intel = await extractMarketIntel(process.env).catch((e) => { console.log(`   ⚠️ market intel skipped: ${e.message}`); return null; });
+    if (intel) console.log(`📈 Market intel refreshed (${intel.count} items with content).`);
+  });
+
+program
+  .command("market-intel")
+  .description("Distil market intelligence from recent newsletter bodies into the shared intel block (feeds Analyst/Pulse/Ask)")
+  .action(async () => {
+    const { extractMarketIntel } = await import("./pipeline.js");
+    const intel = await extractMarketIntel(process.env);
+    console.log(intel ? `📈 Market intel refreshed (${intel.count} items).\n\n${intel.markdown}` : "   (no news bodies in the last few days to mine)");
   });
 
 program

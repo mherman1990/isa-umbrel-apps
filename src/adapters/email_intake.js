@@ -14,6 +14,7 @@
 import { createHash } from "node:crypto";
 import { resolveEntity } from "../registry.js";
 import { getEntity } from "../store.js";
+import { sanitizeEmailHtml, textToHtml } from "../emailhtml.js";
 // imapflow + mailparser are lazy-imported inside fetchItems (like nodemailer in
 // deliver.js) so a missing optional dep never breaks the whole adapter registry —
 // it only matters once email-intake is actually enabled.
@@ -70,7 +71,12 @@ export async function fetchItems({ sinceISO, sourceConfig = {}, env = process.en
       // Narrow, on-topic sources (RFA, Growth Energy, Struyk) keep the boost.
       const suppressEntityBoost = resolved?.entityId ? getEntity(resolved.entityId)?.type === "news_broad" : false;
       const messageId = parsed.messageId || `${msg.uid}`;
-      const body = (parsed.text || parsed.html?.replace(/<[^>]+>/g, " ") || "").replace(/\s+/g, " ").trim();
+      // Keep the email's STRUCTURE + links so the News tab can render it like a real inbox message:
+      // sanitize the HTML into a safe whitelisted subset (paragraphs, lists, headings, <a href>), or
+      // paragraph-ize a text/plain body. Was previously flattened to one link-less run-on line.
+      const body = parsed.html
+        ? sanitizeEmailHtml(parsed.html, 8000)
+        : textToHtml((parsed.text || "").trim().slice(0, 8000));
 
       items.push({
         uid: `email:${hash(messageId)}`,
@@ -78,8 +84,8 @@ export async function fetchItems({ sinceISO, sourceConfig = {}, env = process.en
         sourceLabel: label,
         title: (parsed.subject || "(no subject)").slice(0, 300),
         // Store a generous slice so the News tab's "read it here" expansion shows the real message
-        // (emails have no external link). markSeen caps the persisted body at 4000 to match.
-        summary: body.slice(0, 4000),
+        // (emails have no external link). markSeen caps the persisted body at 8000 to match.
+        summary: body,
         url: "",
         publishedAt: (parsed.date || new Date()).toISOString(),
         jurisdiction: "Iowa",

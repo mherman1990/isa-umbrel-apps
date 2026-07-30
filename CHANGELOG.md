@@ -1,5 +1,39 @@
 # Changelog
 
+## 1.21.0 — News inbox redesign + newsletter market-intel extraction + one-box map
+
+Three improvements. The News collector reads like a real second inbox, the market intelligence inside
+those newsletters now informs the model's reasoning, and the Iowa map shows one info box at a time.
+
+### Added
+- **Market-intel extraction** (`src/pipeline.js`, `src/emailhtml.js`). Newsletters/press in the collector
+  inbox carry real market intelligence (cash bids, basis, crush margins, China demand, freight, biofuel/
+  policy signals) that previously died on the News tab — every reasoning path runs items through
+  `compactItems`, which drops the body, so the Ask box, Analyst Note, and Market Pulse only ever saw
+  subject lines. New `extractMarketIntel()` distils the last few days of news **bodies** into a compact,
+  cited intel block (cheap Haiku call, cached in `kv_state`), which is now injected into `answerQuery`
+  and `generateMemo` (Analyst/Pulse/weekly/monthly) alongside the signal board. Refreshed with the news
+  digest (twice-daily run, the News "Refresh" button, and `news-digest`); also a standalone
+  `market-intel` CLI command. A collapsed **"Market intel from the inbox"** panel on the News tab shows
+  staff exactly what the model is being fed.
+
+### Changed
+- **News "What's flowing in" now reads like a real inbox** (`src/adapters/email_intake.js`,
+  `src/emailhtml.js`, `src/server.js`). Root cause of the old wall-of-text: email ingest stripped every
+  HTML tag (discarding hyperlink hrefs) and collapsed all whitespace before storage. Ingest now keeps a
+  **safe, structure-preserving HTML subset** via a new whitelist sanitizer (`sanitizeEmailHtml` —
+  paragraphs, lists, headings, and working `<a href>`; scripts/styles/images/trackers and all other
+  attributes dropped). The inbox renders each message with its real sender (the resolved registry
+  entity), a proper preview snippet, and the formatted body — re-sanitized at render time as defence in
+  depth for every source. Stored-body cap raised 4000 → 8000 chars so structure survives.
+
+### Fixed
+- **Iowa map showed two info boxes at once** (`src/assets/bbmap.js`, `src/server.js`). Districts (and
+  facility markers) bind both a sticky hover tooltip and a click popup with no "pinned" state, so
+  clicking left both on screen. The map now marks its container `bb-pinned` while a popup is open and
+  CSS hides hover tooltips (`#ia-map.bb-pinned .leaflet-tooltip { display:none }`) — reliable where
+  `closeTooltip()` was not, and it also suppresses tooltips on *other* districts while one is pinned.
+
 ## 1.20.1 — Reliability: crash-safe collection + config writes (code review)
 
 Two fixes from Ethan Cail's review (PRs #5 and #6), each with a zero-dependency regression test that

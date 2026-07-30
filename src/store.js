@@ -559,7 +559,7 @@ export function markSeen(item, verdict = null) {
     entityId: item.raw?.entityId ?? null,
     itemType: verdict?.type ?? item.raw?.itemType ?? null,
     geo: item.raw?.geo ? JSON.stringify(item.raw.geo) : null,
-    body: item.summary ? String(item.summary).slice(0, 4000) : null,
+    body: item.summary ? String(item.summary).slice(0, 8000) : null,
   });
 }
 

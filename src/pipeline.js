@@ -20,6 +20,7 @@ import { signalsText } from "./signals.js";
 import { weatherRiskText } from "./weather.js";
 import { upcomingReportsText, upcomingReports } from "./calendar.js";
 import { fetchDocumentText } from "./summarize.js";
+import { emailBodyToText } from "./emailhtml.js";
 import { evaluateTriggers, triggersText } from "./triggers.js";
 // compliance.js is intentionally NOT imported here — it's decoupled (platform split 2026-07-11)
 // and reserved for the future farmer-facing tool. Bean Brief's internal outputs run un-muzzled.
@@ -272,6 +273,11 @@ export async function runPipeline({ edition = "am", dryRun = false, source = nul
       console.log(`⚠️  News digest skipped: ${err.message}`);
     }
     try {
+      await extractMarketIntel(env);
+    } catch (err) {
+      console.log(`⚠️  Market-intel extraction skipped: ${err.message}`);
+    }
+    try {
       await generateMarketCards(env);
     } catch (err) {
       console.log(`⚠️  Market cards skipped: ${err.message}`);
@@ -492,6 +498,7 @@ export async function answerQuery(question, env) {
     `Question: ${question}\n\n` +
     `=== MARKET DATA (latest value, change vs prior, recent trail) ===\n${marketBlock || "(no market data stored yet)"}\n\n` +
     (weatherRiskText() ? `=== CROP-WEATHER READ (anomaly vs. normal → supply/price) ===\n${weatherRiskText()}\n\n` : "") +
+    (marketIntelText() ? `=== MARKET INTEL FROM NEWSLETTERS (distilled from the collector inbox, cited) ===\n${marketIntelText()}\n\n` : "") +
     `=== LAWS/RULES/DECISIONS + NEWS items (JSON) ===\n${JSON.stringify(compactHits, null, 1)}\n\n` +
     `=== TRACKED ITEMS (pinned) ===\n${tracked.length ? tracked.map((t) => `- ${t.title}${t.jurisdiction ? ` (${t.jurisdiction})` : ""}${t.url ? ` ${t.url}` : ""}`).join("\n") : "(none)"}\n\n` +
     `=== UPCOMING COMMENT DEADLINES ===\n${deadlines.length ? deadlines.map((d) => `- ${d.comment_deadline}: ${d.title}${d.url ? ` ${d.url}` : ""}`).join("\n") : "(none)"}\n\n` +
@@ -727,6 +734,7 @@ export async function generateMemo(presetId, env) {
         content:
           `Stored monitoring data for the last ${preset.scopeDays} days — write the memo per your instructions.\n\n` +
           `=== MARKET DATA (latest value, change vs prior, recent trail) ===\n${marketBlock || "(no market data stored yet)"}\n\n` +
+          (marketIntelText() ? `=== MARKET INTEL FROM NEWSLETTERS (distilled from the collector inbox, cited) ===\n${marketIntelText()}\n\n` : "") +
           `=== LAWS/RULES/DECISIONS + NEWS items (JSON) ===\n${JSON.stringify(compactHits, null, 1)}\n\n` +
           `=== TRACKED ITEMS (pinned) ===\n${tracked.length ? tracked.map((t) => `- ${t.title}${t.jurisdiction ? ` (${t.jurisdiction})` : ""}${t.url ? ` ${t.url}` : ""}`).join("\n") : "(none)"}\n\n` +
           `=== UPCOMING COMMENT DEADLINES ===\n${deadlines.length ? deadlines.map((d) => `- ${d.comment_deadline}: ${d.title}${d.url ? ` ${d.url}` : ""}`).join("\n") : "(none)"}\n\n` +
@@ -797,7 +805,8 @@ export async function generateNewsDigest(env = process.env) {
     })
   );
   const enriched = items.map((it, i) => {
-    const content = ((it.body || "").trim() || fetched.get(it.uid) || "").replace(/\s+/g, " ").slice(0, 1200);
+    // Stored email bodies are now sanitized HTML — flatten to text (keeping link URLs) for the prompt.
+    const content = (emailBodyToText(it.body) || (fetched.get(it.uid) || "").replace(/\s+/g, " ")).slice(0, 1200);
     return `[${i + 1}] ${it.title}${it.url ? ` (${it.url})` : ""}${content ? `\n    ${content}` : ""}`;
   });
   const withContent = items.filter((it) => (it.body || "").trim() || fetched.has(it.uid)).length;
@@ -826,6 +835,58 @@ export function getCachedNewsDigest() {
   } catch {
     return null;
   }
+}
+
+/**
+ * Market-intel extraction — the newsletters/press in the collector inbox carry real market
+ * intelligence (cash bids, basis, crush margins, China demand chatter, freight, policy signals) that
+ * used to die on the News tab: every reasoning path (Ask box, Analyst Note, Pulse) runs items through
+ * compactItems, which drops the BODY, so the model only ever saw subject lines. This distils the last
+ * few days of news BODIES into a compact, cited intel block, cached in kv_state, that those paths
+ * inject as context (via marketIntelText) — the intel now actually informs the model.
+ * Cheap Haiku call; cached/regenerated on demand alongside the news digest. @returns {{markdown,date,count}|null}
+ */
+export async function extractMarketIntel(env = process.env) {
+  if (!env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not set in .env — get one at console.anthropic.com");
+  const items = store.listItems({ days: 3, sourceIds: sourceIdsForClass("news"), limit: 80 });
+  const withBody = items.filter((it) => emailBodyToText(it.body).length > 80);
+  if (!withBody.length) return null;
+
+  const lines = withBody.map((it, i) => {
+    const when = (it.published_at || it.first_seen_at || "").slice(0, 10);
+    const content = emailBodyToText(it.body).slice(0, 1400);
+    return `[${i + 1}] ${it.title}${when ? ` — ${when}` : ""}${it.url ? ` (${it.url})` : ""}\n    ${content}`;
+  });
+
+  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  const model = env.TRIAGE_MODEL || "claude-haiku-4-5";
+  const resp = await client.messages.create({
+    model,
+    max_tokens: 1500,
+    system:
+      "You are a grain-market analyst mining the last few days of ag newsletters and press for MARKET INTELLIGENCE that bears on soybean (and corn) price — the concrete signals a trading desk cares about. From the bodies below, extract only substantive, decision-relevant facts and group them under these headings (omit a heading if it has nothing): **Price & basis**, **Demand & crush**, **Exports & trade (China)**, **Weather & crop**, **Policy & regulatory (biofuels/45Z/RFS/tariffs)**, **Other**. One tight bullet per fact, each ending with a source+date tag in parentheses. Prefer numbers, cash bids, spreads, margins, sales figures, dates. Skip opinion, ads, boilerplate, and anything already obvious. If there's little of substance, return only the headings that apply with 1–2 bullets. No preamble — start at the first heading.",
+    messages: [{ role: "user", content: `News bodies (headline — date (url) + text):\n\n${lines.join("\n\n")}` }],
+  });
+  store.recordUsage(model, "market_intel", resp.usage.input_tokens, resp.usage.output_tokens);
+  const markdown = resp.content.find((b) => b.type === "text")?.text?.trim() ?? "";
+  const date = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date());
+  store.setState("market_intel", JSON.stringify({ date, markdown, createdAt: new Date().toISOString(), count: withBody.length }));
+  return { markdown, date, count: withBody.length };
+}
+
+/** The cached market-intel block ({ date, markdown, createdAt, count }) or null. */
+export function getCachedMarketIntel() {
+  try {
+    const v = store.getState("market_intel");
+    return v ? JSON.parse(v) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The cached market-intel markdown for prompt injection, or "" if none. */
+export function marketIntelText() {
+  return getCachedMarketIntel()?.markdown || "";
 }
 
 /**
