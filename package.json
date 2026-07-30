@@ -8,6 +8,7 @@
     "node": ">=20"
   },
   "scripts": {
+    "test": "node --test test/",
     "run:am": "node src/index.js run --edition am",
     "run:pm": "node src/index.js run --edition pm",
     "dry-run": "node src/index.js run --dry-run",

@@ -19,9 +19,11 @@ const COLLECT_CONCURRENCY = 6;
  * @param {object} opts.watchlist  parsed watchlist.json
  * @param {object} opts.env        process.env
  * @param {string|null} opts.onlySource  restrict to a single source id (testing)
- * @param {boolean} opts.commit    real run: advance last-success timestamps.
- *                                 dry-run: read-only, never changes state.
- * @returns {{ items: Item[], skippedSources: {id, label, reason}[], fetchedCount: number }}
+ * @param {boolean} opts.commit    real run: propose per-source watermark advances (pendingWatermarks)
+ *                                 for the caller to commit post-triage. dry-run: propose nothing.
+ *                                 Collect never writes last_success_at itself.
+ * @returns {{ items: Item[], skippedSources: {id, label, reason}[], fetchedCount: number,
+ *            pendingWatermarks: {sourceId: string, ts: string}[] }}
  */
 export async function collectAll({ watchlist, env, onlySource = null, commit = true }) {
   if (onlySource && !adapters[onlySource]) {
@@ -44,9 +46,12 @@ export async function collectAll({ watchlist, env, onlySource = null, commit = t
   }
 
   // Fetch sources concurrently (bounded). Each keeps its own try/catch, so one source's failure
-  // is recorded independently and never kills the run ("fail soft"). better-sqlite3 is
-  // synchronous, so the isSeen/setLastSuccess reads and writes still serialize safely — only the
-  // network awaits overlap. Results come back in source order, so item ordering is unchanged.
+  // is recorded independently and never kills the run ("fail soft"). Collect is READ-ONLY w.r.t.
+  // watermarks: rather than advancing last_success_at here — while the run could still die before
+  // the fetched items are durable — each source returns its pending advance for the caller to apply
+  // at the post-triage commit point. better-sqlite3 is synchronous, so the isSeen reads serialize
+  // safely — only the network awaits overlap. Results come back in source order, so item ordering
+  // is unchanged.
   const settled = await mapPool(targets, COLLECT_CONCURRENCY, async ({ sourceId, adapter, sourceConfig }) => {
     const runStartedAt = new Date().toISOString();
     const sinceISO = store.getSince(sourceId);
@@ -65,8 +70,11 @@ export async function collectAll({ watchlist, env, onlySource = null, commit = t
       console.log(
         `📥 ${adapter.label}: ${fetched.length} fetched since ${sinceISO.slice(0, 10)}, ${fresh.length} new`
       );
-      if (commit) store.setLastSuccess(sourceId, runStartedAt);
-      return { fresh, fetched: fetched.length };
+      // Read-only: do NOT advance the watermark here. Return the pending advance (fetch-start time)
+      // so the caller commits it only once every fetched item is durably in seen_items. A dry run
+      // (commit=false) proposes nothing.
+      const pending = commit ? { sourceId, ts: runStartedAt } : null;
+      return { fresh, fetched: fetched.length, pending };
     } catch (err) {
       console.log(`⚠️  ${adapter.label}: skipped — ${err.message}`);
       return { skipped: { id: sourceId, label: adapter.label, reason: err.message } };
@@ -75,6 +83,7 @@ export async function collectAll({ watchlist, env, onlySource = null, commit = t
 
   const items = [];
   const skippedSources = [];
+  const pendingWatermarks = [];
   let fetchedCount = 0;
   for (const r of settled) {
     if (r.skipped) {
@@ -83,7 +92,8 @@ export async function collectAll({ watchlist, env, onlySource = null, commit = t
     }
     items.push(...r.fresh);
     fetchedCount += r.fetched;
+    if (r.pending) pendingWatermarks.push(r.pending);
   }
 
-  return { items, skippedSources, fetchedCount };
+  return { items, skippedSources, fetchedCount, pendingWatermarks };
 }
