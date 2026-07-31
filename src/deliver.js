@@ -1,11 +1,70 @@
 // deliver.js — get the finished brief where it needs to go:
 //   1. always: saved as markdown in ./briefings/YYYY-MM-DD-{am|pm}.md (+ indexed in SQLite)
 //   2. if TEAMS_WEBHOOK_URL is set: posted to Teams as an Adaptive Card
-//   3. if SMTP is configured AND watchlist output.email is true: emailed as plain text
+//   3. if SMTP is configured AND watchlist output.email is true: emailed (HTML + text)
+//
+// Delivery in practice is EMAIL: the Teams channels each have an inbound address, so a brief
+// reaches "Advocacy News" by being emailed there. That means the email's sender and formatting
+// ARE the Teams post's sender and formatting — see sendMarkdownEmail.
 
 import fs from "node:fs";
 import path from "node:path";
 import * as store from "./store.js";
+
+// ---------- markdown → email HTML ----------
+// Self-contained (server.js's richer renderer can't be imported — server.js imports this module)
+// and INLINE-STYLED, because Teams and Outlook both strip <style> blocks. Escape first, then mark
+// up, so nothing in a brief can inject markup.
+const escHtml = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const FONT = "font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif";
+const INLINE = (s) =>
+  s
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" style="color:#0070C3">$1</a>')
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s.,;:)]|$)/g, "$1<em>$2</em>")
+    .replace(/`([^`]+)`/g, '<code style="background:#f3f6f9;padding:1px 4px;border-radius:3px">$1</code>');
+
+export function markdownToEmailHtml(markdown, title = "The Bean Brief") {
+  const lines = escHtml(markdown).replace(/\r\n/g, "\n").split("\n");
+  const out = [];
+  let inList = false;
+  const closeList = () => { if (inList) { out.push("</ul>"); inList = false; } };
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    let m;
+    if (!line.trim()) { closeList(); continue; }
+    if (/^---+$/.test(line.trim())) { closeList(); out.push('<hr style="border:none;border-top:1px solid #d9e2ec;margin:18px 0">'); continue; }
+    if ((m = line.match(/^(#{1,4})\s+(.*)$/))) {
+      closeList();
+      const size = [1.35, 1.18, 1.05, 1][m[1].length - 1];
+      out.push(`<h${m[1].length} style="${FONT};color:#004A8D;font-size:${size}em;margin:18px 0 6px">${INLINE(m[2])}</h${m[1].length}>`);
+      continue;
+    }
+    if ((m = line.match(/^\s*[-*+]\s+(.*)$/))) {
+      if (!inList) { out.push(`<ul style="${FONT};margin:6px 0;padding-left:22px">`); inList = true; }
+      out.push(`<li style="margin:4px 0">${INLINE(m[1])}</li>`);
+      continue;
+    }
+    if ((m = line.match(/^\s*(\d+)\.\s+(.*)$/))) {
+      if (!inList) { out.push(`<ul style="${FONT};margin:6px 0;padding-left:22px">`); inList = true; }
+      out.push(`<li style="margin:4px 0">${INLINE(m[2])}</li>`);
+      continue;
+    }
+    if ((m = line.match(/^&gt;\s?(.*)$/))) {
+      closeList();
+      out.push(`<blockquote style="${FONT};margin:8px 0;padding-left:12px;border-left:3px solid #A5C6E3;color:#37474f">${INLINE(m[1])}</blockquote>`);
+      continue;
+    }
+    closeList();
+    out.push(`<p style="${FONT};line-height:1.55;margin:8px 0">${INLINE(line)}</p>`);
+  }
+  closeList();
+  return `<div style="${FONT};color:#1c2b3a;max-width:760px">
+<div style="border-bottom:3px solid #FFC425;padding-bottom:6px;margin-bottom:14px;font-weight:700;color:#004A8D">${escHtml(title)}</div>
+${out.join("\n")}
+<p style="${FONT};font-size:.8em;color:#6b7c8c;margin-top:20px;border-top:1px solid #d9e2ec;padding-top:8px">The Bean Brief — Iowa Soybean Association · internal monitoring. Informational, not a recommendation.</p>
+</div>`;
+}
 
 export function saveBrief(markdown, edition, timezone = "America/Chicago") {
   const dateLabel = new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(new Date());
@@ -69,8 +128,20 @@ export async function postToTeams(markdown, env) {
   return true;
 }
 
-/** Low-level SMTP send shared by the internal and farmer renders. */
-async function sendMarkdownEmail({ markdown, subject, to, env }) {
+/**
+ * Low-level SMTP send shared by every render.
+ *
+ * SENDER: Gmail will only accept a `from` that matches the authenticated account (or one of its
+ * verified aliases), so the account in SMTP_USER is what decides who the brief appears to come
+ * from — switching the Teams-channel posts to beanbrief@gmail.com is an SMTP_USER/SMTP_PASS
+ * change, not a code change. SMTP_FROM is offered only to attach a display name, e.g.
+ * `SMTP_FROM="The Bean Brief <beanbrief@gmail.com>"`; if its address doesn't match SMTP_USER
+ * Gmail rewrites or rejects it, so it falls back to the bare account.
+ *
+ * FORMAT: both a text and an HTML part. Teams channel-email posts (and Outlook) render the HTML,
+ * so headings and links come through as headings and links instead of literal `##` and `**`.
+ */
+async function sendMarkdownEmail({ markdown, subject, to, env, html = true }) {
   const { default: nodemailer } = await import("nodemailer");
   const transport = nodemailer.createTransport({
     host: env.SMTP_HOST,
@@ -78,7 +149,10 @@ async function sendMarkdownEmail({ markdown, subject, to, env }) {
     secure: Number(env.SMTP_PORT || 587) === 465,
     auth: { user: env.SMTP_USER, pass: env.SMTP_PASS },
   });
-  await transport.sendMail({ from: env.SMTP_USER, to, subject, text: markdown });
+  const from = env.SMTP_FROM && env.SMTP_FROM.includes(env.SMTP_USER) ? env.SMTP_FROM : env.SMTP_USER;
+  const message = { from, to, subject, text: markdown };
+  if (html) message.html = markdownToEmailHtml(markdown, subject);
+  await transport.sendMail(message);
 }
 
 export async function sendEmail(markdown, edition, env, watchlist) {

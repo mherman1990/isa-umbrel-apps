@@ -20,8 +20,12 @@
         "treasury-department",
         "internal-revenue-service",
         "commodity-futures-trading-commission",
-        "trade-representative-office-of-united-states"
-      ]
+        "trade-representative-office-of-united-states",
+        "engineers-corps",
+        "fish-and-wildlife-service",
+        "council-on-environmental-quality"
+      ],
+      "_agencyNote": "engineers-corps added 2026-07-30 — the Army Corps CO-ISSUES the Clean Water Act / WOTUS §404 dredge-and-fill rules with EPA, so an agricultural-drainage (tile) rule can publish under the Corps alone and was invisible to this whitelist. fish-and-wildlife-service covers ESA consultation on pesticide registrations; council-on-environmental-quality covers NEPA."
     },
     "congress_gov": {
       "enabled": true,

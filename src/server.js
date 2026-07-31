@@ -29,7 +29,7 @@ import { postToTeams } from "./deliver.js";
 import { summarizeItem } from "./summarize.js";
 import { syncRegistryFromSeed } from "./registry.js";
 import { studioBody, studioCatalog, studioSeries, studioSeriesCSV, studioEvents } from "./studio.js";
-import { sanitizeEmailHtml, emailBodyToText } from "./emailhtml.js";
+import { sanitizeEmailHtml, emailBodyToText, emailBodyToPreview } from "./emailhtml.js";
 
 // All user-facing timestamps render in Central time (the ISA org timezone).
 const CENTRAL_TZ = "America/Chicago";
@@ -346,10 +346,28 @@ function page(title, body) {
   .chart-range button.on { background: var(--isa-blue); color: #fff; border-color: var(--isa-blue); }
   .chart-range .rcustom { margin-left: auto; color: var(--isa-dark); opacity: .85; display: inline-flex; align-items: center; gap: 5px; }
   .chart-range input[type=date] { padding: 2px 6px; font-size: .92em; }
-  .bbchart-box { margin: 8px 0 6px; min-height: 60px; overflow-x: hidden; }
+  .bbchart-box { margin: 8px 0 6px; min-height: 60px; overflow-x: hidden; position: relative; }
   .u-legend { font-size: .82em; margin-top: 6px; }
   .u-legend .u-marker { width: 10px; height: 10px; }
   .u-title { color: var(--isa-dark); font-weight: 600; }
+  /* ⤢ full-screen chart: a 12-point series in a 330px phone column is unreadable however good the
+     interaction is, so every chart can take over the viewport (turn the phone landscape). */
+  .bbchart-expand { position: absolute; top: 0; right: 0; z-index: 2; background: rgba(255,255,255,.9);
+    color: var(--isa-dark); border: 1px solid var(--isa-dark-40); border-radius: 6px; padding: 2px 8px;
+    font-size: .9em; line-height: 1.2; cursor: pointer; opacity: .55; }
+  .bbchart-expand:hover { opacity: 1; background: var(--isa-gold-40); }
+  .bbchart-overlay { position: fixed; inset: 0; z-index: 1000; background: var(--surface);
+    padding: 8px 12px 12px; display: flex; flex-direction: column; }
+  .bbchart-overlay .bbchart-box { flex: 1; margin: 0; }
+  .bbchart-overlay .bbchart-expand { display: none; }
+  .bbchart-obar { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding-bottom: 6px; margin-bottom: 6px; border-bottom: 2px solid var(--isa-gold); }
+  .bbchart-otitle { font-weight: 700; color: var(--isa-dark); font-size: .95em; }
+  .bbchart-close { background: var(--isa-blue); color: #fff; border: none; border-radius: 6px;
+    padding: 7px 14px; font-weight: 600; cursor: pointer; }
+  /* ---------------- mobile ----------------------------------------------------------------
+     Everything below is scoped to a narrow viewport or a coarse pointer, so the desktop layout
+     is untouched. The tool is read on a phone in a truck as often as at a desk. */
   /* Mobile: the signal board goes compact (name · arrow · label; detail hidden) so the cards and
      charts aren't buried under 10 stacked cards on a phone. */
   @media (max-width: 640px) {
@@ -357,18 +375,58 @@ function page(title, body) {
     .sig { padding: 7px 9px; }
     .sig-label { margin-bottom: 0; }
     .sig-detail { display: none; }
+    /* NAV: ten tabs wrapped into three or four rows and pushed the page content below the fold.
+       One horizontal strip instead, with the current tab scrolled into view (see the script in
+       the footer). */
+    header { padding: 10px 2px 8px; gap: 8px; }
+    .brand .logo { height: 32px; }
+    .brand .brandname { font-size: 1rem; }
+    nav { margin-left: 0; width: 100%; flex-wrap: nowrap; overflow-x: auto; gap: 0;
+      scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+    nav::-webkit-scrollbar { display: none; }
+    nav a { white-space: nowrap; padding: 8px 11px; border-radius: 6px 6px 0 0; }
+    body { padding: 0 11px 48px; }
+    h1 { font-size: 1.3rem; } h2 { font-size: 1.12rem; }
+    /* LRD table → CARDS. A four-column table inside overflow-x:auto meant side-scrolling every
+       row just to reach its buttons. Each row becomes a labelled block instead. */
+    table.items thead { display: none; }
+    table.items, table.items tbody, table.items tr, table.items td { display: block; width: 100%; }
+    table.items { border-collapse: separate; }
+    table.items tr { border: 1px solid var(--line); border-radius: 8px; margin: 9px 0; padding: 9px 11px; }
+    table.items td { border: none; padding: 2px 0; }
+    table.items td[data-l]:not(:empty)::before { content: attr(data-l); display: block;
+      font-size: .68em; text-transform: uppercase; letter-spacing: .04em; opacity: .55;
+      font-weight: 700; margin-top: 4px; }
+    table.items td:empty { display: none; }
+    .tablewrap { overflow-x: visible; }
+    /* Row actions get real tap targets on any narrow screen, not only a coarse-pointer one. */
+    table.items .toolbar { gap: 8px; margin-top: 6px !important; }
+    table.items .toolbar button { padding: 8px 12px; font-size: .9rem; }
+    /* Range control: the custom-date block was pushed right by margin-left:auto and squeezed. */
+    .chart-range { gap: 8px 6px; }
+    .chart-range .rcustom { margin-left: 0; width: 100%; flex-wrap: wrap; }
+    #ia-map { height: 68vh; min-height: 340px; }
+    .report-cal { font-size: .82em; }
   }
-  /* Touch: bigger tap targets on the range control for outdoor, one-handed use. */
+  /* Touch: bigger tap targets for outdoor, one-handed use. */
   @media (pointer: coarse) {
     .chart-range button { padding: 9px 14px; }
     .chart-range input[type=date] { padding: 7px 8px; }
+    button, button.ghost { padding: 9px 15px; }
+    button.tiny { padding: 7px 11px; font-size: .9rem; }
+    .toolbar { gap: 9px; }
+    nav a { padding: 10px 12px; }
+    details.summary > summary, .mailitem > summary { padding: 4px 0; }
   }
 </style></head>
 <body><header>
 <a class="brand" href="/"><img class="logo" src="/assets/isa-logo-main.png" alt="Iowa Soybean Association"><span class="brandname">The Bean Brief</span></a>
 <nav><a href="/">Home</a><a href="/items">Laws, Rules &amp; Decisions</a><a href="/news">News</a><a href="/markets">Markets</a><a href="/studio">Studio</a><a href="/map">Map</a><a href="/watchlist">Watchlist</a><a href="/sources">Sources</a><a href="/registry">Registry</a><a href="/logs">Logs &amp; Settings</a></nav>
 </header>
-<script>(function(){var p=location.pathname;document.querySelectorAll('nav a').forEach(function(a){var h=a.getAttribute('href');if(h==='/'?p==='/':p===h||p.indexOf(h+'/')===0)a.classList.add('active');});})();</script>
+<script>(function(){var p=location.pathname,act=null;document.querySelectorAll('nav a').forEach(function(a){var h=a.getAttribute('href');if(h==='/'?p==='/':p===h||p.indexOf(h+'/')===0){a.classList.add('active');act=a;}});
+/* On a phone the nav is one horizontal strip (see the mobile CSS), so the current tab can sit off
+   screen — scroll it into view, without scrolling the page itself. */
+if(act&&act.offsetParent){var n=act.parentNode;if(n.scrollWidth>n.clientWidth+4)n.scrollLeft=Math.max(0,act.offsetLeft-16);}})();</script>
 ${body}
 </body></html>`;
 }
@@ -761,9 +819,18 @@ function homeCalendar() {
 <style>
   .bbcal-layout{display:grid;grid-template-columns:minmax(0,330px) 1fr;gap:20px;align-items:start}
   @media(max-width:640px){.bbcal-layout{grid-template-columns:1fr}}
-  .bbcal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+  .bbcal-head{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:6px}
   .bbcal-mon{font-weight:700}
-  .bbcal-nav{background:none;border:1px solid var(--isa-blue-40);border-radius:6px;cursor:pointer;padding:1px 9px;font-size:.9em}
+  /* The month arrows must be legible AT REST. They inherit the global button rule, which sets
+     color:#fff — with background:none that was a white glyph on white paper, invisible until
+     :hover repainted the background dark. Set the ink explicitly and make hover a tint, not an
+     inversion, so the control never disappears. */
+  .bbcal-nav{background:#fff;color:var(--isa-dark);border:1px solid var(--isa-dark-40);border-radius:6px;
+    cursor:pointer;padding:4px 12px;font-size:1em;line-height:1.1;font-weight:700}
+  .bbcal-nav:hover{background:var(--isa-gold-40);color:var(--isa-dark);border-color:var(--isa-dark)}
+  .bbcal-today-btn{background:#fff;color:var(--isa-dark);border:1px solid var(--isa-dark-40);border-radius:6px;
+    cursor:pointer;padding:4px 10px;font-size:.8em;font-weight:600}
+  .bbcal-today-btn:hover{background:var(--isa-gold-40);color:var(--isa-dark);border-color:var(--isa-dark)}
   .bbcal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
   .bbcal-wd{text-align:center;font-size:.68em;color:var(--muted);padding:2px 0;font-weight:600}
   .bbcal-cell{min-height:40px;border:1px solid transparent;border-radius:6px;padding:3px}
@@ -780,10 +847,24 @@ function homeCalendar() {
   .bbcal-ekind{font-size:.7em;font-weight:700;text-transform:uppercase;letter-spacing:.03em;margin-right:5px}
   .bbcal-note{font-size:.85em;margin-top:1px}
   .bbcal-imp{color:var(--isa-rust);font-weight:700}
+  /* The side/lower panel rolls up — it is the longest thing on the homepage and most of the time
+     you only want the month grid. State is remembered per browser. */
+  .bbcal-roll{border:1px solid var(--line);border-radius:8px;padding:6px 12px}
+  .bbcal-roll>summary{cursor:pointer;font-weight:600;color:var(--isa-dark);font-size:.92em}
+  .bbcal-roll[open]{border-color:var(--isa-dark-40)}
+  /* Touch: the day cell IS the tap target, and 40px with 3px padding is a miss on a phone. */
+  @media(pointer:coarse){
+    .bbcal-cell{min-height:52px}
+    .bbcal-nav{padding:9px 18px}
+    .bbcal-today-btn{padding:9px 12px}
+  }
 </style>
 <div class="bbcal-layout">
   <div id="bbcal"></div>
-  <div id="bbcal-detail"></div>
+  <details class="bbcal-roll" id="bbcal-roll" open>
+    <summary id="bbcal-rollsum">Upcoming</summary>
+    <div id="bbcal-detail"></div>
+  </details>
 </div>
 <script id="bbcal-data" type="application/json">${blob}</script>
 <script>
@@ -798,9 +879,15 @@ function homeCalendar() {
   function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
   function iso(y,m,d){return y+'-'+('0'+(m+1)).slice(-2)+'-'+('0'+d).slice(-2);}
   function fmt(d){var p=d.split('-');return MON[+p[1]-1].slice(0,3)+' '+(+p[2])+', '+p[0];}
+  // The roll-up remembers whether you keep it open; its summary doubles as the panel title so a
+  // collapsed panel still says what it's holding ("Upcoming · 8" / "Jul 30, 2026 · 2").
+  var roll=document.getElementById('bbcal-roll'), rollsum=document.getElementById('bbcal-rollsum');
+  try{ if(roll&&localStorage.getItem('bbcalRoll')==='0') roll.open=false; }catch(e){}
+  if(roll) roll.addEventListener('toggle',function(){ try{ localStorage.setItem('bbcalRoll',roll.open?'1':'0'); }catch(e){} });
   function detail(date){
     var box=document.getElementById('bbcal-detail');
     var evs=(date&&byDate[date])?byDate[date]:data.filter(function(e){return e.date>=todayISO;}).slice(0,8);
+    if(rollsum) rollsum.innerHTML=esc(date?fmt(date):'Upcoming')+' <span class="muted" style="font-weight:400">· '+evs.length+'</span>';
     var h='<div class="bbcal-dtitle">'+esc(date?fmt(date):'Upcoming')+'</div>';
     if(!evs.length){box.innerHTML=h+'<p class="muted">No dates in view.</p>';return;}
     h+='<ul class="bbcal-elist">';
@@ -817,7 +904,11 @@ function homeCalendar() {
   function render(){
     var y=cur.getFullYear(),m=cur.getMonth();
     var first=new Date(y,m,1).getDay(), days=new Date(y,m+1,0).getDate();
-    var h='<div class="bbcal-head"><button class="bbcal-nav" id="bbcal-prev">&#9664;</button><span class="bbcal-mon">'+MON[m]+' '+y+'</span><button class="bbcal-nav" id="bbcal-next">&#9654;</button></div><div class="bbcal-grid">';
+    var isNow=(y===today.getFullYear()&&m===today.getMonth());
+    var h='<div class="bbcal-head"><button class="bbcal-nav" id="bbcal-prev" aria-label="Previous month" title="Previous month">&#9664;</button>'
+      +'<span class="bbcal-mon">'+MON[m]+' '+y+'</span>'
+      +(isNow?'':'<button class="bbcal-today-btn" id="bbcal-today" title="Jump back to this month">Today</button>')
+      +'<button class="bbcal-nav" id="bbcal-next" aria-label="Next month" title="Next month">&#9654;</button></div><div class="bbcal-grid">';
     ['S','M','T','W','T','F','S'].forEach(function(d){h+='<div class="bbcal-wd">'+d+'</div>';});
     for(var i=0;i<first;i++) h+='<div class="bbcal-cell"></div>';
     for(var d=1;d<=days;d++){
@@ -830,6 +921,8 @@ function homeCalendar() {
     el.innerHTML=h+'</div>';
     document.getElementById('bbcal-prev').onclick=function(){cur=new Date(y,m-1,1);render();};
     document.getElementById('bbcal-next').onclick=function(){cur=new Date(y,m+1,1);render();};
+    var tb=document.getElementById('bbcal-today');
+    if(tb) tb.onclick=function(){cur=new Date(today.getFullYear(),today.getMonth(),1);sel=null;render();detail(null);};
     Array.prototype.forEach.call(el.querySelectorAll('.bbcal-has'),function(c){c.onclick=function(){sel=c.getAttribute('data-date');render();detail(sel);};});
   }
   render(); detail(null);
@@ -1336,17 +1429,20 @@ function inboxFeed() {
     const when = (r.first_seen_at || "").slice(0, 10);
     const rawBody = (r.body || "").trim();
     const title = decodeEntities(r.title || "(untitled)");
-    // Snippet: the triage one-liner if present, else the first words of the body as plain text.
+    // Snippet: the triage one-liner if present, else the first real PROSE in the body. News items
+    // are never triaged, so one_line is almost always empty here and the fallback is what you see —
+    // it used to run through emailBodyToText, whose job is to inline every href for LLM prompts, so
+    // a publisher newsletter previewed as 180 characters of tracking URL. emailBodyToPreview strips
+    // urls + ESP chrome and starts at the first sentence.
     let preview = decodeEntities(r.one_line || "");
-    if (!preview && rawBody) {
-      const flat = emailBodyToText(rawBody);
-      preview = flat.slice(0, 180);
-      if (flat.length > 180) { const sp = preview.lastIndexOf(" "); preview = (sp > 120 ? preview.slice(0, sp) : preview) + "…"; }
-    }
+    // decodeEntities as well as the one_line path: RSS bodies arrive double-encoded, so the text
+    // still carries literal &#8212; / &#8217; after cheerio has done its one decode pass.
+    if (!preview && rawBody) preview = decodeEntities(emailBodyToPreview(rawBody, 180));
     // Re-sanitize the stored body at render time (defence in depth for every source, incl. legacy
     // RSS rows never cleaned at ingest), then render it as real HTML so links/lists/headings show.
+    // Render-time sanitizing also means the chrome pass cleans mail that was stored before it existed.
     const bodyHtml = rawBody
-      ? sanitizeEmailHtml(rawBody).replace(/<a href=/g, '<a target="_blank" rel="noopener noreferrer" href=')
+      ? sanitizeEmailHtml(rawBody).replace(/<a /g, '<a target="_blank" rel="noopener noreferrer" ')
       : "";
     return `<details class="mailitem">
       <summary>
@@ -1408,6 +1504,10 @@ function newsBody(notice) {
       .mailitem .mi-body{margin-bottom:10px}
       .mailitem .mi-body p{margin:.5em 0}
       .mailitem .mi-body a{color:var(--isa-blue);text-decoration:underline;word-break:break-word}
+      /* A link whose own text was a bare url / image file is reduced to this compact marker by the
+         sanitizer, so the prose reads clean but nothing is unreachable. */
+      .mailitem .mi-body a.mi-x{text-decoration:none;font-size:.85em;opacity:.6;padding:0 1px}
+      .mailitem .mi-body a.mi-x:hover{opacity:1}
       .mailitem .mi-body ul,.mailitem .mi-body ol{margin:.5em 0;padding-left:1.4em}
       .mailitem .mi-body li{margin:.2em 0}
       .mailitem .mi-body h1,.mailitem .mi-body h2,.mailitem .mi-body h3,.mailitem .mi-body h4{font-size:1em;font-weight:700;margin:.8em 0 .2em}
@@ -1442,7 +1542,8 @@ function chartSection(category, title, desc, height = 300) {
   const unit = series[0].unit || "";
   const id = `chart_${category}`;
   // Escape "<" inside the JSON so nothing can break out of the <script> element.
-  const spec = JSON.stringify({ unit, height, series }).replace(/</g, "\\u003c");
+  // `title` rides along so the full-screen (⤢) view can label itself.
+  const spec = JSON.stringify({ unit, height, series, title }).replace(/</g, "\\u003c");
   return `<h2 style="margin-bottom:2px">${title}
       <a class="ghost tiny" href="/markets/csv?category=${category}" style="font-size:.65em;vertical-align:middle">⬇ CSV</a></h2>
     <p class="muted" style="margin-top:0">${desc}</p>
@@ -1670,19 +1771,21 @@ function itemsBody(params, notice) {
       const archiveBtn = viewingArchive
         ? `<button type="button" class="ghost tiny act" data-act="archive" data-uid="${esc(r.uid)}" data-on="false" title="Restore to the main list">♻ restore</button>`
         : `<button type="button" class="ghost tiny act" data-act="archive" data-uid="${esc(r.uid)}" data-on="true" title="Set aside — move to the archive (recoverable)">🗄 set aside</button>`;
+      // data-l labels drive the mobile card layout (the <thead> is hidden under 640px and each cell
+      // prints its own label instead) — see the mobile block in page().
       return `<tr data-row="${esc(r.uid)}">
         <td><a href="${esc(r.url ?? "#")}" target="_blank" rel="noopener">${esc((r.title ?? r.uid).slice(0, 110))}</a>
           ${r.one_line ? `<br><span class="muted">${esc(r.one_line)}</span>` : ""}
           ${r.feedback_note ? `<br><span class="muted">📝 ${esc(r.feedback_note)}</span>` : ""}
           ${summaryPanel}</td>
-        <td class="muted">${esc(jurisdictionLevel(r.source_id, r.jurisdiction))}<br>${esc((r.published_at ?? r.first_seen_at ?? "").slice(0, 10))}${statusBadge(r) ? `<br>${statusBadge(r)}` : ""}</td>
-        <td class="muted">${esc(r.triage_verdict ?? "")}</td>
+        <td class="muted" data-l="Where / when">${esc(jurisdictionLevel(r.source_id, r.jurisdiction))} · ${esc((r.published_at ?? r.first_seen_at ?? "").slice(0, 10))}${statusBadge(r) ? ` ${statusBadge(r)}` : ""}</td>
+        <td class="muted" data-l="Verdict">${esc(r.triage_verdict ?? "")}</td>
         <td><div class="toolbar" style="margin:0">${trackBtn}${fb("up", "👍")}${fb("down", "👎")}${archiveBtn}</div></td>
       </tr>`;
   };
 
   // Flat table, or grouped into sections (by state/fed level, focus-area topic, or source).
-  const TABLE_HEAD = `<tr><th>Item</th><th>Where / when</th><th>Verdict</th><th>Actions</th></tr>`;
+  const TABLE_HEAD = `<thead><tr><th>Item</th><th>Where / when</th><th>Verdict</th><th>Actions</th></tr></thead>`;
   const tableOf = (rs) => `<div class="tablewrap" style="overflow-x:auto"><table class="items">${TABLE_HEAD}${rs.map(renderRow).join("\n") || '<tr><td colspan="4" class="muted">Nothing here.</td></tr>'}</table></div>`;
   const groupKey = (r) =>
     group === "level" ? jurisdictionLevel(r.source_id, r.jurisdiction)
@@ -2226,11 +2329,62 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
         }
         if (req.method === "GET") {
           const notice = url.searchParams.get("notice");
+          // COPY: navigator.clipboard exists only in a SECURE CONTEXT. The Pi is reached over plain
+          // http:// on a Tailscale IP, which is not one — so `navigator.clipboard` is undefined there
+          // and the old one-liner threw inside an un-caught promise chain: the button did nothing,
+          // said nothing, and copied nothing. Three tiers now, with visible feedback at every step:
+          // the async API where it works, execCommand on plain http, and a pre-selected textarea as
+          // the last resort so the text is always reachable by hand.
           const buttons = `<div class="toolbar">
-            <button class="ghost" onclick="fetch('/brief/${encodeURIComponent(name)}/raw').then(r=>r.text()).then(t=>navigator.clipboard.writeText(t)).then(()=>this.textContent='✓ copied')">📋 Copy markdown</button>
+            <button class="ghost" id="bb-copy" type="button">📋 Copy markdown</button>
             <a href="mailto:?subject=${encodeURIComponent("ISA Policy Brief " + name.replace(".md", ""))}&body=${encodeURIComponent("Brief attached below (or read it at " + `http://${req.headers.host}/brief/${name}` + " on the office network):%0A%0A")}"><button class="ghost" type="button">✉️ Email</button></a>
             <form method="post" action="/brief/${encodeURIComponent(name)}/teams"><button class="ghost">💬 Post to Teams</button></form>
-          </div>`;
+          </div>
+          <div id="bb-copy-fallback" hidden style="margin:8px 0">
+            <p class="muted" style="margin:0 0 4px">Your browser blocked the clipboard (this page isn't served over https). The markdown is selected below — press <strong>Ctrl+C</strong>.</p>
+            <textarea id="bb-copy-text" rows="8" style="width:100%;font-family:ui-monospace,Consolas,monospace;font-size:.85em"></textarea>
+          </div>
+          <script>
+          (function(){
+            var btn=document.getElementById('bb-copy'); if(!btn) return;
+            var RAW=${JSON.stringify(`/brief/${encodeURIComponent(name)}/raw`)};
+            function flash(msg){ btn.textContent=msg; setTimeout(function(){ btn.textContent='📋 Copy markdown'; },2500); }
+            function legacy(text){
+              // execCommand('copy') still works on plain http, but only on a selection inside a
+              // focusable, on-screen element — an off-screen textarea is the standard trick.
+              var ta=document.createElement('textarea');
+              ta.value=text; ta.setAttribute('readonly','');
+              ta.style.position='fixed'; ta.style.top='0'; ta.style.left='0'; ta.style.opacity='0';
+              document.body.appendChild(ta);
+              ta.focus(); ta.select(); ta.setSelectionRange(0, text.length);
+              var ok=false; try{ ok=document.execCommand('copy'); }catch(e){ ok=false; }
+              document.body.removeChild(ta);
+              return ok;
+            }
+            function manual(text){
+              var box=document.getElementById('bb-copy-fallback'), ta=document.getElementById('bb-copy-text');
+              box.hidden=false; ta.value=text; ta.focus(); ta.select();
+              try{ box.scrollIntoView({block:'nearest'}); }catch(e){}
+              flash('⚠️ copy blocked — see below');
+            }
+            btn.addEventListener('click', function(){
+              btn.textContent='…';
+              fetch(RAW).then(function(r){
+                if(!r.ok) throw new Error('HTTP '+r.status);
+                return r.text();
+              }).then(function(text){
+                if(navigator.clipboard && window.isSecureContext){
+                  navigator.clipboard.writeText(text).then(function(){ flash('✓ copied'); },
+                    function(){ if(legacy(text)) flash('✓ copied'); else manual(text); });
+                } else if(legacy(text)){
+                  flash('✓ copied');
+                } else {
+                  manual(text);
+                }
+              }).catch(function(err){ flash('⚠️ '+err.message); });
+            });
+          })();
+          </script>`;
           res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
           res.end(
             page(

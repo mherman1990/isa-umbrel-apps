@@ -1,5 +1,76 @@
 # Changelog
 
+## 1.25.0 — Usability: visible controls, a working copy button, a phone-shaped UI, readable newsletters
+
+A use-it-every-day release rather than an analytical one. Every item here came from actually using
+the tool: a control that was invisible, a button that silently did nothing, an inbox that showed
+tracking URLs instead of the story, and a layout that assumed a desktop. It also tags four fixes
+that had landed on `main` untagged (`df560b2`, `2188909`, `38af049`, `f2683e9` — .env loading in the
+feed checker, an AMS `skipBackfill` option for diagnostics, prompt-context corrections found by the
+first live Analyst Note, and forecast-ledger claim/series alignment).
+
+### Fixed
+- **The calendar's month arrows were invisible until hovered.** `.bbcal-nav` set
+  `background:none` but inherited `color:#fff` from the global button rule — a white glyph on white
+  paper. Hover repainted the background dark, which is why they appeared only on mouse-over. The ink
+  is now explicit and hover is a gold tint rather than an inversion, so the control never disappears.
+- **"📋 Copy markdown" copied nothing, silently.** `navigator.clipboard` exists only in a *secure
+  context*; the Pi is reached over plain `http://` on a Tailscale IP, so the API is `undefined` there
+  and the old one-line handler threw inside an un-caught promise chain — no copy, no error, no
+  feedback. Now three tiers: the async Clipboard API where it's available, a `document.execCommand`
+  fallback that works over plain http, and finally a pre-selected textarea with a "press Ctrl+C"
+  prompt. Every path ends in visible feedback; it can no longer fail in silence.
+- **Setting a hearing aside didn't remove it from the calendar.** `store.upcomingHearings` ignored
+  the `archived` flag, so a hearing dismissed in Laws/Rules/Decisions kept its calendar dot forever.
+- **The News inbox previewed tracking URLs instead of the story.** News items are never triaged, so
+  `one_line` is empty and the snippet falls back to the body — through `emailBodyToText`, whose job
+  is to *inline every href* for LLM prompts. A Morning Ag Clips item previewed as 180 characters of
+  `securetrack.morningagclips.com`. New `emailBodyToPreview` strips URLs and ESP chrome and starts at
+  the first real sentence. Verified across 56 stored items: no URLs, no stray entities.
+- **Newsletter bodies rendered the publisher's plumbing.** An ESP's text/plain alternative encodes
+  every image and link as a bracketed URL after its alt text, and the old renderer escaped and
+  linkified all of it. A chrome pass now drops image URLs, reduces a bare link to a compact ↗ next to
+  the prose that already labels it, and removes boilerplate ("Images not showing up?", view-in-browser,
+  unsubscribe/footer rows, social-icon strips — detected by link *density*, so it generalizes past
+  the publishers we've seen). Because bodies are re-sanitized at render time, this cleans mail that
+  was already stored. Guarded against over-stripping: prose carrying three real links is untouched.
+- **`npm test` was broken on Node 24** — `node --test test/` no longer accepts a bare directory and
+  died with MODULE_NOT_FOUND. Now globs `test/*.test.js`; all 6 tests pass.
+- The Federal Register whitelist was **missing the Army Corps of Engineers**, which co-issues the
+  Clean Water Act / WOTUS §404 dredge-and-fill rules with EPA — so an agricultural-drainage (tile)
+  rule can publish under the Corps alone and was invisible. Added, with Fish & Wildlife (ESA
+  consultation on pesticide registrations) and CEQ (NEPA). *(A `/data/watchlist.json` merge is
+  needed on the Pi for this one — everything else in this release is code-only.)*
+
+### Added
+- **Mobile pass**, all of it scoped to `max-width:640px` / `pointer:coarse` so the desktop layout is
+  untouched:
+  - The **ten-tab nav wrapped into three or four rows** and pushed content below the fold; it's now a
+    single horizontal strip that scrolls the current tab into view.
+  - **Laws/Rules/Decisions becomes cards on a phone.** A four-column table inside `overflow-x:auto`
+    meant side-scrolling every row to reach its buttons; each row is now a labelled block, and the
+    row actions get real tap targets.
+  - **Charts respond to touch.** uPlot 1.6.32 ships no touch handlers at all, so on a phone the
+    charts were inert — no legend, no zoom, nothing to do but pinch the page. Touch is translated
+    into the mouse events uPlot already listens for (finger-drag scrubs the live legend), plus
+    pinch-to-zoom on the time axis, one-finger pan once zoomed, and double-tap to reset to the
+    range the toolbar has selected.
+  - **⤢ expand** on every chart — full-viewport view (turn the phone landscape), Esc or tap-outside
+    to close. A 12-point series in a 330px column is unreadable however good the interaction is.
+  - Shorter chart heights and fewer x-axis ticks on narrow screens; the range control's custom-date
+    block no longer gets squeezed off the edge; bigger day cells on the calendar; the Iowa map sizes
+    to the viewport instead of a fixed 620px.
+- **Brief emails are now sent as HTML as well as text.** Delivery to Teams is by channel email, so
+  the mail's formatting *is* the Teams post's formatting — headings and links arrived as literal
+  `##` and `**`. Inline-styled (Teams and Outlook strip `<style>`).
+- `SMTP_FROM` support for a sender display name, e.g. `"The Bean Brief <beanbrief@gmail.com>"`.
+  Gmail only accepts a `from` matching the authenticated account, so it is ignored unless its address
+  matches `SMTP_USER`; **switching the sender is an SMTP_USER/SMTP_PASS change on the Pi, not a code
+  change.**
+- A **"Today"** button on the calendar (shown only when you've navigated away from the current
+  month) and a **roll-up** on the Upcoming panel, which remembers its state and titles itself with
+  the selected day and event count when collapsed.
+
 ## 1.24.0 — Daily price & basis, crush utilization, forecast ledger, surprise scoring
 
 The largest analytical change since the market layer was built. Until now the tool could monitor and
