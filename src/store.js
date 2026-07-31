@@ -544,6 +544,13 @@ db.exec(`
     created_at       TEXT NOT NULL,     -- when the claim was made (not when extracted)
     claim            TEXT NOT NULL,     -- the falsifiable statement, verbatim-ish
     direction        TEXT,              -- up | down | flat | n/a  (direction of the series below)
+    -- comparator/threshold added after the first live run: most real analyst claims are LEVEL claims
+    -- ("holds above 200,000 MT", "stays above the 90th percentile"), and with only up/down/flat
+    -- available the extractor coerced them into directions the resolver then judged wrongly — a
+    -- claim of "holds above 200k" from a 302k baseline scores MISS on a fall to 250k that actually
+    -- satisfied it. rises | falls | stays_flat | stays_above | stays_below.
+    comparator       TEXT,
+    threshold        REAL,              -- the level for stays_above / stays_below
     series           TEXT,              -- market_series id that settles it, when one does
     horizon_days     INTEGER,           -- how far out the claim reaches
     resolve_by       TEXT,              -- ISO date after which it can be judged
@@ -564,6 +571,15 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_forecasts_outcome ON forecasts(outcome);
   CREATE INDEX IF NOT EXISTS idx_forecasts_resolve ON forecasts(resolve_by);
 `);
+// Additive migration for DBs created before comparator/threshold existed (same pattern as the rest
+// of the schema: adding an existing column throws, which means it's already there).
+for (const col of ["comparator TEXT", "threshold REAL"]) {
+  try {
+    db.exec(`ALTER TABLE forecasts ADD COLUMN ${col};`);
+  } catch {
+    /* already migrated */
+  }
+}
 
 // --- report expectations & surprise ----------------------------------------------------------
 // Markets move on SURPRISE versus expectation, not on levels. The tool stored WASDE/NASS actuals but
@@ -650,12 +666,15 @@ export function listExpectations({ settledOnly = false, limit = 40 } = {}) {
 /** Insert a forecast, or update it in place if this exact claim was already extracted. */
 export function upsertForecast(f) {
   db.prepare(
-    `INSERT INTO forecasts (dedupe_key, brief_path, edition, created_at, claim, direction, series,
-        horizon_days, resolve_by, confirming_event, confidence, baseline_value, baseline_period, outcome)
-     VALUES (@dedupe_key, @brief_path, @edition, @created_at, @claim, @direction, @series,
-        @horizon_days, @resolve_by, @confirming_event, @confidence, @baseline_value, @baseline_period, 'pending')
+    `INSERT INTO forecasts (dedupe_key, brief_path, edition, created_at, claim, direction, comparator,
+        threshold, series, horizon_days, resolve_by, confirming_event, confidence, baseline_value,
+        baseline_period, outcome)
+     VALUES (@dedupe_key, @brief_path, @edition, @created_at, @claim, @direction, @comparator,
+        @threshold, @series, @horizon_days, @resolve_by, @confirming_event, @confidence,
+        @baseline_value, @baseline_period, 'pending')
      ON CONFLICT(dedupe_key) DO UPDATE SET
-        claim=excluded.claim, direction=excluded.direction, series=excluded.series,
+        claim=excluded.claim, direction=excluded.direction, comparator=excluded.comparator,
+        threshold=excluded.threshold, series=excluded.series,
         horizon_days=excluded.horizon_days, resolve_by=excluded.resolve_by,
         confirming_event=excluded.confirming_event, confidence=excluded.confidence`
   ).run({
@@ -665,6 +684,8 @@ export function upsertForecast(f) {
     created_at: f.createdAt,
     claim: f.claim,
     direction: f.direction ?? null,
+    comparator: f.comparator ?? null,
+    threshold: Number.isFinite(f.threshold) ? f.threshold : null,
     series: f.series ?? null,
     horizon_days: f.horizonDays ?? null,
     resolve_by: f.resolveBy ?? null,

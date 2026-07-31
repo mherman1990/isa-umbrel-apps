@@ -1131,13 +1131,24 @@ const FORECAST_SCHEMA = {
         type: "object",
         properties: {
           claim: { type: "string", description: "The falsifiable claim in one sentence, as the note stated it." },
-          direction: { type: "string", enum: ["up", "down", "flat", "n/a"], description: "Which way the named series is claimed to move. 'n/a' when the claim is not about a stored series." },
-          series: { type: "string", description: "EXACT market_series id from the provided list that would settle this, or empty string if none applies." },
+          comparator: {
+            type: "string",
+            enum: ["rises", "falls", "stays_flat", "stays_above", "stays_below", "not_measurable"],
+            description:
+              "How the claim is settled. Use rises/falls for a DIRECTIONAL claim ('will compress', 'should widen'). Use stays_above/stays_below for a LEVEL claim ('holds above 200,000 MT', 'remains above the 90th percentile') and put the number in `threshold`. Use not_measurable when no stored series can settle it.",
+          },
+          threshold: { type: "number", description: "The level for stays_above / stays_below, in the series' own unit. Use 0 for every other comparator." },
+          direction: { type: "string", enum: ["up", "down", "flat", "n/a"], description: "Legacy directional summary; keep consistent with `comparator` (rises→up, falls→down, stays_flat→flat, otherwise n/a)." },
+          series: {
+            type: "string",
+            description:
+              "EXACT market_series id that MEASURES THE THING BEING CLAIMED — not a driver of it, not a related indicator. If the claim is about a USDA yield print and no stored series holds that yield, return an empty string; do NOT substitute the soil-moisture series that motivated the claim. An empty string is the correct answer whenever nothing on the list directly measures the claim's subject.",
+          },
           horizonDays: { type: "integer", description: "Days until the claim can be judged. Use 30 if the note implies 'the next month', 90 for 'this quarter'." },
           confirmingEvent: { type: "string", description: "The report or data release the note said would confirm or kill it." },
           confidence: { type: "string", enum: ["low", "medium", "high"], description: "How firmly the note asserted it — hedged language is low." },
         },
-        required: ["claim", "direction", "series", "horizonDays", "confirmingEvent", "confidence"],
+        required: ["claim", "comparator", "threshold", "direction", "series", "horizonDays", "confirmingEvent", "confidence"],
         additionalProperties: false,
       },
     },
@@ -1177,7 +1188,10 @@ export async function extractForecasts(markdown, { edition, briefPath, env = pro
     system:
       "You extract FALSIFIABLE FORECASTS from an analyst note so they can be scored later. A forecast is a claim about which way something will move, or what a release will show, that could be checked against data at a future date. Extract at most 6, preferring the most specific and consequential. " +
       "Do NOT extract: descriptions of what already happened, definitions, general context, or advice. If the note makes no falsifiable claim, return an empty array — that is a valid and useful answer. " +
-      "For `series`, pick the EXACT id from the provided list that would settle the claim, or an empty string when no stored series can. For `direction`, state which way that series is claimed to move. Be conservative about `confidence`: hedged language ('may', 'could', 'risks') is low.",
+      "TWO RULES THAT MATTER MOST, both learned from mis-scored forecasts:\n" +
+      "1. `series` must MEASURE THE CLAIM'S SUBJECT, not its cause. A claim that dry soil will produce a below-trend YIELD PRINT is a claim about yield — if no stored series holds that yield, return an empty string. Attaching the soil-moisture series makes the claim resolve on whether soil dried out, which it will anyway, recording a false hit on a yield call.\n" +
+      "2. Choose `comparator` by how the claim is actually worded. 'holds above 200,000 MT' and 'remains above the 90th percentile' are LEVEL claims → stays_above with the number in `threshold`. Only use rises/falls when the claim is genuinely about direction of travel. Coercing a level claim into a direction gets it scored against the wrong test.\n" +
+      "Be conservative about `confidence`: hedged language ('may', 'could', 'risks') is low.",
     messages: [
       {
         role: "user",
@@ -1204,6 +1218,12 @@ export async function extractForecasts(markdown, { edition, briefPath, env = pro
     const seriesId = f.series && bySeries.has(f.series) ? f.series : null;
     const base = seriesId ? bySeries.get(seriesId) : null;
     const horizon = Number.isFinite(f.horizonDays) && f.horizonDays > 0 ? Math.min(f.horizonDays, 365) : 30;
+    // A stays_above/stays_below claim without a usable threshold can't be judged — record it as
+    // not_measurable rather than silently falling back to a direction the claim never asserted.
+    let comparator = f.comparator ?? null;
+    const isLevel = comparator === "stays_above" || comparator === "stays_below";
+    if (isLevel && !Number.isFinite(f.threshold)) comparator = "not_measurable";
+    if (!seriesId) comparator = "not_measurable";
     store.upsertForecast({
       dedupeKey: forecastKey(briefPath, f.claim),
       briefPath,
@@ -1211,6 +1231,8 @@ export async function extractForecasts(markdown, { edition, briefPath, env = pro
       createdAt,
       claim: String(f.claim).slice(0, 600),
       direction: f.direction ?? null,
+      comparator,
+      threshold: isLevel && Number.isFinite(f.threshold) ? f.threshold : null,
       series: seriesId,
       horizonDays: horizon,
       resolveBy: new Date(Date.now() + horizon * 864e5).toISOString().slice(0, 10),
@@ -1251,8 +1273,12 @@ export function resolveForecasts() {
   const due = store.forecastsDueForResolution();
   let hit = 0, miss = 0, unresolvable = 0, inconclusive = 0;
   for (const f of due) {
-    if (!f.series || !f.direction || f.direction === "n/a" || f.baseline_value == null) {
-      store.resolveForecast(f.id, { outcome: "unresolvable", note: "No stored series / direction to settle this claim mechanically." });
+    const levelClaim = (f.comparator === "stays_above" || f.comparator === "stays_below") && f.threshold != null;
+    const directionalClaim = f.comparator
+      ? ["rises", "falls", "stays_flat"].includes(f.comparator)
+      : f.direction && f.direction !== "n/a"; // pre-comparator rows fall back to `direction`
+    if (!f.series || f.comparator === "not_measurable" || (!levelClaim && !directionalClaim) || (directionalClaim && f.baseline_value == null)) {
+      store.resolveForecast(f.id, { outcome: "unresolvable", note: "No stored series measures this claim's subject, so it can't be settled mechanically." });
       unresolvable++;
       continue;
     }
@@ -1269,6 +1295,23 @@ export function resolveForecasts() {
       continue;
     }
     const observed = after[after.length - 1];
+
+    // LEVEL claims ("holds above 200,000 MT", "stays above the 90th percentile") are settled against
+    // the threshold, never against the baseline. This branch exists because the first live batch had
+    // four such claims and every one of them was being judged as if it were directional — a fall from
+    // 302k to 250k would have scored MISS against a claim of "holds above 200k" that in fact held.
+    if (levelClaim) {
+      const held = f.comparator === "stays_above" ? observed.value >= f.threshold : observed.value <= f.threshold;
+      if (held) hit++; else miss++;
+      store.resolveForecast(f.id, {
+        outcome: held ? "hit" : "miss",
+        observedValue: observed.value,
+        observedPeriod: observed.period,
+        note: `Claimed ${f.comparator.replace("_", " ")} ${f.threshold}; ${f.series} was ${observed.value} on ${observed.period}.`,
+      });
+      continue;
+    }
+
     const move = observed.value - f.baseline_value;
 
     // Threshold: half a standard deviation of historical h-period moves, h = however many
@@ -1283,14 +1326,16 @@ export function resolveForecasts() {
       thresh = 0.5 * Math.sqrt(hMoves.reduce((s, v) => s + (v - mu) ** 2, 0) / hMoves.length);
     }
     const actual = move > thresh ? "up" : move < -thresh ? "down" : "flat";
+    // Prefer the comparator; fall back to `direction` for rows filed before comparator existed.
+    const claimed = f.comparator === "rises" ? "up" : f.comparator === "falls" ? "down" : f.comparator === "stays_flat" ? "flat" : f.direction;
     let outcome;
-    if (f.direction === "flat") {
+    if (claimed === "flat") {
       outcome = actual === "flat" ? "hit" : "miss";
     } else if (actual === "flat") {
       // Directionally right or wrong is unknowable when the series barely moved — don't guess.
       outcome = "inconclusive";
     } else {
-      outcome = actual === f.direction ? "hit" : "miss";
+      outcome = actual === claimed ? "hit" : "miss";
     }
     if (outcome === "hit") hit++;
     else if (outcome === "miss") miss++;
@@ -1300,7 +1345,7 @@ export function resolveForecasts() {
       observedValue: observed.value,
       observedPeriod: observed.period,
       note:
-        `Claimed ${f.direction}; ${f.series} went ${actual} (${f.baseline_value} → ${observed.value}, move ${move >= 0 ? "+" : ""}${move.toFixed(2)} vs flat-band ±${thresh.toFixed(2)}).` +
+        `Claimed ${claimed}; ${f.series} went ${actual} (${f.baseline_value} → ${observed.value}, move ${move >= 0 ? "+" : ""}${move.toFixed(2)} vs flat-band ±${thresh.toFixed(2)}).` +
         (outcome === "inconclusive" ? " Inside the band, so the direction call is not judgeable — excluded from the hit rate." : ""),
     });
   }
