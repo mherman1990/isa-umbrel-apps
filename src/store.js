@@ -363,6 +363,11 @@ export function marketSnapshot() {
       // consumers (and the prompt context) can weigh a 9-year norm differently from a 3-year one.
       seasonalAvg, seasonalDeltaPct, seasonalPctile, seasonalYears,
       changeSigma, changeZ, slopePerSigma,
+      // Distinct calendar years the WHOLE series spans. Consumers need this to judge `percentile`:
+      // a 5th-percentile reading over 21 observations that all fall in one summer is "the lowest
+      // we have recorded", not a historical extreme — and the first Analyst Note on real data
+      // compressed exactly that into "root-zone moisture at the 5th percentile".
+      historyYears: new Set(pts.map((p) => String(p.period).slice(0, 4))).size,
       count: n, firstPeriod: pts[0].period,
       trail: pts.slice(-12),
     });
@@ -1119,8 +1124,11 @@ export function upcomingDeadlines(limit = 100, { includeArchived = false } = {})
 }
 
 /** Upcoming congressional hearings (doc_type='hearing'), soonest first — the meeting date is stored
- *  in published_at. Powers the homepage calendar. Past meetings drop off automatically. */
-export function upcomingHearings(limit = 100, { days = 120 } = {}) {
+ *  in published_at. Powers the homepage calendar. Past meetings drop off automatically.
+ *  🗄 Set-aside (archived) hearings are excluded: the LRD set-aside button is how a hearing gets
+ *  removed from the calendar, and it silently didn't work before — the archive flag was ignored
+ *  here, so a hearing you'd dismissed kept its calendar dot forever. */
+export function upcomingHearings(limit = 100, { days = 120, includeArchived = false } = {}) {
   const today = new Date(Date.now() - 86400e3).toISOString().slice(0, 10);
   const endISO = new Date(Date.now() + days * 86400e3).toISOString().slice(0, 10);
   return db
@@ -1128,6 +1136,7 @@ export function upcomingHearings(limit = 100, { days = 120 } = {}) {
       `SELECT uid, title, url, published_at, one_line, source_id, jurisdiction FROM seen_items
         WHERE doc_type = 'hearing' AND published_at IS NOT NULL
           AND substr(published_at, 1, 10) >= ? AND substr(published_at, 1, 10) <= ?
+          ${includeArchived ? "" : "AND COALESCE(archived, 0) = 0"}
         ORDER BY published_at ASC LIMIT ?`
     )
     .all(today, endISO, limit);

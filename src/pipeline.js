@@ -420,6 +420,18 @@ export async function runFullPipeline({ watchlist, env, edition, kept, items, sk
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+// Series whose LEVEL percentile is structurally misleading and must not be read as "unusually high".
+// These sit on a capacity/production base that has grown enormously, so the newest reading ratchets
+// to a fresh record most years regardless of what demand is doing — the exact reason the old crush
+// scorer printed "record-strong demand" for eight straight months while crush fell ~10%. Retiring the
+// scorer was not sufficient: the raw statistic still reaches the model through this block, and the
+// first live Analyst Note duly cited crush's "92nd pctile" alongside the utilization read as though
+// the two corroborated each other. They don't — one is the artefact the other was built to replace.
+const PERCENTILE_CAVEATS = {
+  "nass:us:crush": "this is a percentile of crush VOLUME, which ratchets upward with the ~1.06M bu/day of capacity added since 2023 — it is NOT evidence of strong demand. Use the Crush Utilization signal, which divides by installed capacity, and ignore this rank.",
+  "eia:feedstock:soybean-oil": "volume percentile on a feedstock base that has grown with renewable-diesel capacity — high ranks are largely structural, not a demand surprise.",
+};
+
 /**
  * Render the deep trend snapshot as compact, category-grouped lines — latest + change,
  * year-over-year, historical range/percentile, and a seasonal read — so the model can
@@ -447,6 +459,17 @@ function formatMarketSnapshot(snapshot) {
       else if (s.changeAbs != null) parts.push(`Δ ${fmt(s.changeAbs)} ${s.unit} vs prior`);
       if (s.yoyPct != null) parts.push(`YoY ${pct(s.yoyPct)}`);
       parts.push(`range ${fmt(s.min.value)}–${fmt(s.max.value)}, now ${s.percentile}th pctile of ${s.count} obs since ${s.firstPeriod}`);
+      // ⚠️ Two percentile caveats, stated inline because the model demonstrably compresses them away
+      // otherwise. The first Analyst Note on live data reported "root-zone moisture at the 5th
+      // percentile" (a rank inside 21 readings from one summer, presented as a historical extreme)
+      // and quoted crush's "92nd pctile" as if it corroborated the utilization signal — the very
+      // statistic that scorer was retired for. The count and start date were already in the line and
+      // that was not enough; the warning has to be explicit.
+      if (s.historyYears != null && s.historyYears < 2) {
+        parts.push(`⚠️ percentile spans only ${s.historyYears} calendar year — it means "lowest/highest so far", NOT a historical extreme`);
+      }
+      const caveat = PERCENTILE_CAVEATS[s.series];
+      if (caveat) parts.push(`⚠️ ${caveat}`);
       // MOMENTUM, in the series' own volatility units — lets the model distinguish "high and still
       // climbing" from "high but rolling over", which no level/percentile statistic can express.
       if (s.changeZ != null) parts.push(`last move ${s.changeZ >= 0 ? "+" : ""}${s.changeZ.toFixed(1)}σ of its typical swing`);

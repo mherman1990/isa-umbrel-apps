@@ -291,6 +291,23 @@ const FACTORS = {
   acreage: { label: "Acreage incentive", weight: 0.4, members: ["soy_corn_ratio"], note: "Next-crop supply; only bites in the Dec–Apr decision window." },
   seasonal: { label: "Seasonal tendency", weight: 0.3, members: ["seasonal"], note: "Calendar tendency only — the weakest evidence on the board." },
 };
+// Which stored series each scorer actually reads — surfaced in signalsText so the model can't
+// misattribute a call to the wrong series (see the note on `lines` in signalsText).
+const SIGNAL_SERIES = {
+  crop_condition: "nass:us:condition / nass:ia:condition",
+  veg_condition: "vegscape:ia:vci",
+  soil_moisture: "cropcasma:ia:rootzone-sm",
+  drought: "drought_monitor:ia:d1",
+  export_pace: "agtransport:soy-net-export-sales (NET SALES — not export inspections)",
+  stocks_to_use: "wasde:us:soy-stocks-to-use",
+  fund_positioning: "cftc:soybeans:mm-net",
+  brazil_supply: "ibge_brazil:soy-production",
+  soy_corn_ratio: "nass:ia:soy-corn-ratio",
+  seasonal: "nass:us:price (monthly seasonal averages)",
+  crush_utilization: "nass:us:crush ÷ crush_capacity.json nameplate",
+  weather_us: "open_meteo:us:precip-pctile / heat-pctile",
+  weather_sa: "open_meteo:sa:precip-pctile / heat-pctile",
+};
 const DIR_SCORE = { bullish: 1, bearish: -1, neutral: 0 };
 // Weighted net needed to call a tilt. Lower than the old ±2 count because this is a normalized
 // −1..+1 scale, not a headcount: 0.15 means the weighted evidence leans meaningfully one way.
@@ -363,7 +380,11 @@ export function computeSignals() {
 export function signalsText() {
   const { signals, bullish, bearish, neutral, tilt, factors, net } = computeSignals();
   if (!signals.length) return "";
-  const lines = signals.map((s) => `- ${s.name}: ${s.direction.toUpperCase()} (${s.label}) — ${s.detail}`);
+  // Name the SERIES each scorer reads. Without it the first live Analyst Note attributed the NEUTRAL
+  // export reading to "a low inspection print" when exportPace actually scores net sales — two
+  // similarly-named export series, and the prose gave the model no way to tell which one drove the
+  // call. Cheap to state, and it makes the board auditable rather than something to be inferred.
+  const lines = signals.map((s) => `- ${s.name}: ${s.direction.toUpperCase()} (${s.label})${SIGNAL_SERIES[s.id] ? ` [scored from ${SIGNAL_SERIES[s.id]}]` : ""} — ${s.detail}`);
   const fLines = factors
     .slice()
     .sort((a, b) => Math.abs(b.weight * b.score) - Math.abs(a.weight * a.score))
