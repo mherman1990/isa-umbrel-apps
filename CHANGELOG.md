@@ -1,5 +1,119 @@
 # Changelog
 
+## 1.29.0 — The brief finally receives what three releases produced; prompt caching; two structural fixes
+
+One theme: **information that already existed was not reaching the place it mattered.** 1.26.0 graded
+relevance, 1.27.0 grounded official documents and collapsed cross-filed actions, 1.28.0 grounded news —
+and `src/brief.js` was untouched from 2026-07-08 through all of it, so none of it reached the one output
+that is emailed twice a day.
+
+### Changed — the daily brief is a decision brief, not a source listing
+
+Measured before any code was written: the writer's projection carried **ten fields with no
+`triage_tier` and ZERO characters of document text**, while triage saw 2,500 chars of the same document
+and `compactItems` carried 1,200 to the Ask box. So the deepest-read output in the product reasoned
+about federal rules from a headline plus a Haiku sentence *about* that headline — the exact failure
+1.27.0 was written to eliminate.
+
+It also sorted by `localScore`, the keyword count. That is measurably the wrong primary key: on the real
+news corpus a Clean Fuels **personnel notice scores 10, higher than a SCOTUS FIFRA preemption ruling's
+8**. Keyword score is now the last tie-break.
+
+- **Projection** 10 → 15 fields: `priority` (the tier), `document` (900 chars), `evidenceBasis`,
+  `eventFilings`, `daysToDeadline`, `topicIds`. Everything needed was already in memory — `.tier` from
+  triage, `.summary` from enrich, `.eventFilings` from the event grouping. No new query, no new call.
+- **Ordering:** tracked → tier → deadline inside 14 days → evidence strength → filings → `localScore`.
+- **Sections:** the seven source-by-source buckets are replaced by *What changed · Needs attention ·
+  Could matter later · Deadlines & required actions · Evidence · What to watch.* 3–5 developments by
+  default; the rest stays on the Laws, Rules & Decisions page.
+- **Two budgets, both logged** (`briefPayloadItems` 10 with evidence, `maxItemsInBrief` 25 metadata-only,
+  remainder reported). ⚠️ Sending documents for all 25 costs ~+$1.35/mo silently — do not collapse this
+  back to one budget.
+- **Four new hard rules**, each closing a measured failure: a `title_only` item may never be a
+  development; `eventFilings > 1` is ONE action, never corroboration; `background` is never a
+  development; `document` is sourced fact and `oneLine` is someone else's summary.
+- **Deleted** ~40 lines of unreachable code — `farmerBriefSystemPrompt` and every `isFarmer` branch (the
+  only caller omits `audience`; the twin was retired in an earlier release).
+- `thinking: { type: "disabled" }` — adaptive thinking is ON by default on Sonnet 5 and counts against
+  `max_tokens`, which is sized for prose here.
+
+### Added — prompt caching, and the means to tell whether it works
+
+The Ask box opened its user turn with `Question: ${question}` at **byte zero**, ahead of ~22,700
+characters of market data identical for every question ever asked, so nothing after the first line was
+cacheable. A breakpoint on the system prompt alone would have been ~620 tokens — **under Sonnet 5's
+1,024-token minimum, and would have silently not cached.**
+
+- `answerQuery`'s turn is split: one cached block of every question-blind stream (~7,000 tokens), then
+  the ranked items and the question. `generateMemo` has no question, so its whole turn is one cached
+  block.
+- Both `pause_turn` resume loops re-sent the entire request at full price; they now re-read the prefix
+  at ~0.1×. Two *different* questions inside the TTL also share the prefix — the 15-minute `askCache`
+  only dedupes identical ones.
+- ⚠️ **Not applied to Haiku paths.** Haiku 4.5's minimum cacheable prefix is **4,096 tokens**, larger
+  than the triage/newsrank/extractor prompts (~2,100 measured), so a breakpoint there would silently do
+  nothing.
+- `token_usage.cache_read_tokens` / `cache_write_tokens` + a new **`tokens`** CLI grouped by purpose.
+  Without stored counters a broken prefix is indistinguishable from a working one — it yields zero reads
+  and no error.
+- **Fixed while here:** `audit`'s cost formula counted only `input_tokens`, which is the *uncached
+  remainder*. Left alone it would have omitted cached tokens entirely and made caching look free rather
+  than cheap. Also added the missing `claude-opus-5` price — an unlisted model fell back to the Sonnet
+  default, under-reporting Opus spend by 40%.
+
+### Fixed — market change alerts had almost certainly never been delivered
+
+Two independent structural faults:
+
+1. **The opt-in was unreachable.** The email gate read `output.alertEmail`, but `output` was a parameter
+   the caller had to remember — and both CLI entry points (`market-refresh`, `alerts-check`) call with
+   one argument. The single caller that did pass it read a key **absent from `watchlist.json`**.
+   `runAlertsCheck` now resolves the setting itself, and there is a Settings tick-box.
+2. **The comparison snapshot advanced before delivery.** `detectChanges` wrote its `kv_state` snapshot
+   inline while scanning and recorded alert rows, before the caller had seen the changes. A failed send
+   was unrecoverable. Detection is now pure (`commit: false`) and `store.commitAlerts` applies rows and
+   snapshot in one transaction *after* delivery resolves. Only a **thrown** error blocks the commit —
+   "opted out" and "SMTP not configured" are permanent states, and blocking on those would mean a Pi
+   without SMTP re-detects the same changes forever. Bounded 3-failure escape hatch logs what it abandons.
+
+### Fixed — 👍/👎 corrections were being crowded out
+
+`getFeedbackExamples` is the only channel by which feedback changes anything, and it ordered by
+`first_seen_at` — when the **item** was collected — while selecting the most recent N. A correction made
+today on a three-week-old item sorted below every newer item carrying feedback and never reached the
+prompt. New `seen_items.feedback_at`, stamped on set and cleared when no signal remains, with an
+idempotent boot backfill. The backfill seeds `first_seen_at`, which is deliberately the wrong value: the
+click moment was never recorded and cannot be recovered, so this preserves today's ordering for history
+while every new thumb is accurate.
+
+### Added — `ask_log`, and a bound on the one unbounded prompt block
+
+- **`ask_log`.** `answerQuery` persisted nothing, so the most direct evidence of what the tool cannot
+  answer was produced twice a day and discarded. One row per ask, covering both entry points.
+  `unanswered` is derived deterministically (zero hits, or one of the phrases the system prompt itself
+  instructs the model to emit) — no model judging its own output. `web_searches` comes from
+  `server_tool_use` blocks, which were already available and thrown away. ⚠️ Known undercount,
+  documented: the 15-minute `askCache` means repeats inside that window never reach the log.
+- **`listTracked` is bounded.** It was `SELECT *` with no LIMIT and neither prompt call site sliced it —
+  the only genuinely unbounded block in any prompt this tool builds. Capped at 25 with the true total
+  stated, because pins are the only user-curated signal and a silent truncation reads as "these are all
+  your pins". `trackedKeySet()` stays unlimited: it is movement detection on the write path, not context.
+
+### Tests: 69 → 127
+
+New `test/brief.test.js`, `test/prompt-cache.test.js`, `test/alerts-delivery.test.js`,
+`test/feedback-order.test.js`, `test/ask-log.test.js`. All offline (`globalThis.fetch` stubbed). The
+brief tests assert on the **payload sent to the model**, never on prose — what silently regressed for
+three releases was which items are selected, in what order, carrying what evidence.
+
+### Pi go-live: code-only
+
+One Update. No new keys, no `/data` edits, no watchlist merge, no `market-refresh`. Every schema change
+(`ask_log`, the two `token_usage` columns, `seen_items.feedback_at`) auto-creates on boot — verified
+against a pre-existing database, which is the Pi's situation. To turn on alert emails, tick the box under
+**Logs & Settings → Market change alerts**. Verify caching with `node src/index.js tokens`: zero cache
+reads on `query`/`memo` after a couple of asks means the prefix is being invalidated.
+
 ## 1.28.0 — Fix the release-breaking triage crash; ground the news stream
 
 Two things: a **release-breaking regression in 1.27.0**, caught before it reached the Pi, and then

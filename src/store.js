@@ -90,9 +90,29 @@ for (const columnDef of [
   // NULL for everything stored before it existed; store.eventKeyOf() derives one on read so old
   // rows group correctly too, and `backfillEventKeys()` fills the column in on boot.
   "event_key TEXT",
+  // WHEN the human gave feedback, as opposed to when the ITEM was collected.
+  //
+  // ⚠️ THIS FIXES A SILENT LOSS IN THE ONLY CHANNEL BY WHICH 👍/👎 CHANGES ANYTHING.
+  // getFeedbackExamples used to order by `first_seen_at` — the item's collection date — while
+  // selecting the most recent N. So a correction made TODAY on a three-week-old item sorted below
+  // every newer item that happened to carry feedback, and never reached the triage prompt at all.
+  // The analyst's most recent judgement was the one most likely to be dropped.
+  "feedback_at TEXT",
 ]) {
   try {
     db.exec(`ALTER TABLE seen_items ADD COLUMN ${columnDef}`);
+  } catch {
+    /* column already exists */
+  }
+}
+
+// Same additive pattern for token_usage. Separate loop because the one above is seen_items-specific.
+for (const columnDef of [
+  "cache_read_tokens INTEGER DEFAULT 0", // prompt-cache hits, billed at ~0.1x input
+  "cache_write_tokens INTEGER DEFAULT 0", // prefix written to the cache, billed at ~1.25x (5-min TTL)
+]) {
+  try {
+    db.exec(`ALTER TABLE token_usage ADD COLUMN ${columnDef}`);
   } catch {
     /* column already exists */
   }
@@ -545,6 +565,34 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS kv_state ( k TEXT PRIMARY KEY, v TEXT, updated_at TEXT );
 `);
 
+// ---------- ask log ----------
+// What was asked, what came back, and whether the stored data could answer it.
+//
+// WHY THIS EXISTS. `answerQuery` persisted NOTHING — not the question, not the hit count, not whether
+// the web-search tool was reached for. So the most direct evidence of what this tool cannot answer was
+// generated twice a day and thrown away. "Which questions do we keep failing?" and "where do we keep
+// going to the web for the same gap?" are the highest-signal inputs to deciding what data source to add
+// next, and neither was answerable.
+//
+// Deliberately cheap: one row per answered question, written after the answer is assembled, with
+// `unanswered` derived from deterministic signals rather than a model judgement.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS ask_log (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    asked_at      TEXT NOT NULL,
+    question      TEXT NOT NULL,
+    norm_question TEXT NOT NULL,   -- lowercased, punctuation-stripped: groups repeat askings
+    source        TEXT,            -- 'ui' | 'cli'
+    hits          INTEGER,
+    web_searches  INTEGER,         -- server_tool_use blocks; previously available and discarded
+    answer_chars  INTEGER,
+    unanswered    INTEGER DEFAULT 0,
+    answer        TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_ask_norm ON ask_log(norm_question);
+  CREATE INDEX IF NOT EXISTS idx_ask_at   ON ask_log(asked_at);
+`);
+
 // ---------- storylines (named threads with memory) ----------
 // The handful of ongoing THREADS the monitoring is really about (45Z, EUDR, Summit CO2 pipeline…).
 // Auto-clustered from recent relevant items each run (see pipeline.generateStorylines), but PERSISTENT:
@@ -822,6 +870,31 @@ export function recordAlert(category, title, detail) {
     new Date().toISOString(), category ?? null, title, detail ?? null
   );
 }
+
+/**
+ * Commit a detection pass: insert its alert rows AND advance its comparison snapshot, atomically.
+ *
+ * ⚠️ THE ATOMICITY IS THE FEATURE. `detectChanges({commit:false})` deliberately writes nothing, so
+ * that a delivery failure leaves the snapshot untouched and the next run re-detects the same change
+ * instead of losing it forever. That guarantee only holds if the rows and the snapshot land together —
+ * committing the snapshot without the rows would drop the alert; committing the rows without the
+ * snapshot would re-insert it (there is no dedupe key on `alerts`) every run thereafter.
+ *
+ * Safe to call with an empty `changes` list: that is the ordinary "nothing moved, but track the new
+ * values" path.
+ */
+export function commitAlerts(changes = [], pendingState = []) {
+  const insertAlert = db.prepare("INSERT INTO alerts (created_at, category, title, detail, seen) VALUES (?, ?, ?, ?, 0)");
+  const putState = db.prepare(
+    "INSERT INTO kv_state (k, v, updated_at) VALUES (?, ?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v, updated_at = excluded.updated_at"
+  );
+  const now = new Date().toISOString();
+  db.transaction(() => {
+    for (const a of changes) insertAlert.run(now, a.category ?? null, a.title, a.detail ?? null);
+    for (const [k, v] of pendingState) putState.run(k, String(v), now);
+  })();
+  return { alerts: changes.length, state: pendingState.length };
+}
 export function listAlerts(limit = 40) {
   return db.prepare("SELECT * FROM alerts ORDER BY id DESC LIMIT ?").all(limit);
 }
@@ -971,6 +1044,31 @@ export function backfillEventKeys() {
 }
 
 /**
+ * Seed `feedback_at` for rows that carried feedback before the column existed.
+ *
+ * ⚠️ THIS WRITES THE WRONG DATA ON PURPOSE, AND THAT IS THE BEST AVAILABLE OPTION. The item's
+ * `first_seen_at` is not when the human clicked — that moment was never recorded, so it cannot be
+ * recovered. Seeding it preserves today's (mis)ordering for existing history while every NEW thumb
+ * gets a true timestamp, so the ranking becomes correct going forward instead of on a flag day.
+ *
+ * The alternative — leave NULL and sort NULLS LAST — would bury every correction Matt has ever made
+ * beneath the first new one, which is worse than imprecise. The COALESCE in getFeedbackExamples means
+ * a read that beats this backfill still behaves correctly either way.
+ *
+ * Idempotent: touches only NULLs on rows that actually have feedback, so it runs once and then finds
+ * nothing.
+ */
+export function backfillFeedbackAt() {
+  const info = db
+    .prepare(
+      `UPDATE seen_items SET feedback_at = first_seen_at
+        WHERE feedback_at IS NULL AND (feedback IS NOT NULL OR feedback_note IS NOT NULL)`
+    )
+    .run();
+  return info.changes;
+}
+
+/**
  * Every stored row that shares an event key with one of `keys`, so a grouped view can show "also
  * filed in 3 other dockets" and link each one. Returns a Map(event_key → rows), newest first.
  */
@@ -1030,10 +1128,30 @@ export function listBriefs(limit = 50) {
     .all(limit);
 }
 
-export function recordUsage(model, purpose, inputTokens, outputTokens) {
+/**
+ * Record one model call's token usage.
+ *
+ * `usage` is the raw `response.usage` and is OPTIONAL — pass it on any call site that sets a
+ * `cache_control` breakpoint. Without it the cache columns record 0, which is correct for the
+ * uncached paths and keeps every existing 4-argument caller working unchanged.
+ *
+ * ⚠️ THIS IS THE ONLY WAY TO KNOW WHETHER CACHING WORKS. Prompt caching is a prefix match: a single
+ * byte moving inside the cached prefix yields zero reads and NO error. So a silently broken
+ * breakpoint looks exactly like a working one from the outside. `cache_read_tokens` staying at 0
+ * across a resume loop is the signal, and it only exists if it is stored.
+ */
+export function recordUsage(model, purpose, inputTokens, outputTokens, usage = null) {
   db.prepare(
-    "INSERT INTO token_usage (ts, model, purpose, input_tokens, output_tokens) VALUES (?, ?, ?, ?, ?)"
-  ).run(new Date().toISOString(), model, purpose, inputTokens ?? 0, outputTokens ?? 0);
+    "INSERT INTO token_usage (ts, model, purpose, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens) VALUES (?, ?, ?, ?, ?, ?, ?)"
+  ).run(
+    new Date().toISOString(),
+    model,
+    purpose,
+    inputTokens ?? 0,
+    outputTokens ?? 0,
+    usage?.cache_read_input_tokens ?? 0,
+    usage?.cache_creation_input_tokens ?? 0
+  );
 }
 
 /** Per-source item counts + last-success times, and this month's token usage, for `audit`. */
@@ -1053,14 +1171,104 @@ export function getAuditData() {
   const monthUsage = db
     .prepare(
       `SELECT model,
-              SUM(input_tokens)  AS input_tokens,
-              SUM(output_tokens) AS output_tokens,
-              COUNT(*)           AS calls
+              SUM(input_tokens)       AS input_tokens,
+              SUM(output_tokens)      AS output_tokens,
+              SUM(cache_read_tokens)  AS cache_read_tokens,
+              SUM(cache_write_tokens) AS cache_write_tokens,
+              COUNT(*)                AS calls
          FROM token_usage WHERE ts >= ? GROUP BY model ORDER BY model`
     )
     .all(monthStart.toISOString());
   const briefCount = db.prepare("SELECT COUNT(*) AS n FROM briefs").get().n;
   return { sourceCounts, lastRuns, monthUsage, briefCount };
+}
+
+/** Normalize a question so repeat askings group together: lowercased, punctuation and runs of
+ *  whitespace collapsed. Not a semantic match — two differently-worded asks about the same gap stay
+ *  separate rows, which is honest rather than clever. */
+export function normalizeQuestion(q) {
+  return (
+    String(q ?? "")
+      .toLowerCase()
+      // Apostrophes are DELETED, not spaced: they sit inside words (contractions, possessives), so
+      // "what's" must collapse to "whats" and group with someone who typed it without the apostrophe —
+      // the single most common way the same question gets typed two ways. Both the ASCII and the
+      // typographic form, since a browser or phone keyboard may substitute the latter.
+      .replace(/['’ʼ]/g, "")
+      // Everything else non-alphanumeric becomes a separator: a hyphen or slash joins two words that
+      // should stay two words.
+      .replace(/[^\p{L}\p{N}\s]/gu, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
+}
+
+/**
+ * Record one answered question.
+ *
+ * ⚠️ KNOWN UNDERCOUNT, documented rather than hidden: `answerQueryOnce` in server.js memoizes
+ * identical questions for 15 minutes, so a repeat inside that window never reaches this function. That
+ * is correct for "the same question already counted", but it means the repeat COUNT here is a floor,
+ * not a total. Any analysis built on it should treat the counts as "at least this often".
+ */
+export function logAsk({ question, source = "ui", hits = 0, webSearches = 0, answer = "", unanswered = false }) {
+  db.prepare(
+    `INSERT INTO ask_log (asked_at, question, norm_question, source, hits, web_searches, answer_chars, unanswered, answer)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    new Date().toISOString(),
+    String(question ?? ""),
+    normalizeQuestion(question),
+    source,
+    hits | 0,
+    webSearches | 0,
+    String(answer ?? "").length,
+    unanswered ? 1 : 0,
+    String(answer ?? "").slice(0, 4000)
+  );
+}
+
+/** Repeatedly-asked questions the stored data could not answer — the Phase-6 data-gap input. */
+export function unansweredAsks({ days = 90, minTimes = 2 } = {}) {
+  const cutoff = new Date(Date.now() - days * 86400e3).toISOString();
+  return db
+    .prepare(
+      `SELECT norm_question,
+              COUNT(*)               AS times,
+              SUM(web_searches)      AS web_searches,
+              SUM(unanswered)        AS unanswered_times,
+              MAX(asked_at)          AS last_asked,
+              MAX(question)          AS example
+         FROM ask_log
+        WHERE asked_at >= ?
+        GROUP BY norm_question
+       HAVING COUNT(*) >= ? AND (SUM(unanswered) > 0 OR SUM(web_searches) >= 2)
+        ORDER BY times DESC, last_asked DESC`
+    )
+    .all(cutoff, minTimes);
+}
+
+/**
+ * Token + cache totals grouped by PURPOSE (and model), for the `tokens` CLI.
+ *
+ * Grouping by purpose rather than model is what makes prompt caching verifiable: one model serves
+ * both cached and uncached purposes, so a per-model zero can't distinguish "the breakpoint broke"
+ * from "this purpose never had one".
+ */
+export function getUsageByPurpose(days = 30) {
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  return db
+    .prepare(
+      `SELECT purpose,
+              model,
+              SUM(input_tokens)       AS input_tokens,
+              SUM(output_tokens)      AS output_tokens,
+              SUM(cache_read_tokens)  AS cache_read_tokens,
+              SUM(cache_write_tokens) AS cache_write_tokens,
+              COUNT(*)                AS calls
+         FROM token_usage WHERE ts >= ? GROUP BY purpose, model ORDER BY purpose, model`
+    )
+    .all(cutoff);
 }
 
 /** Per-source activity for the web UI dashboard: items seen in the last N days + last successful check. */
@@ -1378,10 +1586,35 @@ export function listItems({ q = "", topicId = "", sourceId = "", sourceIds = nul
 
 export function setFeedback(uid, feedback, note) {
   // feedback: 'up' | 'down' | null (clear). note: optional free-text (undefined = leave as-is).
+  //
+  // `feedback_at` tracks when the human last expressed a judgement on this row, and is cleared only
+  // when NO signal is left.
+  //
+  // On the CASE for a remaining note: getFeedbackExamples gates everything behind
+  // `feedback IS NOT NULL`, so a note WITHOUT a thumb is not selected today — its `feedback_note`
+  // clause only broadens which *thumbed* rows qualify. Preserving the timestamp is therefore
+  // defensive, not load-bearing: it costs nothing and stays correct if that query is ever widened,
+  // which is the cheaper side of the bet. Do not read it as evidence that note-only rows are used.
+  const now = new Date().toISOString();
   if (note === undefined) {
-    db.prepare("UPDATE seen_items SET feedback = ? WHERE uid = ?").run(feedback, uid);
+    db.prepare(
+      `UPDATE seen_items
+          SET feedback = @feedback,
+              feedback_at = CASE
+                WHEN @feedback IS NOT NULL      THEN @now          -- a fresh judgement
+                WHEN feedback_note IS NOT NULL  THEN feedback_at   -- note remains: keep its time
+                ELSE NULL                                          -- nothing left to rank on
+              END
+        WHERE uid = @uid`
+    ).run({ feedback, now, uid });
   } else {
-    db.prepare("UPDATE seen_items SET feedback = ?, feedback_note = ? WHERE uid = ?").run(feedback, note || null, uid);
+    db.prepare(
+      `UPDATE seen_items
+          SET feedback = @feedback,
+              feedback_note = @note,
+              feedback_at = CASE WHEN @feedback IS NOT NULL OR @note IS NOT NULL THEN @now ELSE NULL END
+        WHERE uid = @uid`
+    ).run({ feedback, note: note || null, now, uid });
   }
 }
 
@@ -1401,7 +1634,7 @@ export function getFeedbackExamples(limit = 8) {
       `SELECT title, triage_verdict, feedback, feedback_note, source_id, doc_type FROM seen_items
         WHERE feedback IS NOT NULL
           AND ((feedback = 'down' AND triage_verdict = 'relevant') OR (feedback = 'up' AND triage_verdict = 'irrelevant') OR feedback_note IS NOT NULL)
-        ORDER BY first_seen_at DESC LIMIT ?`
+        ORDER BY COALESCE(feedback_at, first_seen_at) DESC LIMIT ?`
     )
     .all(limit);
 }
@@ -1423,11 +1656,32 @@ export function untrackItem(uid) {
   db.prepare("DELETE FROM tracked_items WHERE uid = ?").run(uid);
 }
 
-export function listTracked() {
-  return db.prepare("SELECT * FROM tracked_items ORDER BY tracked_at DESC").all();
+/**
+ * Pinned items, newest first.
+ *
+ * ⚠️ BOUNDED SINCE 1.29.0. This was `SELECT *` with no LIMIT, and both prompt call sites interpolated
+ * the whole result with no slice — the one genuinely unbounded block in any prompt this tool builds.
+ * With two pins it was invisible; with a few hundred it would have quietly consumed the context the
+ * retrieved items and market data need. Callers that render into a prompt must pass a limit and report
+ * any remainder, because tracked items are the only USER-CURATED signal here and silently dropping
+ * them is worse than dropping news.
+ *
+ * @param {number|null} limit `null` returns every row (for UI views that page or count themselves).
+ */
+export function listTracked(limit = null) {
+  return limit == null
+    ? db.prepare("SELECT * FROM tracked_items ORDER BY tracked_at DESC").all()
+    : db.prepare("SELECT * FROM tracked_items ORDER BY tracked_at DESC LIMIT ?").all(limit);
 }
 
-/** The set of stable track keys, for flagging movement during a run. */
+/** Total pins, so a capped prompt block can state the true number rather than implying it sent all. */
+export function trackedCount() {
+  return db.prepare("SELECT COUNT(*) AS n FROM tracked_items").get().n;
+}
+
+/** The set of stable track keys, for flagging movement during a run.
+ *  ⚠️ Deliberately UNLIMITED — this is movement detection on the write path, not a prompt block.
+ *  Capping it would silently stop flagging movement on older pins. */
 export function trackedKeySet() {
   return new Set(db.prepare("SELECT track_key FROM tracked_items").all().map((r) => r.track_key));
 }

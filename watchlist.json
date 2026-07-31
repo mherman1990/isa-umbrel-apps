@@ -406,6 +406,7 @@
     "maxItemsInBrief": 25,
     "teams": false,
     "email": true,
+    "alertEmail": false,
     "farmerBrief": true,
     "entitySourceBoost": 6
   }

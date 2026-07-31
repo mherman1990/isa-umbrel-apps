@@ -214,24 +214,89 @@ export async function refreshMarketSeries(env = process.env) {
  * Detect material market changes → the "what changed" alert feed. Emails the digest only when
  * opted in (watchlist output.alertEmail) and SMTP is configured. Returns the new alerts.
  */
+// After this many consecutive delivery failures, commit anyway rather than re-detecting the same
+// changes forever. A week of broken SMTP would otherwise hold the snapshot still and then emit a storm
+// of accumulated alerts on recovery; bounded loss beats an unbounded storm, and the abandoned titles
+// are logged so the loss is visible rather than silent.
+const ALERT_FAILURE_LIMIT = 3;
+const ALERT_FAILURE_KEY = "alerts:consecutive_delivery_failures";
+
+/**
+ * Detect material market changes → the "what changed" alert feed, then commit only once delivery has
+ * been resolved. Returns the new alerts.
+ *
+ * ⚠️ TWO STRUCTURAL BUGS FIXED HERE (1.29.0). Together they meant alerts had almost certainly never
+ * been delivered, and that a failed delivery lost the alert permanently.
+ *
+ * 1. THE OPT-IN WAS UNREACHABLE. The email gate read `output.alertEmail`, but `output` was a parameter
+ *    the caller had to remember to pass — and both CLI entry points (`market-refresh`, `alerts-check`)
+ *    call this with one argument, so `output` was null and the gate could not fire. The one caller that
+ *    did pass it (`runFullPipeline`) read a key that was ABSENT from watchlist.json. A gate that
+ *    depends on every caller remembering is a gate that eventually never fires, so this now resolves
+ *    the setting itself.
+ * 2. THE SNAPSHOT ADVANCED BEFORE DELIVERY. See `detectChanges` and `store.commitAlerts`.
+ */
 export async function runAlertsCheck(env = process.env, output = null) {
-  let changes = [];
+  // Resolve the setting ourselves when the caller didn't supply it — removes the requirement to
+  // remember, rather than fixing the two call sites and trusting the next one.
+  let out = output;
+  if (out == null) {
+    try {
+      out = loadWatchlist().output ?? {};
+    } catch {
+      out = {};
+    }
+  }
+
+  let detected;
   try {
-    changes = detectChanges();
+    detected = detectChanges({ commit: false }); // pure: writes nothing until we commit below
   } catch (err) {
     console.log(`⚠️  Change detection skipped: ${err.message}`);
     return [];
   }
-  if (changes.length) {
-    console.log(`🔔 ${changes.length} market change alert${changes.length === 1 ? "" : "s"}: ${changes.slice(0, 4).map((c) => c.title).join("; ")}${changes.length > 4 ? "…" : ""}`);
-    if (output?.alertEmail === true) {
-      try {
-        if (await sendAlertEmail(changes, env)) console.log("   📧 alert digest emailed");
-      } catch (err) {
-        console.log(`⚠️  Alert email failed: ${err.message}`);
-      }
+  const { changes, pendingState } = detected;
+
+  if (!changes.length) {
+    // Nothing moved, but the comparison snapshot must still track the new values or the next run
+    // compares against stale ones.
+    store.commitAlerts([], pendingState);
+    store.setState(ALERT_FAILURE_KEY, "0");
+    return [];
+  }
+
+  console.log(`🔔 ${changes.length} market change alert${changes.length === 1 ? "" : "s"}: ${changes.slice(0, 4).map((c) => c.title).join("; ")}${changes.length > 4 ? "…" : ""}`);
+
+  // Only a THROWN delivery error blocks the commit. "Opted out" and "SMTP not configured" are
+  // permanent states, not transient failures — blocking on those would mean a Pi without SMTP never
+  // advances its snapshot and re-detects the same changes on every run forever. The alerts still reach
+  // the in-app "what changed" feed either way, which is the primary surface.
+  let deliveryFailed = false;
+  if (out?.alertEmail === true) {
+    try {
+      if (await sendAlertEmail(changes, env)) console.log("   📧 alert digest emailed");
+      else console.log("   ℹ️  alert email is on but SMTP isn't configured — alerts saved to the feed only");
+    } catch (err) {
+      deliveryFailed = true;
+      console.log(`⚠️  Alert email failed: ${err.message}`);
     }
   }
+
+  const failures = Number(store.getState(ALERT_FAILURE_KEY) ?? 0) || 0;
+  if (deliveryFailed && failures + 1 < ALERT_FAILURE_LIMIT) {
+    store.setState(ALERT_FAILURE_KEY, String(failures + 1));
+    console.log(
+      `   ⏸️  Alert snapshot held back (delivery failure ${failures + 1}/${ALERT_FAILURE_LIMIT}) — these changes will be re-detected next check, not lost.`
+    );
+    return changes;
+  }
+  if (deliveryFailed) {
+    console.log(
+      `   ⚠️  Advancing the alert snapshot after ${ALERT_FAILURE_LIMIT} failed deliveries. These changes will NOT be re-detected: ${changes.map((c) => c.title).join("; ")}`
+    );
+  }
+  store.commitAlerts(changes, pendingState);
+  store.setState(ALERT_FAILURE_KEY, "0");
   return changes;
 }
 
@@ -255,6 +320,14 @@ export async function runPipeline({ edition = "am", dryRun = false, source = nul
     store.backfillEventKeys();
   } catch (err) {
     console.log(`⚠️  Event-key backfill skipped: ${err.message}`);
+  }
+  // Same shape for feedback_at, so existing 👍/👎 history keeps its current ordering while new
+  // feedback gets a true timestamp (see store.backfillFeedbackAt for why the seeded value is
+  // deliberately approximate).
+  try {
+    store.backfillFeedbackAt();
+  } catch (err) {
+    console.log(`⚠️  Feedback-timestamp backfill skipped: ${err.message}`);
   }
 
   // 1. Collect. Dry runs never write state (no last-success advance, no items marked seen).
@@ -442,7 +515,16 @@ const PRICES = {
   "claude-sonnet-4-6": { input: 3.0, output: 15.0 },
   "claude-sonnet-5": { input: 3.0, output: 15.0 },
   "claude-opus-4-8": { input: 5.0, output: 25.0 },
+  // Opus 5 is priced identically to Opus 4.8, so ANALYST_MODEL can move between them as a one-line
+  // .env change with no cost difference. Listed explicitly because an unlisted model falls back to
+  // the Sonnet default below, which would under-report Opus spend by 40%.
+  "claude-opus-5": { input: 5.0, output: 25.0 },
 };
+
+// Prompt-cache billing multipliers, applied to the model's INPUT rate. A 5-minute-TTL write costs
+// 1.25x and a read 0.1x, so a cached prefix pays for itself on the second request that hits it.
+const CACHE_WRITE_MULTIPLIER = 1.25;
+const CACHE_READ_MULTIPLIER = 0.1;
 
 export async function runFullPipeline({ watchlist, env, edition, kept, items, skippedSources, fetchedCount, pendingWatermarks = [] }) {
   if (!env.ANTHROPIC_API_KEY) {
@@ -665,6 +747,24 @@ function formatMarketSnapshot(snapshot) {
 // one click away in the UI.
 const CONTEXT_BODY_CHARS = 1200;
 
+// Pinned items in a prompt: capped, but the true total is ALWAYS stated.
+//
+// ⚠️ This block was the one genuinely unbounded thing in any prompt this tool builds — `listTracked()`
+// had no LIMIT and neither call site sliced it. Invisible at two pins; at a few hundred it would have
+// crowded out the retrieved items and market data it sits beside. Pins are also the only
+// USER-CURATED signal in the context, which makes a silent truncation here the worst kind: the block
+// reads as "these are all your pinned items" whether or not it is.
+const TRACKED_PROMPT_LIMIT = 25;
+
+function trackedBlock() {
+  const total = store.trackedCount();
+  const rows = store.listTracked(TRACKED_PROMPT_LIMIT);
+  if (!rows.length) return "(none)";
+  const lines = rows.map((t) => `- ${t.title}${t.jurisdiction ? ` (${t.jurisdiction})` : ""}${t.url ? ` ${t.url}` : ""}`);
+  if (total > rows.length) lines.push(`- (+${total - rows.length} more pinned item${total - rows.length === 1 ? "" : "s"} not listed here)`);
+  return lines.join("\n");
+}
+
 /**
  * Project stored item rows into the LLM context — one entry per government ACTION, carrying the
  * document's own words.
@@ -716,7 +816,7 @@ function compactItems(rows) {
  * with citations. Shared by the CLI (`query`) and the homepage "Ask the Bean Brief" box.
  * @returns {{ answer: string, hits: object[] }}
  */
-export async function answerQuery(question, env) {
+export async function answerQuery(question, env, source = "ui") {
   if (!env.ANTHROPIC_API_KEY) {
     throw new Error("ANTHROPIC_API_KEY is not set in .env — get one at console.anthropic.com");
   }
@@ -749,8 +849,8 @@ export async function answerQuery(question, env) {
   //    in plain English, not just visible as charts.
   const marketBlock = formatMarketSnapshot(store.marketSnapshot());
 
-  // 3. Tracked (pinned) items + upcoming comment deadlines.
-  const tracked = store.listTracked();
+  // 3. Upcoming comment deadlines. (Pinned items are read inside trackedBlock(), which caps the list
+  //    and states the true total.)
   const deadlines = store.upcomingDeadlines(20);
 
   // 4. Most recent few briefs as narrative context.
@@ -761,15 +861,41 @@ export async function answerQuery(question, env) {
   }
 
   if (compactHits.length === 0 && !marketBlock && briefTexts.length === 0) {
-    return { answer: "Nothing stored yet matches. Run the pipeline a few times first.", hits: [] };
+    const answer = "Nothing stored yet matches. Run the pipeline a few times first.";
+    // Logged too: an ask that couldn't even be attempted is the strongest possible evidence of a gap,
+    // and it's the one case that never reaches the model at all.
+    try {
+      store.logAsk({ question, source, hits: 0, webSearches: 0, answer, unanswered: true });
+    } catch {
+      /* instrumentation must never break an answer */
+    }
+    return { answer, hits: [] };
   }
 
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   const model = env.BRIEF_MODEL || "claude-sonnet-5";
   const system =
     "You are the senior market-and-policy analyst for an Iowa Soybean Association professional whose remit is BOTH policy and demand/markets. This is an INTERNAL analysis tool for staff — give a sharp, direct answer, not a hedged briefing. Draw on the stored monitoring data provided below, which spans three streams: (1) LAWS/RULES/DECISIONS + NEWS items, (2) MARKET DATA (soybean price, crush, stocks, biofuel feedstock share, basis, fund positioning, exports, barge freight, crop condition, weather), and (3) recent BRIEFS, plus tracked items and comment deadlines. The market data carries trend context per series — change vs. prior, year-over-year, the historical range with the latest value's percentile, and a seasonal read (vs. the same month across years). USE that context to explain trends and whether a value is seasonally normal or unusual, not just the latest number. Synthesize across streams — connect policy/trade developments to the market MECHANISM and the numbers, go second-order, and where the data supports it give a directional read: the most likely interpretation, the risk to it, and the report or data that would confirm or kill it. Distinguish FACT from your INTERPRETATION, and be honest about confidence rather than hedging into mush. Each item may carry a \"document\" field holding the source document's OWN words and a \"why\" field holding a prior one-line note about it — treat \"document\" as sourced fact and \"why\" as someone else's summary, and prefer the document when they differ. An item with \"alsoFiledAs\" is ONE action filed in several places, not several corroborating items — never treat repetition as evidence. If the substance of an item is not in its document text, say the substance was not retrieved rather than inferring it from the title. Cite item titles as markdown links when a URL is available; when you cite a market figure, name the series and its period (e.g. \"U.S. crush 210M bu, Apr 2026\"). Plain, professional English. You also have a WEB SEARCH tool — lean on the stored monitoring data first, but use the web to fill what it doesn't cover: the latest futures/cash prices, breaking news, or a figure or date worth verifying — anything more current than the last pipeline run. Reach for it when it makes the answer materially better or more current, not reflexively. Cite any web source inline as a markdown link so staff can tell web-sourced facts from the internal streams. Don't invent numbers — pull them.";
-  const userContent =
-    `Question: ${question}\n\n` +
+  // ⚠️ BLOCK ORDER IS LOAD-BEARING — IT IS WHAT MAKES PROMPT CACHING POSSIBLE (1.29.0).
+  //
+  // Caching is a PREFIX match, rendered `tools` → `system` → `messages`, and any byte change
+  // invalidates everything after it. This user turn used to open with `Question: ${question}` at byte
+  // ZERO, ahead of ~22,700 characters of market data that is identical for every question ever asked —
+  // so nothing after the first line could ever be cached, and a breakpoint on the system prompt alone
+  // would be ~620 tokens, UNDER Sonnet 5's 1,024-token minimum, and would have silently not cached.
+  //
+  // So the turn is now split by what actually varies:
+  //   block 1 (CACHED) — every question-BLIND stream: market data, the derived reads, tracked,
+  //                      deadlines, recent briefs. The breakpoint here covers tools + system + all of
+  //                      this, ~7,000 tokens, comfortably over the minimum.
+  //   block 2          — the retrieved items (ranked BY the question, so they vary with it) and the
+  //                      question itself.
+  //
+  // Two payoffs. Every `pause_turn` resume turn below re-sends this whole request at full price today
+  // and now re-reads the prefix at ~0.1x instead. And two DIFFERENT questions asked inside the cache
+  // TTL share block 1 — the 15-minute askCache in server.js only dedupes *identical* questions, so
+  // distinct questions are exactly the case prompt caching still pays for.
+  const invariantContext =
     `=== MARKET DATA (latest value, change vs prior, recent trail) ===\n${marketBlock || "(no market data stored yet)"}\n\n` +
     (weatherRiskText() ? `=== CROP-WEATHER READ (anomaly vs. normal → supply/price) ===\n${weatherRiskText()}\n\n` : "") +
     (crushText() ? `=== CRUSH DEMAND (capacity utilization, cause→effect with margin) ===\n${crushText()}\n\n` : "") +
@@ -777,16 +903,27 @@ export async function answerQuery(question, env) {
     (forecastTrackRecordText() ? `=== THIS TOOL'S OWN TRACK RECORD (past calls, scored) ===\n${forecastTrackRecordText()}\n\n` : "") +
     (surpriseText() ? `=== EXPECTATIONS vs. ACTUALS (surprise is what moves price, not the level) ===\n${surpriseText()}\n\n` : "") +
     (marketIntelText() ? `=== MARKET INTEL FROM NEWSLETTERS (distilled from the collector inbox, cited) ===\n${marketIntelText()}\n\n` : "") +
-    `=== LAWS/RULES/DECISIONS + NEWS items (JSON — one entry per government ACTION; "document" is the source's own text, "why" is a prior note, "alsoFiledAs" means the same action filed elsewhere) ===\n${JSON.stringify(compactHits, null, 1)}\n\n` +
-    `=== TRACKED ITEMS (pinned) ===\n${tracked.length ? tracked.map((t) => `- ${t.title}${t.jurisdiction ? ` (${t.jurisdiction})` : ""}${t.url ? ` ${t.url}` : ""}`).join("\n") : "(none)"}\n\n` +
+    `=== TRACKED ITEMS (pinned) ===\n${trackedBlock()}\n\n` +
     `=== UPCOMING COMMENT DEADLINES ===\n${deadlines.length ? deadlines.map((d) => `- ${d.comment_deadline}: ${d.title}${d.url ? ` ${d.url}` : ""}`).join("\n") : "(none)"}\n\n` +
     `=== RECENT BRIEFS ===\n${briefTexts.join("\n\n") || "(none)"}`;
-  const messages = [{ role: "user", content: userContent }];
+  const questionContext =
+    `=== LAWS/RULES/DECISIONS + NEWS items (JSON — one entry per government ACTION; "document" is the source's own text, "why" is a prior note, "alsoFiledAs" means the same action filed elsewhere) ===\n${JSON.stringify(compactHits, null, 1)}\n\n` +
+    `Question: ${question}`;
+  const messages = [
+    {
+      role: "user",
+      content: [
+        { type: "text", text: invariantContext, cache_control: { type: "ephemeral" } },
+        { type: "text", text: questionContext },
+      ],
+    },
+  ];
   // Web search is an Anthropic SERVER-side tool: the API runs the search loop and returns the final
   // answer — no client tool loop. A long server loop can stop with stop_reason "pause_turn"; re-send
   // to continue, bounded so it can't spin. web_search_20260209 needs Sonnet 5 / Opus 4.x (our
   // BRIEF_MODEL) and takes NO beta header. A search error returns as a result block, never a throw.
   let response;
+  let webSearches = 0; // server_tool_use blocks across every turn — available before, discarded before
   for (let turn = 0; turn < 4; turn++) {
     response = await client.messages.create({
       model,
@@ -795,18 +932,54 @@ export async function answerQuery(question, env) {
       tools: env.WEB_SEARCH === "off" ? undefined : [{ type: "web_search_20260209", name: "web_search", max_uses: 5 }], // WEB_SEARCH=off → stored-data-only
       messages,
     });
-    store.recordUsage(model, "query", response.usage.input_tokens, response.usage.output_tokens);
+    store.recordUsage(model, "query", response.usage.input_tokens, response.usage.output_tokens, response.usage);
+    webSearches += response.content.filter((b) => b.type === "server_tool_use").length;
     if (response.stop_reason !== "pause_turn") break;
     messages.push({ role: "assistant", content: response.content }); // echo blocks back unchanged to resume
   }
   // Web-augmented answers can span several text blocks (interleaved with search-result blocks) — join them.
   const answer = response.content.filter((b) => b.type === "text").map((b) => b.text).join("").trim() || "(no answer)";
+
+  // Log the ask. One write, after the answer is assembled, covering BOTH entry points (the homepage
+  // box via answerQueryOnce and the `query` CLI) because both funnel through here.
+  //
+  // `unanswered` is derived DETERMINISTICALLY — no model judging its own output. Either nothing was
+  // retrieved, or the answer used one of the phrases the system prompt explicitly instructs it to emit
+  // when the stored data falls short. Cheap, honest, and disputable by reading the phrase list.
+  try {
+    store.logAsk({
+      question,
+      source,
+      hits: merged.length,
+      webSearches,
+      answer,
+      unanswered: merged.length === 0 || UNANSWERED_MARKERS.some((m) => answer.toLowerCase().includes(m)),
+    });
+  } catch (err) {
+    // Never let instrumentation break an answer the user is waiting on.
+    console.log(`⚠️  Ask logging skipped: ${err.message}`);
+  }
+
   return { answer, hits: merged };
 }
 
+// Phrases the Ask system prompt tells the model to use when the stored data cannot support an answer
+// ("say the substance was not retrieved rather than inferring it from the title"), plus the two
+// early-return strings this module emits itself. Matching on these is what makes `unanswered` a
+// deterministic signal rather than a second model call.
+const UNANSWERED_MARKERS = [
+  "substance was not retrieved",
+  "not retrieved",
+  "no stored series",
+  "nothing stored yet matches",
+  "i don't have",
+  "isn't in the stored",
+  "not in the stored data",
+];
+
 export async function runQuery(question, env) {
   console.log(`\n🔍 Searching stored briefs and items for: "${question}"…`);
-  const { answer } = await answerQuery(question, env);
+  const { answer } = await answerQuery(question, env, "cli");
   console.log("\n" + answer + "\n");
 }
 
@@ -956,8 +1129,7 @@ export async function generateMemo(presetId, env) {
   const news = store.listItems({ days: preset.scopeDays, sourceIds: sourceIdsForClass("news"), limit: 30 });
   const compactHits = compactItems([...official, ...news]);
   const marketBlock = formatMarketSnapshot(store.marketSnapshot());
-  const tracked = store.listTracked();
-  const deadlines = store.upcomingDeadlines(20);
+  const deadlines = store.upcomingDeadlines(20); // pins are read inside trackedBlock(), capped + counted
 
   // Daily briefs within the window (never fold memos back into memos).
   const cutoff = Date.now() - preset.scopeDays * 86400e3;
@@ -1012,6 +1184,21 @@ export async function generateMemo(presetId, env) {
   console.log(`\n📝 ${preset.label}: ${official.length + news.length} items + ${marketBlock ? "market data" : "no market data"} over the last ${preset.scopeDays}d (${model}${thinkNote})…`);
 
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  // A memo has no per-question part: the entire user turn is fixed for the life of the call. So ONE
+  // cache_control breakpoint on the whole block covers tools + system + context, and every
+  // `pause_turn` resume turn below re-reads that prefix at ~0.1x instead of re-paying for it. That is
+  // the largest single saving available here — the Analyst preset runs ~30k input tokens on Opus with
+  // web search on, so a 3-turn search loop used to bill that input three times over.
+  const memoContext =
+    `Stored monitoring data for the last ${preset.scopeDays} days — write the memo per your instructions.\n\n` +
+    `=== MARKET DATA (latest value, change vs prior, recent trail) ===\n${marketBlock || "(no market data stored yet)"}\n\n` +
+    (marketIntelText() ? `=== MARKET INTEL FROM NEWSLETTERS (distilled from the collector inbox, cited) ===\n${marketIntelText()}\n\n` : "") +
+    `=== LAWS/RULES/DECISIONS + NEWS items (JSON — one entry per government ACTION; "document" is the source's own text, "why" is a prior note, "alsoFiledAs" means the same action filed elsewhere) ===\n${JSON.stringify(compactHits, null, 1)}\n\n` +
+    `=== TRACKED ITEMS (pinned) ===\n${trackedBlock()}\n\n` +
+    `=== UPCOMING COMMENT DEADLINES ===\n${deadlines.length ? deadlines.map((d) => `- ${d.comment_deadline}: ${d.title}${d.url ? ` ${d.url}` : ""}`).join("\n") : "(none)"}\n\n` +
+    `=== DAILY BRIEFS IN WINDOW ===\n${briefTexts.join("\n\n") || "(none)"}` +
+    curriculumBlock +
+    signalsBlock;
   const request = {
     model,
     max_tokens: preset.maxTokens,
@@ -1019,16 +1206,7 @@ export async function generateMemo(presetId, env) {
     messages: [
       {
         role: "user",
-        content:
-          `Stored monitoring data for the last ${preset.scopeDays} days — write the memo per your instructions.\n\n` +
-          `=== MARKET DATA (latest value, change vs prior, recent trail) ===\n${marketBlock || "(no market data stored yet)"}\n\n` +
-          (marketIntelText() ? `=== MARKET INTEL FROM NEWSLETTERS (distilled from the collector inbox, cited) ===\n${marketIntelText()}\n\n` : "") +
-          `=== LAWS/RULES/DECISIONS + NEWS items (JSON — one entry per government ACTION; "document" is the source's own text, "why" is a prior note, "alsoFiledAs" means the same action filed elsewhere) ===\n${JSON.stringify(compactHits, null, 1)}\n\n` +
-          `=== TRACKED ITEMS (pinned) ===\n${tracked.length ? tracked.map((t) => `- ${t.title}${t.jurisdiction ? ` (${t.jurisdiction})` : ""}${t.url ? ` ${t.url}` : ""}`).join("\n") : "(none)"}\n\n` +
-          `=== UPCOMING COMMENT DEADLINES ===\n${deadlines.length ? deadlines.map((d) => `- ${d.comment_deadline}: ${d.title}${d.url ? ` ${d.url}` : ""}`).join("\n") : "(none)"}\n\n` +
-          `=== DAILY BRIEFS IN WINDOW ===\n${briefTexts.join("\n\n") || "(none)"}` +
-          curriculumBlock +
-          signalsBlock,
+        content: [{ type: "text", text: memoContext, cache_control: { type: "ephemeral" } }],
       },
     ],
   };
@@ -1045,7 +1223,7 @@ export async function generateMemo(presetId, env) {
   let response;
   for (let turn = 0; turn < 4; turn++) {
     response = await client.messages.create(request);
-    store.recordUsage(model, "memo", response.usage.input_tokens, response.usage.output_tokens);
+    store.recordUsage(model, "memo", response.usage.input_tokens, response.usage.output_tokens, response.usage);
     if (response.stop_reason !== "pause_turn") break;
     request.messages.push({ role: "assistant", content: response.content }); // echo blocks back unchanged to resume
   }
@@ -1920,15 +2098,67 @@ export async function runAudit() {
   console.log("\nAnthropic usage this month:");
   if (monthUsage.length === 0) console.log("   (no Anthropic calls yet)");
   let totalCost = 0;
+  let anyCache = false;
   for (const row of monthUsage) {
     const price = PRICES[row.model] ?? { input: 3.0, output: 15.0 };
-    const cost = (row.input_tokens / 1e6) * price.input + (row.output_tokens / 1e6) * price.output;
+    const cacheRead = row.cache_read_tokens ?? 0;
+    const cacheWrite = row.cache_write_tokens ?? 0;
+    if (cacheRead || cacheWrite) anyCache = true;
+    // ⚠️ `input_tokens` is the UNCACHED REMAINDER only — total prompt size is
+    // input + cache_write + cache_read. Before 1.29.0 this line was the whole cost, which was correct
+    // only while nothing was cached; leaving it that way once caching is on would silently omit the
+    // cached tokens entirely and make caching look free rather than merely cheap.
+    const cost =
+      (row.input_tokens / 1e6) * price.input +
+      (cacheWrite / 1e6) * price.input * CACHE_WRITE_MULTIPLIER +
+      (cacheRead / 1e6) * price.input * CACHE_READ_MULTIPLIER +
+      (row.output_tokens / 1e6) * price.output;
     totalCost += cost;
+    const cacheNote = cacheRead || cacheWrite ? `, cache ${cacheRead} read / ${cacheWrite} written` : "";
     console.log(
       `   ${row.model.padEnd(20)} ${String(row.calls).padStart(4)} calls, ` +
-        `${String(row.input_tokens).padStart(9)} in / ${String(row.output_tokens).padStart(8)} out tokens ≈ $${cost.toFixed(2)}`
+        `${String(row.input_tokens).padStart(9)} in / ${String(row.output_tokens).padStart(8)} out tokens${cacheNote} ≈ $${cost.toFixed(2)}`
     );
   }
   if (monthUsage.length > 0) console.log(`   ${"".padEnd(20)} estimated month-to-date total ≈ $${totalCost.toFixed(2)}`);
+  if (monthUsage.length > 0 && !anyCache) {
+    console.log("\n   ⚠️  No prompt-cache activity recorded. The Ask box and memos set a cache breakpoint,");
+    console.log("       so zero reads AND zero writes across several calls means the cached prefix is being");
+    console.log("       invalidated — run `tokens` for the per-purpose breakdown.");
+  }
   console.log();
+}
+
+/**
+ * Per-purpose token + cache breakdown — the verification tool for prompt caching.
+ *
+ * `audit` groups by MODEL, which mixes cached and uncached purposes on the same model (Sonnet 5 runs
+ * both the uncached brief and the cached Ask box), so a zero there is ambiguous. Grouping by purpose
+ * is what actually answers "did the breakpoint hold?": `query` and `memo` should show cache reads
+ * once the same prefix is hit twice; `triage` and `newsrank` should show none, because they run on
+ * Haiku 4.5 whose minimum cacheable prefix is 4,096 tokens — larger than those prompts.
+ */
+export async function runTokens(days = 30) {
+  const rows = store.getUsageByPurpose(days);
+  console.log(`\n🔢 Token usage by purpose, last ${days} days\n`);
+  if (rows.length === 0) {
+    console.log("   (no Anthropic calls recorded yet)\n");
+    return;
+  }
+  // 18 wide: the longest purpose in use is `forecast_extract` (16), which overran a 14-wide column
+  // and ran into the model name.
+  console.log(`   ${"purpose".padEnd(18)}${"model".padEnd(20)}${"calls".padStart(6)}${"in".padStart(10)}${"out".padStart(9)}${"cache rd".padStart(10)}${"cache wr".padStart(10)}`);
+  for (const r of rows) {
+    console.log(
+      `   ${String(r.purpose).padEnd(18)}${String(r.model).padEnd(20)}${String(r.calls).padStart(6)}` +
+        `${String(r.input_tokens).padStart(10)}${String(r.output_tokens).padStart(9)}` +
+        `${String(r.cache_read_tokens ?? 0).padStart(10)}${String(r.cache_write_tokens ?? 0).padStart(10)}`
+    );
+  }
+  const cached = rows.filter((r) => (r.cache_read_tokens ?? 0) > 0);
+  console.log(
+    cached.length
+      ? `\n   ✅ Prompt cache is being READ on: ${cached.map((r) => r.purpose).join(", ")}\n`
+      : `\n   ⚠️  No cache reads on any purpose. Expected on 'query' and 'memo' once a prefix is hit twice.\n`
+  );
 }

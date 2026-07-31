@@ -71,12 +71,22 @@ function inline(md) {
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(/\*([^*]+)\*/g, "<em>$1</em>");
 }
+// A line that opens its own block, and so ends any paragraph being accumulated. Headings deeper or
+// shallower than h2/h3 are listed even though they render as plain <p> below, and pipe-table rows /
+// code fences because this renderer builds no <table> or <pre>: naming them here keeps each on its
+// own line exactly as today, rather than gluing them into the neighbouring paragraph.
+const BLOCK_START = /^(?:---+$|#{1,6}\s|[-*]\s|\d+\.\s|>|\||```)/;
 export function markdownToHtml(md) {
   const out = [];
   let inList = false;
+  // Consecutive non-blank prose lines are ONE paragraph — a blank line breaks a paragraph, a bare
+  // newline does not. Without this, a hard-wrapped memo renders as disconnected <p> fragments.
+  let para = [];
+  const flushPara = () => { if (para.length) { out.push(`<p>${inline(para.join(" "))}</p>`); para = []; } };
   for (const line of md.split(/\r?\n/)) {
     const t = line.trim();
     const isListItem = /^[-*]\s+/.test(t) || /^\d+\.\s+/.test(t);
+    if (t === "" || BLOCK_START.test(t)) flushPara();
     if (inList && !isListItem) {
       out.push("</ul>");
       inList = false;
@@ -91,8 +101,10 @@ export function markdownToHtml(md) {
         inList = true;
       }
       out.push(`<li>${inline(t.replace(/^([-*]|\d+\.)\s+/, ""))}</li>`);
-    } else out.push(`<p>${inline(t)}</p>`);
+    } else if (BLOCK_START.test(t)) out.push(`<p>${inline(t)}</p>`); // odd heading level / table row / fence
+    else para.push(t);
   }
+  flushPara();
   if (inList) out.push("</ul>");
   return linkifySeries(out.join("\n"));
 }
@@ -819,6 +831,15 @@ function settingsSection(watchlist, openId) {
             placeholder="${esc(fromEnv ? `set in .env (${envKey})` : "default channel")}" ${fromEnv ? "disabled" : ""} style="min-width:230px">
         </label>`;
       }).join("")}
+    </div>
+    <div class="kicker">Market change alerts <span class="muted" style="font-weight:400">— the "what changed" feed</span></div>
+    <p class="muted" style="margin:2px 0 6px;font-size:.85em">Material market moves (a signal flipping, the tilt shifting, a multi-year extreme, a 3σ jump) always appear in the in-app feed. Tick this to also receive them by email at <code>ALERT_EMAIL_TO</code> (or the default brief recipient).</p>
+    <div class="toolbar">
+      <label class="muted"><input type="checkbox" name="alertEmail" value="1" ${out.alertEmail === true ? "checked" : ""}> email the alert digest</label>
+      <!-- Unchecked checkboxes send NOTHING, and the handler must be able to tell "unticked" from
+           "field absent from a partial POST". This companion always posts, so absence of the pair
+           means the form didn't include the control at all and the stored value is left alone. -->
+      <input type="hidden" name="alertEmailPresent" value="1">
     </div>
     <div class="kicker">Pipeline thresholds</div>
     <div class="toolbar">
@@ -2627,6 +2648,14 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
   } catch (err) {
     console.log(`⚠️  Event-key backfill skipped: ${err.message}`);
   }
+  // Same shape for feedback_at: existing 👍/👎 history keeps its current ordering, and every new
+  // thumb gets a true timestamp so the analyst's most recent correction stops being the one dropped.
+  try {
+    const n = store.backfillFeedbackAt();
+    if (n) console.log(`👍 Feedback timestamps seeded for ${n} stored item${n === 1 ? "" : "s"}`);
+  } catch (err) {
+    console.log(`⚠️  Feedback-timestamp backfill skipped: ${err.message}`);
+  }
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -3314,6 +3343,12 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
             const value = Number(form.get(key));
             if (Number.isFinite(value) && value >= 0) watchlist.output[key] = value;
           }
+          // Alert-email opt-in. An unticked checkbox posts NOTHING, so absence alone can't distinguish
+          // "the user unticked it" from "this form didn't carry the control" — and the numeric loop
+          // above deliberately skips absent fields for exactly that reason. The always-posted
+          // `alertEmailPresent` companion disambiguates: only when it arrives do we write the boolean,
+          // so a partial POST can never silently switch alerts off.
+          if (form.get("alertEmailPresent")) watchlist.output.alertEmail = form.get("alertEmail") === "1";
           saveWatchlist(watchlist);
           notice = "Settings saved. Schedule changes apply within a minute; thresholds from the next run.";
         } catch (err) {

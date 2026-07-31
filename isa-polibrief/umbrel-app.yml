@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-polibrief
 category: automation
 name: The Bean Brief
-version: "1.28.0"
+version: "1.29.0"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
@@ -28,7 +28,35 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  IMPORTANT — INSTALL THIS INSTEAD OF 1.27.0. Version 1.27.0 had a fault that would have stopped the
+  THE DAILY BRIEF IS REBUILT. For the last three updates The Bean Brief got much better at reading
+  documents properly — grading how relevant each one is, fetching the actual text of federal rules,
+  recognising when one government action has been filed in four different places. None of that was
+  reaching the brief itself. The twice-daily email was still being written from headlines and a
+  one-sentence note about each headline, and it was ordering items by how many of your watchlist words
+  they happened to contain. That is why a press release about a board appointment could outrank a
+  Supreme Court ruling.
+  The brief now gets the real document text and the relevance grade, and it leads with the most
+  consequential item rather than the wordiest one. Its shape has changed to match how you actually use
+  it: What changed, then Needs attention (only things with something to do inside two weeks, with the
+  date), then Could matter later, Deadlines, the Evidence behind each development, and What to watch
+  next. Three to five developments by default — everything else is still on the Laws, Rules & Decisions
+  page, where it always was. If the substance of an item could not be retrieved, the brief now says so
+  instead of writing around it, and where one action was filed in several dockets it says how many
+  rather than listing it as several separate signals.
+  ALSO — MARKET CHANGE ALERTS NOW ACTUALLY SEND. The "what changed" feed has been quietly detecting
+  material market moves all along, but the email digest could never go out: the setting it checked for
+  did not exist, and nothing in the app could switch it on. There is now a tick-box under Logs &
+  Settings → Market change alerts. Related: if an alert email ever fails to send, the alert is kept and
+  retried on the next check rather than being lost, which is what used to happen.
+  ALSO — your thumbs-up and thumbs-down now carry more weight. Those corrections are the only way you
+  can teach the relevance filter, and the app was ranking them by when the ITEM was collected rather
+  than when you made the correction — so a correction on an older item could be crowded out and never
+  used. It now uses the moment you clicked.
+  Running costs go DOWN slightly in this release: repeated parts of each request to Claude are now
+  cached instead of re-sent, which mostly benefits the Analyst Note and the Ask box.
+  Update only — no new keys, no settings to change.
+  ---
+  PREVIOUS RELEASE (1.28.0) — INSTALL THIS INSTEAD OF 1.27.0. Version 1.27.0 had a fault that would have stopped the
   twice-daily policy brief from running at all: every run would have failed part-way through the
   relevance step, so no brief would have been written, and one item per run would have been quietly
   marked as already-handled without ever being read. It was found and fixed before 1.27.0 was ever

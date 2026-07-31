@@ -15,8 +15,30 @@ const fmt = (v) => (v == null ? "—" : Math.abs(v) >= 1000 ? Math.round(v).toLo
 // across ~50 series — frequent enough to be useful, rare enough that the feed stays worth reading.
 const MOVE_SIGMA = 3;
 
-export function detectChanges() {
+/**
+ * Detect material market changes since the last committed snapshot.
+ *
+ * ⚠️ DETECTION NO LONGER WRITES ANYTHING BY DEFAULT — AND THAT IS THE POINT (1.29.0).
+ *
+ * This function used to advance its `kv_state` comparison snapshot INLINE as it scanned, and record
+ * every alert row, before its caller had even seen the changes — let alone tried to deliver them. So a
+ * failed delivery was lost permanently: the next run compared against the already-advanced snapshot,
+ * found nothing new, and the alert simply never existed again. Recording alert rows up front had the
+ * mirror problem: `recordAlert` has no dedupe key, so a retry would insert duplicates.
+ *
+ * Now detection is pure with `commit: false`: it returns the changes plus the snapshot writes it
+ * WOULD have made, and `store.commitAlerts` applies both together in one transaction once delivery has
+ * been resolved. Retry becomes idempotent by construction rather than by care.
+ *
+ * @param {{commit?: boolean}} opts `commit: true` keeps the old write-as-you-scan behaviour.
+ * @returns {{changes: object[], pendingState: [string, string][]}}
+ */
+export function detectChanges({ commit = true } = {}) {
   const news = [];
+  // Snapshot writes, deferred unless committing. Each key here is read once and written once with no
+  // cross-dependency inside a single pass, so deferring them cannot change what this pass detects.
+  const pendingState = [];
+  const put = (k, v) => (commit ? store.setState(k, v) : pendingState.push([k, String(v)]));
 
   // 1. Signal direction flips + overall tilt shift.
   const board = computeSignals();
@@ -26,13 +48,13 @@ export function detectChanges() {
     if (prev && prev !== s.direction && s.direction !== "neutral") {
       news.push({ category: "signal", title: `${s.name} turned ${s.direction}`, detail: `Was ${prev}. ${s.detail}` });
     }
-    store.setState(key, s.direction);
+    put(key, s.direction);
   }
   const prevTilt = store.getState("board:tilt");
   if (prevTilt && prevTilt !== board.tilt) {
     news.push({ category: "tilt", title: `Market tilt shifted: ${prevTilt} → ${board.tilt}`, detail: `${board.bullish} bullish / ${board.bearish} bearish / ${board.neutral} neutral.` });
   }
-  store.setState("board:tilt", board.tilt);
+  put("board:tilt", board.tilt);
 
   // 2. Series extremes + big single-period moves.
   for (const s of store.marketSnapshot()) {
@@ -43,7 +65,7 @@ export function detectChanges() {
         if (s.percentile >= 99 && prevPct < 99) news.push({ category: "extreme", title: `${s.label} hit a multi-year high`, detail: `${fmt(s.latest.value)} (${s.latest.period}) — ${s.percentile}th percentile of ${s.count} observations.` });
         else if (s.percentile <= 1 && prevPct > 1) news.push({ category: "extreme", title: `${s.label} hit a multi-year low`, detail: `${fmt(s.latest.value)} (${s.latest.period}) — ${s.percentile}th percentile of ${s.count} observations.` });
       }
-      store.setState(ek, String(s.percentile));
+      put(ek, String(s.percentile));
     }
     // Big single-period moves, scored in the series' OWN volatility rather than a flat percentage.
     //
@@ -64,9 +86,11 @@ export function detectChanges() {
         detail: `${fmt(s.previous.value)} → ${fmt(s.latest.value)} (${s.latest.period}) — a ${Math.abs(s.changeZ).toFixed(1)}σ move against this series' own typical ${fmt(s.changeSigma)} ${s.unit || ""} period-to-period swing.`.replace(/\s+/g, " "),
       });
     }
-    store.setState(mk, s.latest.period);
+    put(mk, s.latest.period);
   }
 
-  for (const a of news) store.recordAlert(a.category, a.title, a.detail);
-  return news;
+  // Alert ROWS are part of the commit too, not a side effect of detection. `recordAlert` has no
+  // dedupe key, so inserting here would make every retry a duplicate.
+  if (commit) for (const a of news) store.recordAlert(a.category, a.title, a.detail);
+  return { changes: news, pendingState };
 }

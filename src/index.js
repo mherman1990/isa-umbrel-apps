@@ -7,6 +7,7 @@
 //   node src/index.js dry-run --source X      shorthand for run --dry-run --source X
 //   node src/index.js query "45Z guidance"    ask across stored items + market data + briefs
 //   node src/index.js audit                   per-source stats + Anthropic token usage this month
+//   node src/index.js tokens                  token + prompt-cache usage by purpose (is caching working?)
 //   node src/index.js serve                   web UI for reading briefs + built-in am/pm scheduler
 
 import { Command } from "commander";
@@ -71,6 +72,15 @@ program
   .action(async () => {
     const { runAudit } = await import("./pipeline.js");
     await runAudit();
+  });
+
+program
+  .command("tokens")
+  .description("Token + prompt-cache usage broken down by purpose (verifies caching is working)")
+  .option("--days <n>", "window in days", "30")
+  .action(async (opts) => {
+    const { runTokens } = await import("./pipeline.js");
+    await runTokens(Number(opts.days) || 30);
   });
 
 program
