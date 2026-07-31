@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-polibrief
 category: automation
 name: The Bean Brief
-version: "1.26.0"
+version: "1.27.0"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
@@ -28,17 +28,19 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  Congressional hearings, a homepage calendar, and a reworked rules feed. The Bean Brief now tracks
-  committee hearings and markups from Congress — filtered to the committees that matter to Iowa
-  soybeans (House & Senate Ag, Ag-Appropriations, Ways & Means, Finance, EPW, and more), with the
-  Iowa delegation flagged. A new Calendar on the home page shows every date ahead in one month view:
-  USDA reports, public-comment deadlines, hearings, and political/policy milestones (elections, the
-  Sept 30 farm bill deadline, the Dec 4 funding deadline). And Laws, Rules & Decisions was overhauled:
-  group the feed by state vs. federal, topic, or source; sort by comment deadline; see an at-a-glance
-  "open / closing soon / closed" status on every rule; and rules automatically retire from the active
-  view once their comment period closes (still there under "Closed"). Also new: a VegScape satellite
-  crop-vegetation signal (0–100 VCI) for Iowa and the belt, a leading read on crop vigor ahead of the
-  USDA condition rating. After Update, add the new congress_hearings and vegscape sources to your
-  watchlist; the first market-refresh backfills ~12 weeks of VegScape tiles (~180 MB, one time).
+  The Bean Brief now reads the document, and counts each government action once. Until now three of
+  the official sources — including Regulations.gov, where public comments are actually filed — passed
+  along only a headline, so relevance decisions, one-line summaries and every AI report were written
+  without ever seeing the rule. The Bean Brief now fetches the real Federal Register text behind each
+  docket item (abstract, action and agency) before it decides anything, which also means a rule whose
+  title is vague but whose text mentions soybeans no longer slips through the filter. The same lookup
+  reveals when several feed items are the same notice cross-filed into different dockets: nine
+  "August 6" comment deadlines on your calendar turned out to be three notices. Laws, Rules &
+  Decisions, the calendar and the deadline list now show one row per action, with "also filed in N
+  other dockets" to open the rest — nothing is hidden, and "Did we see this?" still shows every copy.
+  Ask the Bean Brief also searches properly now: short terms like 45Z, RFS and RIN were being thrown
+  away before the search ran, so questions about them returned unrelated recent items. Finally, AI
+  panels say how old they are, and a stale one is no longer quoted to the Analyst as though it were
+  current. Update only — no new keys, no settings to change.
 submitter: Matt
 submission: https://github.com/mherman1990/isa-umbrel-apps

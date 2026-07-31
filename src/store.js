@@ -13,6 +13,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { eventKeyFor } from "./eventkey.js";
+
 const PROJECT_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 // Where mutable data (database, briefings) lives. Defaults to the project root;
 // Docker/Umbrel set POLIBRIEF_DATA_DIR to a mounted volume so data survives updates.
@@ -84,6 +86,10 @@ for (const columnDef of [
   "archived INTEGER DEFAULT 0", // set-aside items — out of the main LRD list, recoverable
   "deadline_archived INTEGER DEFAULT 0", // dismissed comment deadlines — separate archive from `archived`
   "triage_tier TEXT", // must_read | worth_knowing | background — graded relevance (NULL = triaged before tiers existed)
+  // The cross-source identity of the government ACTION this row reports on (see eventkey.js).
+  // NULL for everything stored before it existed; store.eventKeyOf() derives one on read so old
+  // rows group correctly too, and `backfillEventKeys()` fills the column in on boot.
+  "event_key TEXT",
 ]) {
   try {
     db.exec(`ALTER TABLE seen_items ADD COLUMN ${columnDef}`);
@@ -104,6 +110,7 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_seen_verdict     ON seen_items(triage_verdict);
   CREATE INDEX IF NOT EXISTS idx_seen_deadline    ON seen_items(comment_deadline);
   CREATE INDEX IF NOT EXISTS idx_seen_doctype     ON seen_items(doc_type);
+  CREATE INDEX IF NOT EXISTS idx_seen_event       ON seen_items(event_key);
 `);
 
 // Cached on-demand AI document summaries (web UI "AI summary" panel). Summaries are
@@ -861,9 +868,9 @@ export function setState(k, v) {
 const stmtIsSeen = db.prepare("SELECT 1 FROM seen_items WHERE uid = ?");
 const stmtMarkSeen = db.prepare(`
   INSERT INTO seen_items (uid, source_id, first_seen_at, triage_verdict, triage_topics, title, url, jurisdiction, one_line,
-                          comment_deadline, doc_type, published_at, entity_id, item_type, geo, body, triage_tier)
+                          comment_deadline, doc_type, published_at, entity_id, item_type, geo, body, triage_tier, event_key)
   VALUES (@uid, @sourceId, @firstSeenAt, @verdict, @topics, @title, @url, @jurisdiction, @oneLine,
-          @commentDeadline, @docType, @publishedAt, @entityId, @itemType, @geo, @body, @tier)
+          @commentDeadline, @docType, @publishedAt, @entityId, @itemType, @geo, @body, @tier, @eventKey)
   ON CONFLICT(uid) DO UPDATE SET
     triage_verdict = excluded.triage_verdict,
     triage_topics  = excluded.triage_topics,
@@ -872,7 +879,11 @@ const stmtMarkSeen = db.prepare(`
     entity_id      = COALESCE(excluded.entity_id, seen_items.entity_id),
     item_type      = COALESCE(excluded.item_type, seen_items.item_type),
     geo            = COALESCE(excluded.geo, seen_items.geo),
-    body           = COALESCE(excluded.body, seen_items.body)
+    body           = COALESCE(excluded.body, seen_items.body),
+    -- The event key can only IMPROVE on re-write: enrichment may resolve a Federal Register
+    -- document number on a later run that the first pass didn't have, which upgrades a
+    -- docket-scoped key to the fr: key that groups it with the notice itself.
+    event_key      = COALESCE(excluded.event_key, seen_items.event_key)
 `);
 const stmtGetSince = db.prepare("SELECT last_success_at FROM runs WHERE source_id = ?");
 const stmtSetLastSuccess = db.prepare(`
@@ -909,7 +920,57 @@ export function markSeen(item, verdict = null) {
     // Graded relevance. NULL for an untriaged/failed item and for everything triaged before tiers
     // existed — the LRD filter treats NULL as "worth knowing" so no history disappears.
     tier: verdict?.tier ?? null,
+    // The action this row is about (eventkey.js). Always derivable, so never NULL for new rows.
+    eventKey: item.raw?.eventKey ?? eventKeyFor(item),
   });
+}
+
+/**
+ * Fill `event_key` in for rows stored before the column existed. Cheap (one UPDATE per row, keyed on
+ * the primary key, inside one transaction) and idempotent — it only touches NULLs, so it runs once
+ * and then finds nothing. Called on boot so the grouped views work on existing history rather than
+ * only on rows collected after the update, which is what would otherwise make the Pi behave
+ * differently from a fresh install for a month.
+ */
+export function backfillEventKeys() {
+  const rows = db
+    .prepare("SELECT uid, source_id, title, jurisdiction FROM seen_items WHERE event_key IS NULL LIMIT 20000")
+    .all();
+  if (!rows.length) return 0;
+  const upd = db.prepare("UPDATE seen_items SET event_key = ? WHERE uid = ?");
+  const run = db.transaction((list) => {
+    for (const r of list) {
+      // No `raw` on a stored row, so this reaches the identifier-free tiers of eventKeyFor (title
+      // normalization / uid). Rows re-seen after an update get the strong key written by markSeen.
+      upd.run(eventKeyFor({ uid: r.uid, source_id: r.source_id, title: r.title, jurisdiction: r.jurisdiction }), r.uid);
+    }
+  });
+  run(rows);
+  return rows.length;
+}
+
+/**
+ * Every stored row that shares an event key with one of `keys`, so a grouped view can show "also
+ * filed in 3 other dockets" and link each one. Returns a Map(event_key → rows), newest first.
+ */
+export function eventSiblings(keys) {
+  const list = [...new Set((keys ?? []).filter(Boolean))];
+  if (!list.length) return new Map();
+  const rows = db
+    .prepare(
+      `SELECT uid, event_key, source_id, title, url, doc_type, comment_deadline, published_at, first_seen_at,
+              triage_verdict, triage_tier, LENGTH(COALESCE(body,'')) AS body_len
+         FROM seen_items
+        WHERE event_key IN (${list.map(() => "?").join(",")})
+        ORDER BY first_seen_at DESC`
+    )
+    .all(...list);
+  const out = new Map();
+  for (const r of rows) {
+    if (!out.has(r.event_key)) out.set(r.event_key, []);
+    out.get(r.event_key).push(r);
+  }
+  return out;
 }
 
 /**
@@ -1006,12 +1067,126 @@ export function searchSeenItems(term, limit = 30) {
   const like = `%${term}%`;
   return db
     .prepare(
-      `SELECT uid, source_id, title, url, jurisdiction, triage_verdict, triage_topics, one_line, first_seen_at
+      `SELECT uid, source_id, title, url, jurisdiction, triage_verdict, triage_topics, one_line, first_seen_at, event_key, body
          FROM seen_items
-        WHERE (title LIKE ? COLLATE NOCASE OR one_line LIKE ? COLLATE NOCASE)
+        WHERE (title LIKE ? COLLATE NOCASE OR one_line LIKE ? COLLATE NOCASE OR body LIKE ? COLLATE NOCASE)
         ORDER BY first_seen_at DESC LIMIT ?`
     )
-    .all(like, like, limit);
+    .all(like, like, like, limit);
+}
+
+// ---------------------------------------------------------------------------
+// Ranked retrieval for the Ask box (replaces the recency-ordered LIKE fallback)
+//
+// WHAT WAS WRONG. The Ask box ran `searchSeenItems(question)` — one LIKE on the ENTIRE question
+// string, which matches nothing for any real question — and then fell back to
+// `searchSeenItemsAny(question.split(/\s+/))`, which kept only words longer than 3 characters and
+// OR-ed them, ordered by `first_seen_at DESC`. Three consequences, all measurable:
+//   1. Every acronym this domain runs on — 45Z, RFS, RIN, EPA, EU, SAF, WOTUS, ESR — is 2–3
+//      characters and was SILENTLY DROPPED. "What's happening with 45Z?" searched for
+//      "what's", "happening", "with"; none of the surviving terms had anything to do with 45Z.
+//   2. Those surviving terms are stopwords, so the OR matched a large slice of the table and the
+//      `ORDER BY first_seen_at DESC LIMIT 30` turned retrieval into "the 30 newest rows".
+//   3. `body` was never searched, so document text the pipeline had stored was unreachable.
+//
+// WHY NOT FTS5/EMBEDDINGS YET. FTS5 is the right next step and better-sqlite3 ships it, but it
+// needs a shadow table kept in sync on the hot write path, and the gain over correct tokenization +
+// field-weighted scoring on a table this size (hundreds to low thousands of rows/month, ~2 TB of
+// NVMe headroom) is ranking quality, not reachability. Fix the reachability bug first, measure, then
+// decide. Nothing here changes the schema or the write path, so it is fully reversible.
+
+// Ordinary English that carries no retrieval signal. Deliberately short: a domain stoplist that
+// swallowed "farm" or "trade" would be worse than none.
+const STOPWORDS = new Set(
+  ("a an and any are as at be been but by can did do does for from had has have how i if in into is it its may " +
+    "me might must my no not of on or our should so than that the their them then there these they this those to " +
+    "us was we were what when where which who why will with would you your about tell show give me latest new news " +
+    "happening happened update please").split(" ")
+);
+
+/**
+ * Turn a natural-language question into scored search terms.
+ *   - "quoted phrases" survive as phrases and score highest
+ *   - ALL-CAPS / alphanumeric tokens (45Z, RFS, HF2571, EPA) are kept at ANY length — these are the
+ *     highest-signal terms in this domain and were exactly what the old length filter deleted
+ *   - ordinary words are kept at ≥4 characters and de-stopworded
+ * @returns {{phrases: string[], terms: string[]}}
+ */
+export function parseQuery(question) {
+  const q = String(question ?? "");
+  const phrases = [...q.matchAll(/"([^"]{3,80})"/g)].map((m) => m[1].trim()).filter(Boolean);
+  const rest = q.replace(/"[^"]*"/g, " ");
+  const terms = [];
+  for (const rawTok of rest.split(/[^A-Za-z0-9§%.-]+/)) {
+    const tok = rawTok.replace(/^[.-]+|[.-]+$/g, "");
+    if (!tok) continue;
+    const lower = tok.toLowerCase();
+    if (STOPWORDS.has(lower)) continue;
+    // An acronym or alphanumeric code: any length. Distinguished by containing a digit or by being
+    // written in caps in the original question.
+    const isCode = /\d/.test(tok) || (tok === tok.toUpperCase() && tok.length >= 2);
+    if (isCode || tok.length >= 4) terms.push(lower);
+  }
+  return { phrases, terms: [...new Set(terms)].slice(0, 12) };
+}
+
+/**
+ * Retrieve stored items for a question, ranked by where and how often the terms hit rather than by
+ * recency. One table scan; scoring happens in SQL so the LIMIT applies to the ranked list.
+ *
+ * Field weights encode what a match MEANS: a hit in the title is the item being about the term, a
+ * hit in `one_line` is the triager saying so, a hit in `body` is the document containing it.
+ * Recency is a tie-breaker, not the sort key.
+ */
+export function searchItemsRanked(question, { limit = 30, days = 400 } = {}) {
+  const { phrases, terms } = parseQuery(question);
+  const needles = [...phrases, ...terms];
+  if (!needles.length) return [];
+  const since = new Date(Date.now() - days * 86400e3).toISOString();
+
+  // Phrases weigh more than single terms; title > one_line > body within each.
+  const parts = [];
+  const params = [];
+  const gate = [];
+  const gateParams = [];
+  needles.forEach((n, i) => {
+    const w = i < phrases.length ? 3 : 1;
+    const like = `%${n}%`;
+    parts.push(`(CASE WHEN title    LIKE ? COLLATE NOCASE THEN ${6 * w} ELSE 0 END)`);
+    parts.push(`(CASE WHEN one_line LIKE ? COLLATE NOCASE THEN ${3 * w} ELSE 0 END)`);
+    parts.push(`(CASE WHEN body     LIKE ? COLLATE NOCASE THEN ${2 * w} ELSE 0 END)`);
+    params.push(like, like, like);
+    // Cheap gate: one LIKE per needle against the three fields concatenated, instead of three. The
+    // full field-weighted score is then computed only for rows that pass. `LIKE '%x%'` can never use
+    // an index, so this is a scan either way — the gate just makes the scan a third as expensive.
+    gate.push("(title || ' ' || COALESCE(one_line,'') || ' ' || COALESCE(body,'')) LIKE ? COLLATE NOCASE");
+    gateParams.push(like);
+  });
+  const scoreExpr = parts.join(" + ");
+
+  // ⚠️ COST NOTE, measured. Cloning the local corpus to 60,200 rows (≈5 years at the observed intake)
+  // put one query at ~560 ms on a dev PC; at the real current table size (~10² rows locally, low 10³
+  // on the Pi) it is ~2 ms and ~50 ms respectively. It scales linearly and runs once per Ask-box
+  // question, ahead of a 10–20 s model call, so it is not the bottleneck today — but it will be
+  // eventually, and FTS5 (already compiled into better-sqlite3) is the fix at that point, not a
+  // narrower window. The old path was ~0.4 ms only because it stopped at the first 30 rows matching
+  // any stopword, which is exactly why it returned "the newest rows" instead of an answer.
+  return db
+    .prepare(
+      `SELECT uid, source_id, title, url, jurisdiction, triage_verdict, triage_topics, triage_tier, one_line,
+              first_seen_at, published_at, comment_deadline, doc_type, event_key, body,
+              (${scoreExpr}) AS match_score
+         FROM seen_items
+        WHERE first_seen_at >= ? AND (${gate.join(" OR ")})
+        ORDER BY match_score DESC, first_seen_at DESC
+        LIMIT ?`
+    )
+    .all(...params, since, ...gateParams, limit)
+    // The gate matches the three fields CONCATENATED, so a phrase can straddle a field boundary
+    // (title ending "…pesticide", one_line opening "tolerance…") and pass the gate while scoring 0 in
+    // every individual field. Dropped here rather than with a second copy of the score expression in
+    // the WHERE clause: at most `limit` rows reach this point, so it costs nothing.
+    .filter((r) => r.match_score > 0);
 }
 
 /**
@@ -1172,7 +1347,8 @@ export function listItems({ q = "", topicId = "", sourceId = "", sourceIds = nul
   return db
     .prepare(
       `SELECT uid, source_id, title, url, jurisdiction, doc_type, triage_verdict, triage_topics, triage_tier,
-              one_line, comment_deadline, published_at, first_seen_at, feedback, feedback_note, entity_id, item_type, geo, body
+              one_line, comment_deadline, published_at, first_seen_at, feedback, feedback_note, entity_id, item_type, geo, body,
+              event_key
          FROM seen_items WHERE ${clauses.join(" AND ")}
         ORDER BY ${orderBy} LIMIT ?`
     )
@@ -1235,18 +1411,48 @@ export function trackedKeySet() {
   return new Set(db.prepare("SELECT track_key FROM tracked_items").all().map((r) => r.track_key));
 }
 
-/** Upcoming comment deadlines (for the .ics calendar + UI), soonest first. Dismissed deadlines
- *  (deadline_archived=1) drop out — pass {includeArchived:true} for the dismissed-archive view. */
-export function upcomingDeadlines(limit = 100, { includeArchived = false } = {}) {
+/**
+ * Upcoming comment deadlines (for the .ics calendar + UI), soonest first. Dismissed deadlines
+ * (deadline_archived=1) drop out — pass {includeArchived:true} for the dismissed-archive view.
+ *
+ * ONE DEADLINE PER ACTION (see eventkey.js). A single Federal Register notice cross-filed into four
+ * EPA dockets used to produce four identical rows here, and they landed on the homepage calendar,
+ * in the LRD deadline panel, in `.ics`, and in every prompt's deadline block. Measured on the stored
+ * feed: nine "Aug 6" rows were three notices. Grouping keeps the row an analyst can act on — the
+ * Regulations.gov copy, because that is where the comment is filed — and reports how many
+ * additional dockets carry the same deadline in `dupCount`.
+ *
+ * Pass {collapse:false} for the raw per-document list (the dismissed-archive view needs it, so that
+ * dismissing one copy doesn't hide the group's other copies from the restore screen).
+ */
+export function upcomingDeadlines(limit = 100, { includeArchived = false, collapse = true } = {}) {
   const today = new Date(Date.now() - 86400e3).toISOString().slice(0, 10);
-  return db
+  const rows = db
     .prepare(
-      `SELECT uid, title, url, comment_deadline, one_line, source_id FROM seen_items
+      `SELECT uid, title, url, comment_deadline, one_line, source_id, event_key, LENGTH(COALESCE(body,'')) AS body_len
+         FROM seen_items
         WHERE comment_deadline IS NOT NULL AND comment_deadline >= ?
           ${includeArchived ? "" : "AND COALESCE(deadline_archived, 0) = 0"}
         ORDER BY comment_deadline ASC LIMIT ?`
     )
-    .all(today, limit);
+    // Over-fetch before collapsing so a limit of 20 still yields ~20 distinct actions rather than
+    // 20 rows that turn out to be five.
+    .all(today, collapse ? Math.min(limit * 4, 400) : limit);
+  if (!collapse) return rows;
+
+  const byKey = new Map();
+  for (const r of rows) {
+    const key = r.event_key || r.uid;
+    const prev = byKey.get(key);
+    if (!prev) {
+      byKey.set(key, { ...r, dupCount: 0 });
+      continue;
+    }
+    prev.dupCount++;
+    // Keep whichever copy carries real document text — that's the one whose summary is worth reading.
+    if ((r.body_len ?? 0) > (prev.body_len ?? 0)) byKey.set(key, { ...r, dupCount: prev.dupCount });
+  }
+  return [...byKey.values()].slice(0, limit);
 }
 
 /** Upcoming congressional hearings (doc_type='hearing'), soonest first — the meeting date is stored

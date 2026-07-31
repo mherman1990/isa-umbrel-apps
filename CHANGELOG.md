@@ -1,5 +1,105 @@
 # Changelog
 
+## 1.27.0 — Read the document, count the action once
+
+One theme: **stop losing information between fetching it and reasoning about it.** Collection and the
+market layer were fine; the losses were all in the middle. Three findings, each measured on the real
+stored feed before anything was written — see `docs/EVIDENCE_AND_EVENTS.md` for the full workings.
+
+**Three official adapters supplied no document text at all.** `regulations_gov`, `iowa_admin_rules`
+and `eurlex_oj` each hard-coded `summary: ""`, and `summary` is the field that becomes
+`seen_items.body` — the only document text the local scorer, the triager and every prompt ever saw.
+So for the comment-docket stream, the most actionable source an advocacy organisation has, every
+judgement in the system was made from a headline. The stored verdicts said so out loud: *"Submission
+for OMB review with insufficient detail to assess relevance to soybeans."* The substance was
+available the whole time — the Federal Register notice behind one of those rows carries a 740-character
+abstract and 9,200 characters of text.
+
+**One government action was arriving as many items.** 19% of the "relevant" feed was an exact-title
+repeat of a row already in it; six of the eight entries in the homepage "Upcoming" list were the same
+three EPA notices; the comment-deadline panel showed nine "Aug 6" rows. Resolved against the API,
+those nine rows are **three** Federal Register notices — `2026-13557`, `2026-13552` and `2026-13553` —
+each cross-filed into two to four EPA dockets. Every copy got its own Haiku one-liner, its own
+calendar entry and its own deadline; the titles were byte-identical and the abstracts were `""`, so
+nothing distinguished them. To a synthesising model, ten near-identical entries read as ten
+independent corroborating signals of one claim.
+
+**The Ask box could not reach this domain's vocabulary.** Retrieval kept only words longer than three
+characters, so 45Z, RFS, RIN, EPA, SAF and EU were silently dropped; what survived were stopwords,
+which match most of the table, ordered by date. Asking "What's happening with 45Z?" returned
+"IL SB0315: BUSINESS-TECH", an OMB comment request, and a feature about virtual cattle fencing.
+
+### Added
+- **Document enrichment** (`src/enrich.js`) — runs after collect and **before** scoring. One
+  Regulations.gov detail call yields the document text *and* `frDocNum`, the Federal Register document
+  number; one Federal Register lookup **per distinct document number** then supplies the real abstract,
+  action line and agency. Three docket copies therefore cost three detail calls and **one** FR call.
+  Live on 2026-07-30: **0/19 → 17/19 items grounded** with real document text, 17 linked to an FR
+  number. Running before scoring matters — a docket whose title is generic but whose abstract says
+  "soybean" used to score zero and never reach triage; one item went from 1 matched focus area to 3.
+  No Anthropic tokens; every fetch individually fail-soft; capped at 40 fetches/run.
+- **Event identity** (`src/eventkey.js`) — one government action, one identity, keyed on identifiers
+  the publisher assigns: `fr:<docnum>` (collapses docket copies *and* the Federal Register original,
+  across sources), `bill:<juris>:<id>` (a bill across every status change — LegiScan's uid embeds
+  `change_hash`, so a bill that moved four times was four unrelated feed rows), `case:<court>:<no>`,
+  and a normalized-title **exact** match as the last resort for re-syndicated news. New
+  `seen_items.event_key` column, indexed, additive, backfilled on boot so existing history groups too.
+- **An evaluation harness** (`test/eval-intelligence.test.js` + `test/fixtures/eval-corpus.js`) that
+  prints a scorecard on `npm test`: redundancy rate, **false-merge rate**, thread fragmentation,
+  grounding rate, retrieval precision@5 measured against the old behaviour, repetition-as-evidence,
+  recall preservation, stale-context suppression. Fixtures carry recorded provenance (real docket ids,
+  real document numbers, the real abstract) and need no network or model. 16 tests → 37.
+
+### Changed
+- **Triage is document-level and runs once per action.** The per-item budget went from 600 characters
+  to 2,500 (600 truncates a Federal Register abstract mid-sentence), the field is named `document`,
+  and the prompt now says to base the verdict on what the document says rather than what the title
+  implies — and to write a one-line that *distinguishes* this filing, naming the active ingredient or
+  commodity or country, since filings sharing a title must not get interchangeable summaries. Copies
+  of one action inherit the representative's verdict instead of each paying for their own.
+- **Every prompt now sees the document.** `compactItems` — used by the Ask box, the Analyst Note and
+  the weekly/monthly memos — projected rows to title + `one_line`, so the deepest model in the system
+  reasoned about a federal rule from its title and a sentence Haiku wrote about that title. It now
+  emits one entry per action carrying a `document` excerpt (1,200 chars), the priority tier, the
+  deadline, and `alsoFiledAs`. Prompts are told that `document` is sourced fact, `why` is someone
+  else's summary, and that an entry with `alsoFiledAs` is **one** action filed in several places —
+  never repetition as corroboration.
+- **Ranked retrieval** (`store.parseQuery` / `store.searchItemsRanked`). Quoted phrases survive as
+  phrases; alphanumeric and ALL-CAPS tokens are kept at any length; ordinary words are de-stopworded
+  at ≥4 chars; `body` is searched at last; scoring is field-weighted (title 6 / one_line 3 / body 2)
+  with recency as the tie-break rather than the sort key. A query of nothing but stopwords now returns
+  nothing instead of the newest rows. Measured on the eval set: **precision@5 57% → 100%**.
+- **Laws, Rules & Decisions, the homepage calendar and the deadline panel show one row per action**,
+  with "also filed in N other dockets — same action" disclosing the rest and the help text stating how
+  many rows were folded. On the stored feed the first thirteen rows became five distinct actions and
+  the nine "Aug 6" deadlines became three. Nothing is hidden: the archive view stays un-collapsed, and
+  "🔍 Did we see this?" still shows every copy — that panel's whole job is showing what the filters did.
+- **Cached model output states its age, and stale output is withheld from prompts.** The Markets page
+  was rendering a card written 22 days earlier, expanded by default, quoting managed money at "38,149
+  contracts (39th percentile)" directly beneath a live board reading 130,505 at the 79th — and
+  injecting the same text into the Analyst Note with no age attached. Panels now carry a freshness
+  badge in the summary line, stale ones start collapsed with an explicit warning, and
+  `marketIntelText()` dates what it injects and withholds it past 4 days.
+
+### Fixed
+- **A latent false merge in the source data.** Two of eleven sampled EPA records had their citation
+  fields shifted by one position, putting a page *range* in `frDocNum` (`"46594 - 46594"`) with the
+  real document number in `startEndPage`. Trusting the field produced the key `fr:46594 - 46594`; a
+  page range repeats across volumes, so it would eventually merge two unrelated notices — and a false
+  merge silently deletes a real action from the feed. `frDocNumOf()` scans the candidate fields for the
+  canonical `YYYY-NNNNN` shape and refuses anything else. Locked by test.
+- `triageItems` returns its verdict map, so one representative's judgement can be applied to the other
+  filings; a batch that never reached the model leaves its copies unseen so the next run retries them,
+  rather than recording them as judged.
+
+### Pi go-live
+**Code-only.** `event_key` and its index auto-create on boot, and the backfill runs once on start
+(NULLs only, idempotent). No new API keys — enrichment uses the existing
+`REGULATIONS_GOV_API_KEY`/`CONGRESS_GOV_API_KEY`, and without one it logs a skip and changes nothing.
+No watchlist merge. Enrichment adds ≤40 keyless-or-existing-key HTTP calls per run and no model spend;
+triage spend goes *down*. The visible change is immediate on the first run after Update; existing
+history groups as soon as the container starts.
+
 ## 1.26.0 — Graded relevance, exclusion terms, per-report delivery, signal cards that show their work
 
 Two themes. **Narrowing the net**: until now the filter could only ever say *yes* — there was no way

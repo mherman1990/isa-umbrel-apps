@@ -21,8 +21,9 @@ import path from "node:path";
 import zlib from "node:zlib";
 
 import * as store from "./store.js";
-import { runPipeline, runMemo, answerQuery, loadWatchlist, saveWatchlist, generateNewsDigest, getCachedNewsDigest, extractMarketIntel, getCachedMarketIntel, generateMarketCards, getCachedMarketCards, generateStorylines, getStorylinesMeta } from "./pipeline.js";
+import { runPipeline, runMemo, answerQuery, loadWatchlist, saveWatchlist, generateNewsDigest, getCachedNewsDigest, extractMarketIntel, getCachedMarketIntel, generateMarketCards, getCachedMarketCards, generateStorylines, getStorylinesMeta, cachedAgeDays, STALE_PANEL_DAYS } from "./pipeline.js";
 import { computeSignals, SIGNAL_CHART } from "./signals.js";
+import { groupByEvent, pickLead } from "./eventkey.js";
 import { upcomingReports, upcomingPolicyEvents } from "./calendar.js";
 import { adapters, sourceIdsForClass, classOf } from "./adapters/index.js";
 import { postToTeams, recipientFor, sendTestEmail } from "./deliver.js";
@@ -263,6 +264,20 @@ function page(title, body) {
   .banner { background: var(--isa-blue-40); border: 1px solid var(--isa-blue); border-radius: 8px;
     padding: 8px 14px; margin: 12px 0; }
   .banner.err { background: #f7d9d3; border-color: var(--isa-rust); }
+  /* Freshness of cached model output. A panel whose figures may be superseded says so in the
+     summary line, before it is opened — not in muted 0.82em text underneath the prose. */
+  .fresh-badge { font-size: .74em; font-weight: 500; opacity: .7; letter-spacing: .01em;
+    border: 1px solid var(--line); border-radius: 10px; padding: 1px 7px; white-space: nowrap; }
+  .fresh-badge.is-stale { opacity: 1; background: #f7ead3; border-color: var(--isa-gold, #c8a05a); }
+  .stale-warn { margin: 0 0 10px; padding: 7px 11px; font-size: .88em; border-radius: 6px;
+    background: #f7ead3; border: 1px solid var(--isa-gold, #c8a05a); }
+  /* One government action, several filings. */
+  .alsofiled { margin: 3px 0 0; font-size: .84em; }
+  .alsofiled > summary { cursor: pointer; opacity: .72; list-style: none; }
+  .alsofiled > summary::-webkit-details-marker { display: none; }
+  .alsofiled > summary::before { content: "⧉ "; }
+  .alsofiled ul { margin: 4px 0 2px 14px; padding-left: 10px; }
+  .alsofiled li { margin: 2px 0; }
   table.sources, table.items { border-collapse: collapse; width: 100%; margin: 8px 0 4px; }
   table.sources th, table.sources td, table.items th, table.items td
     { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
@@ -636,9 +651,12 @@ function deadlinesSection(viewingDismissed = false) {
       const btn = viewingDismissed
         ? '<button class="ghost tiny" title="Restore to the deadlines list">♻ restore</button>'
         : '<button class="ghost tiny" title="Dismiss — move to the deadlines archive (recoverable)">🗄 set aside</button>';
+      // store.upcomingDeadlines collapses the filings of one action; dupCount is how many further
+      // dockets share this same deadline. Nine identical "Aug 6" rows were three notices.
+      const also = d.dupCount ? ` <span class="muted">(+${d.dupCount} more docket${d.dupCount === 1 ? "" : "s"}, same action)</span>` : "";
       return `<li><strong>${esc(d.comment_deadline)}</strong> — <a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(
         (d.title ?? "").slice(0, 90)
-      )}</a>
+      )}</a>${also}
         <form method="post" action="/items/deadline-archive" style="display:inline">
           <input type="hidden" name="uid" value="${esc(d.uid)}"><input type="hidden" name="on" value="${viewingDismissed ? "false" : "true"}">
           <input type="hidden" name="back" value="${esc(back)}">${btn}</form></li>`;
@@ -891,11 +909,35 @@ function storylinesSection() {
 
 // Signal cards — the internal output of the condition-trigger engine (what fired + the directional
 // read). Cached; generated on each run + on demand. Un-muzzled (compliance decoupled 2026-07-11).
+/**
+ * Freshness badge for a panel whose content is cached model output.
+ *
+ * WHY THIS IS NOT COSMETIC. The Markets page used to render a signal card written on 2026-07-08 —
+ * quoting managed money at "38,149 contracts (39th percentile)" and anticipating a WASDE "releasing
+ * July 10" — expanded by default, immediately beneath a live signal board reading 130,505 contracts
+ * at the 79th percentile, three weeks after that WASDE had come and gone. Two different values for
+ * the same series on one screen, with nothing to say which was current: exactly the way a tool
+ * teaches its user not to trust it. The date was on the page, in 0.82em muted text, at the BOTTOM.
+ * @returns {{badge: string, stale: boolean, warn: string}}
+ */
+function freshness(kind, dateLabel) {
+  const age = cachedAgeDays(kind);
+  const stale = age > STALE_PANEL_DAYS;
+  const rel = !Number.isFinite(age) ? "" : age < 1 ? "today" : age < 2 ? "yesterday" : `${Math.floor(age)} days ago`;
+  const badge = `<span class="fresh-badge${stale ? " is-stale" : ""}">${stale ? "⚠️ " : ""}${esc(dateLabel || "")}${rel ? ` · ${rel}` : ""}</span>`;
+  const warn = stale
+    ? `<p class="stale-warn">Written ${rel} — figures quoted here may since have been superseded by the live signal board and charts below. Refresh before relying on a number.</p>`
+    : "";
+  return { badge, stale, warn };
+}
+
 function marketCardsSection() {
   const cached = getCachedMarketCards();
   if (cached && cached.markdown) {
-    return `<details class="topic" open><summary>🎯 Signal cards — what's firing${cached.triggers?.length ? ` <span class="muted">(${cached.triggers.length} active)</span>` : ""}</summary>
-      <div class="answer market-cards">${markdownToHtml(cached.markdown)}
+    const { badge, stale, warn } = freshness("market_cards", cached.date);
+    // A stale card starts COLLAPSED. Expanded-by-default is a claim that the content is current.
+    return `<details class="topic"${stale ? "" : " open"}><summary>🎯 Signal cards — what's firing${cached.triggers?.length ? ` <span class="muted">(${cached.triggers.length} active)</span>` : ""} ${badge}</summary>
+      <div class="answer market-cards">${warn}${markdownToHtml(cached.markdown)}
         <div class="muted" style="margin-top:6px;font-size:.82em">${esc(cached.date)} · <form method="post" action="/market-cards" style="display:inline"><button class="ghost tiny">↻ Refresh</button></form></div></div></details>`;
   }
   return `<details class="topic"><summary>🎯 Signal cards — what's firing</summary>
@@ -916,7 +958,19 @@ function homeCalendarEvents({ includeHidden = false } = {}) {
   for (const p of upcomingPolicyEvents(240)) push({ date: p.date, label: p.name, kind: "policy", impact: p.impact, note: p.note || "", url: "" });
   // Deadlines and hearings carry their item uid, so "hide" on one of those hides that ITEM's event
   // (and the item's own 🗄 set-aside in Laws/Rules/Decisions removes it too).
-  for (const d of store.upcomingDeadlines(60)) push({ date: (d.comment_deadline || "").slice(0, 10), label: `Comment deadline — ${d.title}`, kind: "deadline", impact: "medium", note: d.one_line || "", url: d.url || "", key: `deadline:${d.uid}` });
+  // Collapsed by store.upcomingDeadlines — before that, one Federal Register notice cross-filed into
+  // four dockets put four identical entries on the same calendar day, and six of the eight
+  // "Upcoming" items on the homepage were the same three EPA notices.
+  for (const d of store.upcomingDeadlines(60))
+    push({
+      date: (d.comment_deadline || "").slice(0, 10),
+      label: `Comment deadline — ${d.title}${d.dupCount ? ` (+${d.dupCount} more docket${d.dupCount === 1 ? "" : "s"})` : ""}`,
+      kind: "deadline",
+      impact: "medium",
+      note: d.one_line || "",
+      url: d.url || "",
+      key: `deadline:${d.uid}`,
+    });
   for (const h of store.upcomingHearings(80)) push({ date: (h.published_at || "").slice(0, 10), label: h.title, kind: "hearing", impact: "medium", note: h.one_line || "", url: h.url || "", key: `hearing:${h.uid}` });
   // Tracked (📌) rules with a comment deadline ride along as their own kind so the things Matt has
   // explicitly said he cares about stand out from the generic USDA calendar. Deduped against the
@@ -1658,9 +1712,10 @@ function inboxFeed() {
 function intelPanel() {
   const intel = getCachedMarketIntel();
   if (!intel?.markdown) return "";
+  const { badge, stale, warn } = freshness("market_intel", intel.date);
   return `<details class="topic" style="margin-top:10px">
-    <summary style="cursor:pointer;font-weight:600">📈 Market intel from the inbox <span class="muted" style="font-weight:400">— feeds the Analyst, Pulse & Ask box</span></summary>
-    <div class="answer" style="margin-top:8px">${markdownToHtml(intel.markdown)}
+    <summary style="cursor:pointer;font-weight:600">📈 Market intel from the inbox <span class="muted" style="font-weight:400">— ${stale ? "no longer fed to the Analyst or Ask box (too old)" : "feeds the Analyst &amp; Ask box"}</span> ${badge}</summary>
+    <div class="answer" style="margin-top:8px">${warn}${markdownToHtml(intel.markdown)}
       <div class="muted" style="margin-top:8px;font-size:.85em">Distilled from ${intel.count} newsletter item${intel.count === 1 ? "" : "s"} · ${esc(intel.date)}</div>
     </div>
   </details>`;
@@ -1668,8 +1723,9 @@ function intelPanel() {
 
 function newsBody(notice) {
   const cached = getCachedNewsDigest();
+  const digestFresh = cached ? freshness("news_digest", cached.date) : null;
   const digestBlock = cached
-    ? `<div class="answer news-digest">${markdownToHtml(cached.markdown)}
+    ? `<div class="answer news-digest">${digestFresh.warn}${markdownToHtml(cached.markdown)}
         <div class="muted" style="margin-top:8px;font-size:.85em">Distilled from ${cached.count} items · ${esc(cached.date)} · <form method="post" action="/news/digest" style="display:inline"><button class="ghost tiny">↻ Refresh</button></form></div></div>`
     : `<form method="post" action="/news/digest"><button class="ghost">🧠 Generate today's digest</button></form>
        <p class="muted" style="font-size:.85em">One cheap Haiku call over the last two days of news.</p>`;
@@ -2081,7 +2137,21 @@ function itemsBody(params, notice) {
   const viewingClosed = params.get("closed") === "1";
   const viewingDismissedDeadlines = params.get("deadlines_archived") === "1";
   const lifecycle = viewingArchive ? "all" : viewingClosed ? "closed" : "active";
-  const rows = store.listItems({ ...filters, sort, lifecycle, sourceIds: sourceIdsForClass("official"), limit: group ? 400 : 200, archived: viewingArchive ? 1 : 0 });
+  const rawRows = store.listItems({ ...filters, sort, lifecycle, sourceIds: sourceIdsForClass("official"), limit: group ? 400 : 200, archived: viewingArchive ? 1 : 0 });
+  // ONE ROW PER GOVERNMENT ACTION (eventkey.js). This feed's whole promise is "clean regulatory
+  // flow", and it was breaking that promise in the most visible way possible: of the first thirteen
+  // rows, thirteen were three Federal Register notices, each cross-filed into two to four EPA
+  // dockets and each given its own differently-worded one-liner, so they read as thirteen unrelated
+  // pesticide actions. Every filing is still here — it is one disclosure click away, and the archive
+  // view stays un-collapsed so a set-aside row can always be found and restored individually.
+  const collapseRows = !viewingArchive;
+  const rows = collapseRows
+    ? groupByEvent(rawRows).map(({ members }) => {
+        const lead = pickLead(members);
+        return members.length > 1 ? { ...lead, _siblings: members.filter((m) => m.uid !== lead.uid) } : lead;
+      })
+    : rawRows;
+  const nCollapsed = rawRows.length - rows.length;
   const nArchived = store.archivedCount();
   const nClosed = store.listItems({ verdict: filters.verdict, days: filters.days, lifecycle: "closed", sourceIds: sourceIdsForClass("official"), limit: 500 }).length;
   const topicLabelById = new Map((watchlist?.topics ?? []).map((t) => [t.id, t.label]));
@@ -2125,10 +2195,23 @@ function itemsBody(params, notice) {
         : `<button type="button" class="ghost tiny act" data-act="archive" data-uid="${esc(r.uid)}" data-on="true" title="Set aside — move to the archive (recoverable)">🗄 set aside</button>`;
       // data-l labels drive the mobile card layout (the <thead> is hidden under 640px and each cell
       // prints its own label instead) — see the mobile block in page().
+      // The other filings of the same action, disclosed on demand: the count is the fact that
+      // matters ("this went into 4 dockets"), the list is there when someone needs a specific one.
+      const sibs = r._siblings ?? [];
+      const alsoFiled = sibs.length
+        ? `<details class="alsofiled"><summary>Also filed in ${sibs.length} other docket${sibs.length === 1 ? "" : "s"} — same action</summary>
+             <ul>${sibs
+               .map(
+                 (s) => `<li><a href="${esc(s.url ?? "#")}" target="_blank" rel="noopener">${esc((s.title ?? s.uid).slice(0, 90))}</a>
+                   <span class="muted">${esc(adapters[s.source_id]?.label ?? s.source_id)}${s.comment_deadline ? ` · comments close ${esc(String(s.comment_deadline).slice(0, 10))}` : ""}</span></li>`
+               )
+               .join("")}</ul></details>`
+        : "";
       return `<tr data-row="${esc(r.uid)}">
         <td><a href="${esc(r.url ?? "#")}" target="_blank" rel="noopener">${esc((r.title ?? r.uid).slice(0, 110))}</a>
           ${r.one_line ? `<br><span class="muted">${esc(r.one_line)}</span>` : ""}
           ${r.feedback_note ? `<br><span class="muted">📝 ${esc(r.feedback_note)}</span>` : ""}
+          ${alsoFiled}
           ${summaryPanel}</td>
         <td class="muted" data-l="Where / when">${esc(jurisdictionLevel(r.source_id, r.jurisdiction))} · ${esc((r.published_at ?? r.first_seen_at ?? "").slice(0, 10))}${statusBadge(r) ? ` ${statusBadge(r)}` : ""}</td>
         <td class="muted" data-l="Verdict">${esc(r.triage_verdict ?? "")}${tierBadge(r)}</td>
@@ -2234,7 +2317,11 @@ ${coveragePanel(params.get("cov"))}
   ${viewingClosed ? '<input type="hidden" name="closed" value="1">' : ""}
   <button>Apply</button>
 </form>
-<p class="muted">👍/👎 teach the AI triage what you consider relevant — corrections are fed into future runs. 📌 tracks an item so new activity is flagged in briefs. Rules retire from this view once their comment period closes (see 🗂 Closed).</p>
+<p class="muted">👍/👎 teach the AI triage what you consider relevant — corrections are fed into future runs. 📌 tracks an item so new activity is flagged in briefs. Rules retire from this view once their comment period closes (see 🗂 Closed).${
+  nCollapsed
+    ? ` <strong>${nCollapsed} duplicate filing${nCollapsed === 1 ? "" : "s"}</strong> of actions already listed here are folded into their row — open “also filed in…” to see them. Nothing is hidden: <a href="/items?archived=1">the archive</a> and “Did we see this?” always show every copy.`
+    : ""
+}</p>
 ${itemsHtml}
 <script>
 document.querySelectorAll('details.summary').forEach(function(d){
@@ -2419,6 +2506,14 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
     console.log(`🗂️  Registry synced: ${r.entities} entities, ${r.channels} channels`);
   } catch (err) {
     console.log(`⚠️  Registry sync skipped: ${err.message}`);
+  }
+  // Give existing history an event key so the grouped views work on the archive the Pi already holds,
+  // not only on rows collected after the update. Idempotent (NULLs only) and fail-soft.
+  try {
+    const n = store.backfillEventKeys();
+    if (n) console.log(`🔗 Event keys backfilled for ${n} stored item${n === 1 ? "" : "s"}`);
+  } catch (err) {
+    console.log(`⚠️  Event-key backfill skipped: ${err.message}`);
   }
 
   const server = http.createServer(async (req, res) => {

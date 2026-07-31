@@ -17,7 +17,11 @@ const BATCH_SIZE = 15;
 // nothing is thrown away, it's just one click further from the daily read.
 const TIERS = ["must_read", "worth_knowing", "background"];
 
-const SYSTEM_PROMPT = `You are triaging government documents and political items for relevance to Iowa soybean farmers and the Iowa Soybean Association's policy priorities. For each item, return strict JSON: {"uid": "...", "relevant": true|false, "tier": "must_read|worth_knowing|background", "topicIds": [...], "oneLine": "...", "type": "..."} — oneLine is a one-line why-it-matters for Iowa soy; type is your best guess of the item kind, one of: news|statement|bill_action|vote|event|fundraiser|rule|other.
+const SYSTEM_PROMPT = `You are triaging government documents and political items for relevance to Iowa soybean farmers and the Iowa Soybean Association's policy priorities. Each item gives you a title and, where the pipeline could retrieve it, the document's own text in "document" — READ THAT, and base your verdict and your one-line on what the document actually says, not on what the title implies. Titles in this corpus are often generic or shared verbatim between unrelated filings.
+
+For each item, return strict JSON: {"uid": "...", "relevant": true|false, "tier": "must_read|worth_knowing|background", "topicIds": [...], "oneLine": "...", "type": "..."} — oneLine is a one-line why-it-matters for Iowa soy; type is your best guess of the item kind, one of: news|statement|bill_action|vote|event|fundraiser|rule|other.
+
+Write the oneLine so it DISTINGUISHES this document: name the specific substance (the active ingredient, the commodity, the country, the program, the dollar figure) rather than restating the title's category. If two filings share a title, their one-lines must not be interchangeable. When no document text was available, say what is unknown instead of inventing significance — "notice title only; substance not retrieved" is a more useful verdict than a confident guess.
 
 Grade "tier" strictly — it decides what reaches the daily read:
 - "must_read": ISA would act, comment, or brief leadership on this. A rule/docket/bill that directly changes what Iowa soybean farmers may do, what they are paid, or what they pay; an open comment period on such a rule; a trade or biofuel decision that moves soybean demand.
@@ -65,10 +69,13 @@ function parseVerdicts(text) {
 }
 
 /**
- * @returns {{ relevant: Item[], triagedCount: number }} relevant items carry .oneLine and .topicIds
+ * @returns {{ relevant: Item[], triagedCount: number, verdicts: Map<string, object|null> }}
+ *   relevant items carry .oneLine/.topicIds/.tier; `verdicts` maps every triaged uid to its verdict
+ *   so the caller can apply one verdict to the other copies of a cross-filed document (pipeline.js
+ *   triages one representative per event, not one per filing).
  */
 export async function triageItems(kept, topics, env) {
-  if (kept.length === 0) return { relevant: [], triagedCount: 0 };
+  if (kept.length === 0) return { relevant: [], triagedCount: 0, verdicts: new Map() };
 
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   const model = env.TRIAGE_MODEL || "claude-haiku-4-5";
@@ -76,6 +83,7 @@ export async function triageItems(kept, topics, env) {
   const systemPrompt = SYSTEM_PROMPT + feedbackGuidance();
 
   const relevant = [];
+  const verdicts = new Map();
   let triagedCount = 0;
 
   for (let i = 0; i < kept.length; i += BATCH_SIZE) {
@@ -83,10 +91,22 @@ export async function triageItems(kept, topics, env) {
     const payload = batch.map((item) => ({
       uid: item.uid,
       title: item.title,
-      summary: (item.summary ?? "").slice(0, 600),
+      // DOCUMENT-LEVEL, NOT HEADLINE-LEVEL. This was 600 characters, which for a Federal Register
+      // rule truncates the abstract mid-sentence and for the three adapters that shipped
+      // `summary: ""` left the model grading a title alone. It showed: verdicts like "Submission for
+      // OMB review with insufficient detail to assess relevance to soybeans" are the model saying it
+      // was given nothing to judge. enrich.js now supplies real document text, so the budget here
+      // has to be big enough to carry it — 2,500 chars covers the great majority of FR abstracts
+      // whole, and 15 of them still fit comfortably inside the 4,000-token response budget because
+      // the model only writes one line back per item.
+      document: (item.summary ?? "").slice(0, 2500),
       source: item.sourceLabel,
       jurisdiction: item.jurisdiction,
       docType: item.docType,
+      // Cross-filed copies are collapsed before this call (pipeline.js), so tell the model when a
+      // verdict covers more than one filing — a notice cross-filed into four dockets is more
+      // consequential than a one-off, not four separate items.
+      ...(item.eventFilings > 1 ? { alsoFiledInDockets: item.eventFilings - 1 } : {}),
       localTopicGuesses: item.matchedTopics?.map((t) => t.id) ?? [],
     }));
 
@@ -114,7 +134,10 @@ export async function triageItems(kept, topics, env) {
     if (verdicts === null) {
       // Give up on this batch: mark items seen-but-unscored so the run continues.
       console.log(`   ⚠️ triage batch ${i / BATCH_SIZE + 1} failed twice — ${batch.length} items recorded as unscored`);
-      for (const item of batch) store.markSeen(item, null);
+      for (const item of batch) {
+        store.markSeen(item, null);
+        verdicts.set(item.uid, null);
+      }
       continue;
     }
 
@@ -134,6 +157,7 @@ export async function triageItems(kept, topics, env) {
           }
         : null;
       store.markSeen(item, verdict);
+      verdicts.set(item.uid, verdict);
       triagedCount++;
       if (verdict?.relevant) {
         relevant.push({
@@ -148,5 +172,5 @@ export async function triageItems(kept, topics, env) {
     }
   }
 
-  return { relevant, triagedCount };
+  return { relevant, triagedCount, verdicts };
 }

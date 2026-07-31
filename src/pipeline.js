@@ -27,6 +27,8 @@ import { evaluateTriggers, triggersText } from "./triggers.js";
 // compliance.js is intentionally NOT imported here — it's decoupled (platform split 2026-07-11)
 // and reserved for the future farmer-facing tool. Bean Brief's internal outputs run un-muzzled.
 import { mapPool } from "./util.js";
+import { enrichItems } from "./enrich.js";
+import { eventKeyFor, groupByEvent, pickLead } from "./eventkey.js";
 
 // How many market adapters to refresh at once — independent hosts, so the phase is the slowest
 // adapter, not the sum. (Open-Meteo's OWN per-region calls stay serial; only adapters overlap.)
@@ -246,6 +248,13 @@ export async function runPipeline({ edition = "am", dryRun = false, source = nul
   } catch (err) {
     console.log(`⚠️  Registry sync skipped: ${err.message}`);
   }
+  // Event keys for pre-existing history (idempotent — NULLs only), so a CLI/cron run sees the same
+  // grouped world the web UI does.
+  try {
+    store.backfillEventKeys();
+  } catch (err) {
+    console.log(`⚠️  Event-key backfill skipped: ${err.message}`);
+  }
 
   // 1. Collect. Dry runs never write state (no last-success advance, no items marked seen).
   const { items, skippedSources, fetchedCount, pendingWatermarks } = await collectAll({
@@ -263,6 +272,30 @@ export async function runPipeline({ edition = "am", dryRun = false, source = nul
   const officialItems = [];
   const sideItems = [];
   for (const it of items) (classOf(it.sourceId) === "official" ? officialItems : sideItems).push(it);
+
+  // 1b-i. GROUND THE OFFICIAL ITEMS IN THEIR DOCUMENTS, then give every item its event identity.
+  //
+  // Order matters and is deliberate. Enrichment runs BEFORE scoring so the retrieved abstract counts
+  // toward the local keyword score (a docket whose title is generic but whose abstract says
+  // "soybean" used to score zero and never reach triage). And it runs before the event key is
+  // computed because the same request that fetches the document text also returns the Federal
+  // Register document number that keys cross-filed copies together.
+  //
+  // No Anthropic tokens are spent here and every fetch is individually fail-soft, so the worst case
+  // is that items proceed exactly as the adapters produced them — which is the old behaviour.
+  if (officialItems.length) {
+    try {
+      const { items: enriched } = await enrichItems(officialItems, { env });
+      officialItems.length = 0;
+      officialItems.push(...enriched);
+    } catch (err) {
+      console.log(`⚠️  Document enrichment skipped: ${err.message}`);
+    }
+  }
+  for (const it of [...officialItems, ...sideItems]) {
+    it.raw = { ...(it.raw ?? {}), eventKey: eventKeyFor(it) };
+  }
+
   if (!dryRun && sideItems.length) {
     for (const it of sideItems) store.markSeen(it, null);
     console.log(`🗂️  Stored ${sideItems.length} news/markets item${sideItems.length === 1 ? "" : "s"} for their tabs (kept out of the brief).`);
@@ -323,6 +356,13 @@ export async function runPipeline({ edition = "am", dryRun = false, source = nul
 
   if (dryRun) {
     printScoredTable(kept, dropped);
+    // Say how many of those rows are the same government action, since that is what a real run
+    // would spend triage tokens on — a dry run that reports 19 items where 17 would be triaged is
+    // reporting the old, misleading number.
+    const nActions = groupByEvent(kept).length;
+    if (nActions < kept.length) {
+      console.log(`\n🔗 ${kept.length} filings are ${nActions} distinct actions — ${kept.length - nActions} would inherit a verdict instead of being triaged again.`);
+    }
     if (skippedSources.length > 0) {
       console.log(`\n⚠️  Skipped sources: ${skippedSources.map((s) => s.label).join(", ")}`);
     }
@@ -347,10 +387,44 @@ export async function runFullPipeline({ watchlist, env, edition, kept, items, sk
     throw new Error("ANTHROPIC_API_KEY is not set in .env — get one at console.anthropic.com (or use --dry-run to test without it)");
   }
 
-  // 3. Haiku triage on the locally-filtered survivors.
-  console.log(`\n🤖 Triage (${env.TRIAGE_MODEL || "claude-haiku-4-5"}): sending ${kept.length} item${kept.length === 1 ? "" : "s"}…`);
-  const { relevant } = await triageItems(kept, watchlist.topics ?? [], env);
+  // 3. Haiku triage on the locally-filtered survivors — ONE VERDICT PER ACTION.
+  //
+  // A single Federal Register notice cross-filed into four EPA dockets used to be triaged four
+  // times: four Haiku calls' worth of tokens spent to produce four differently-worded one-liners
+  // about the same document, which then appeared as four rows in the feed and four entries on the
+  // calendar. Grouping by event key (eventkey.js) sends one representative — the copy with real
+  // document text, preferring the publisher of record — and then writes that verdict to the other
+  // copies, so the whole group agrees instead of disagreeing at random.
+  const groups = groupByEvent(kept);
+  for (const g of groups) {
+    g.lead = pickLead(g.members);
+    g.lead.eventFilings = g.members.length; // told to the model, and shown in the feed
+  }
+  const leads = groups.map((g) => g.lead);
+  const collapsed = kept.length - leads.length;
+  console.log(
+    `\n🤖 Triage (${env.TRIAGE_MODEL || "claude-haiku-4-5"}): sending ${leads.length} item${leads.length === 1 ? "" : "s"}` +
+      (collapsed ? ` (${kept.length} filings collapsed onto ${leads.length} distinct actions — ${collapsed} duplicate call${collapsed === 1 ? "" : "s"} avoided)` : "") +
+      `…`
+  );
+  const { relevant, verdicts } = await triageItems(leads, watchlist.topics ?? [], env);
   console.log(`   ${relevant.length} relevant`);
+
+  // Apply each lead's verdict to the copies that were not sent. They keep their own uid, url and
+  // docket so nothing is lost or merged in the database — they simply inherit the judgement made
+  // about the document they are all copies of.
+  let inherited = 0;
+  for (const g of groups) {
+    if (g.members.length < 2) continue;
+    if (!verdicts.has(g.lead.uid)) continue; // lead never reached the model — leave the copies unseen so the next run retries
+    const verdict = verdicts.get(g.lead.uid);
+    for (const m of g.members) {
+      if (m.uid === g.lead.uid) continue;
+      store.markSeen(m, verdict);
+      inherited++;
+    }
+  }
+  if (inherited) console.log(`   ↳ ${inherited} duplicate filing${inherited === 1 ? "" : "s"} inherited their action's verdict`);
 
   // 3b. Flag movement on tracked items (pinned in the web UI) — these always
   // make the brief and get their own 📌 section.
@@ -495,17 +569,55 @@ function formatMarketSnapshot(snapshot) {
   return lines.join("\n");
 }
 
-/** Project stored item rows to a compact, uniform shape for the LLM context. */
+// Per-item document budget in the prompt context. Chosen from what the corpus actually contains:
+// Federal Register abstracts run ~300–2,300 characters, so 1,200 carries most of them whole and
+// truncates the rest after the operative paragraph. Multiplied by ~30 items this is ~9k tokens of
+// document text — real money on Opus, which is why only the excerpt travels and the full body stays
+// one click away in the UI.
+const CONTEXT_BODY_CHARS = 1200;
+
+/**
+ * Project stored item rows into the LLM context — one entry per government ACTION, carrying the
+ * document's own words.
+ *
+ * TWO THINGS THIS FIXES, both of which were load-bearing failures rather than polish:
+ *
+ * 1. **The body was dropped.** Every reasoning path — the Ask box, the Analyst Note, the weekly and
+ *    monthly memos — ran its retrieved rows through this function, and it projected them to
+ *    title + one_line. So the deepest model in the system reasoned about a Federal Register rule
+ *    from its title and a sentence Haiku wrote about that title. The document text was in the
+ *    database the whole time. (`extractMarketIntel` was built specifically to smuggle newsletter
+ *    bodies past this bottleneck for the news stream; it is no longer the only way through.)
+ *
+ * 2. **Copies arrived as separate items.** Four rows titled "Pesticide Product Registration:
+ *    Applications for New Uses (April 2026)" read to a model as four independent corroborating
+ *    signals of the same thing — the textbook way to manufacture false confidence. They are now one
+ *    entry that states how many dockets it was filed in, which is the fact that actually carries
+ *    meaning.
+ */
 function compactItems(rows) {
-  return rows.map((h) => ({
-    title: h.title,
-    url: h.url,
-    source: h.source_id,
-    jurisdiction: h.jurisdiction,
-    why: h.one_line,
-    verdict: h.triage_verdict,
-    seen: (h.first_seen_at || "").slice(0, 10),
-  }));
+  return groupByEvent(rows).map(({ members }) => {
+    const h = pickLead(members);
+    const doc = String(h.body ?? "").trim();
+    const others = members.filter((m) => m.uid !== h.uid);
+    return {
+      title: h.title,
+      url: h.url,
+      source: h.source_id,
+      jurisdiction: h.jurisdiction,
+      why: h.one_line,
+      verdict: h.triage_verdict,
+      priority: h.triage_tier ?? undefined,
+      seen: (h.first_seen_at || "").slice(0, 10),
+      deadline: h.comment_deadline ? String(h.comment_deadline).slice(0, 10) : undefined,
+      // The document's own words, explicitly labelled as such so the model can tell sourced text
+      // from the triager's interpretation in `why`.
+      document: doc ? doc.slice(0, CONTEXT_BODY_CHARS) + (doc.length > CONTEXT_BODY_CHARS ? " […]" : "") : undefined,
+      // Same action, other filings. Named this way on purpose: "alsoFiledAs" reads as one thing in
+      // several places, where a bare array of titles would read as several things.
+      alsoFiledAs: others.length ? others.slice(0, 6).map((m) => `${m.source_id}: ${m.url || m.uid}`) : undefined,
+    };
+  });
 }
 
 /**
@@ -520,16 +632,18 @@ export async function answerQuery(question, env) {
     throw new Error("ANTHROPIC_API_KEY is not set in .env — get one at console.anthropic.com");
   }
 
-  // 1. Stored items (LRD + News). Keyword hits on the phrase, a per-word fallback if the
-  //    phrase found nothing, and the most recent relevant items UNIONed in so recency
-  //    questions ("what's new this week?") work even without a keyword match.
-  const itemHits = store.searchSeenItems(question);
-  const extraHits =
-    itemHits.length === 0
-      ? store.searchSeenItemsAny(question.split(/\s+/), 30) // one scan over the distinct words
-      : [];
-  const recent = store.listItems({ verdict: "relevant", days: 30, limit: 20 });
-  const merged = [...new Map([...itemHits, ...extraHits, ...recent].map((h) => [h.uid, h])).values()].slice(0, 30);
+  // 1. Stored items (LRD + News), RANKED by how well they match the question — see
+  //    store.searchItemsRanked for what the old path did wrong (in short: it dropped every
+  //    2–3-character acronym, which in this domain means 45Z, RFS, RIN, EPA, SAF and WOTUS, then
+  //    ordered whatever survived by date). The most recent relevant items are still UNIONed in
+  //    *after* the ranked hits so open-ended questions ("what's new this week?") still work, but
+  //    they no longer crowd out the answer to a specific one.
+  const ranked = store.searchItemsRanked(question, { limit: 24 });
+  // Keep the literal-phrase search as a second opinion: it catches a long exact quote that the
+  // tokenizer splits, and it is one indexed scan.
+  const literal = ranked.length < 8 ? store.searchSeenItems(question, 10) : [];
+  const recent = store.listItems({ verdict: "relevant", days: 30, limit: 12 });
+  const merged = [...new Map([...ranked, ...literal, ...recent].map((h) => [h.uid, h])).values()].slice(0, 36);
   const compactHits = compactItems(merged);
 
   // 2. Market data — the structured demand-side timeseries (price, crush, stocks, biofuel
@@ -555,7 +669,7 @@ export async function answerQuery(question, env) {
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   const model = env.BRIEF_MODEL || "claude-sonnet-5";
   const system =
-    "You are the senior market-and-policy analyst for an Iowa Soybean Association professional whose remit is BOTH policy and demand/markets. This is an INTERNAL analysis tool for staff — give a sharp, direct answer, not a hedged briefing. Draw on the stored monitoring data provided below, which spans three streams: (1) LAWS/RULES/DECISIONS + NEWS items, (2) MARKET DATA (soybean price, crush, stocks, biofuel feedstock share, basis, fund positioning, exports, barge freight, crop condition, weather), and (3) recent BRIEFS, plus tracked items and comment deadlines. The market data carries trend context per series — change vs. prior, year-over-year, the historical range with the latest value's percentile, and a seasonal read (vs. the same month across years). USE that context to explain trends and whether a value is seasonally normal or unusual, not just the latest number. Synthesize across streams — connect policy/trade developments to the market MECHANISM and the numbers, go second-order, and where the data supports it give a directional read: the most likely interpretation, the risk to it, and the report or data that would confirm or kill it. Distinguish FACT from your INTERPRETATION, and be honest about confidence rather than hedging into mush. Cite item titles as markdown links when a URL is available; when you cite a market figure, name the series and its period (e.g. \"U.S. crush 210M bu, Apr 2026\"). Plain, professional English. You also have a WEB SEARCH tool — lean on the stored monitoring data first, but use the web to fill what it doesn't cover: the latest futures/cash prices, breaking news, or a figure or date worth verifying — anything more current than the last pipeline run. Reach for it when it makes the answer materially better or more current, not reflexively. Cite any web source inline as a markdown link so staff can tell web-sourced facts from the internal streams. Don't invent numbers — pull them.";
+    "You are the senior market-and-policy analyst for an Iowa Soybean Association professional whose remit is BOTH policy and demand/markets. This is an INTERNAL analysis tool for staff — give a sharp, direct answer, not a hedged briefing. Draw on the stored monitoring data provided below, which spans three streams: (1) LAWS/RULES/DECISIONS + NEWS items, (2) MARKET DATA (soybean price, crush, stocks, biofuel feedstock share, basis, fund positioning, exports, barge freight, crop condition, weather), and (3) recent BRIEFS, plus tracked items and comment deadlines. The market data carries trend context per series — change vs. prior, year-over-year, the historical range with the latest value's percentile, and a seasonal read (vs. the same month across years). USE that context to explain trends and whether a value is seasonally normal or unusual, not just the latest number. Synthesize across streams — connect policy/trade developments to the market MECHANISM and the numbers, go second-order, and where the data supports it give a directional read: the most likely interpretation, the risk to it, and the report or data that would confirm or kill it. Distinguish FACT from your INTERPRETATION, and be honest about confidence rather than hedging into mush. Each item may carry a \"document\" field holding the source document's OWN words and a \"why\" field holding a prior one-line note about it — treat \"document\" as sourced fact and \"why\" as someone else's summary, and prefer the document when they differ. An item with \"alsoFiledAs\" is ONE action filed in several places, not several corroborating items — never treat repetition as evidence. If the substance of an item is not in its document text, say the substance was not retrieved rather than inferring it from the title. Cite item titles as markdown links when a URL is available; when you cite a market figure, name the series and its period (e.g. \"U.S. crush 210M bu, Apr 2026\"). Plain, professional English. You also have a WEB SEARCH tool — lean on the stored monitoring data first, but use the web to fill what it doesn't cover: the latest futures/cash prices, breaking news, or a figure or date worth verifying — anything more current than the last pipeline run. Reach for it when it makes the answer materially better or more current, not reflexively. Cite any web source inline as a markdown link so staff can tell web-sourced facts from the internal streams. Don't invent numbers — pull them.";
   const userContent =
     `Question: ${question}\n\n` +
     `=== MARKET DATA (latest value, change vs prior, recent trail) ===\n${marketBlock || "(no market data stored yet)"}\n\n` +
@@ -565,7 +679,7 @@ export async function answerQuery(question, env) {
     (forecastTrackRecordText() ? `=== THIS TOOL'S OWN TRACK RECORD (past calls, scored) ===\n${forecastTrackRecordText()}\n\n` : "") +
     (surpriseText() ? `=== EXPECTATIONS vs. ACTUALS (surprise is what moves price, not the level) ===\n${surpriseText()}\n\n` : "") +
     (marketIntelText() ? `=== MARKET INTEL FROM NEWSLETTERS (distilled from the collector inbox, cited) ===\n${marketIntelText()}\n\n` : "") +
-    `=== LAWS/RULES/DECISIONS + NEWS items (JSON) ===\n${JSON.stringify(compactHits, null, 1)}\n\n` +
+    `=== LAWS/RULES/DECISIONS + NEWS items (JSON — one entry per government ACTION; "document" is the source's own text, "why" is a prior note, "alsoFiledAs" means the same action filed elsewhere) ===\n${JSON.stringify(compactHits, null, 1)}\n\n` +
     `=== TRACKED ITEMS (pinned) ===\n${tracked.length ? tracked.map((t) => `- ${t.title}${t.jurisdiction ? ` (${t.jurisdiction})` : ""}${t.url ? ` ${t.url}` : ""}`).join("\n") : "(none)"}\n\n` +
     `=== UPCOMING COMMENT DEADLINES ===\n${deadlines.length ? deadlines.map((d) => `- ${d.comment_deadline}: ${d.title}${d.url ? ` ${d.url}` : ""}`).join("\n") : "(none)"}\n\n` +
     `=== RECENT BRIEFS ===\n${briefTexts.join("\n\n") || "(none)"}`;
@@ -811,7 +925,7 @@ export async function generateMemo(presetId, env) {
           `Stored monitoring data for the last ${preset.scopeDays} days — write the memo per your instructions.\n\n` +
           `=== MARKET DATA (latest value, change vs prior, recent trail) ===\n${marketBlock || "(no market data stored yet)"}\n\n` +
           (marketIntelText() ? `=== MARKET INTEL FROM NEWSLETTERS (distilled from the collector inbox, cited) ===\n${marketIntelText()}\n\n` : "") +
-          `=== LAWS/RULES/DECISIONS + NEWS items (JSON) ===\n${JSON.stringify(compactHits, null, 1)}\n\n` +
+          `=== LAWS/RULES/DECISIONS + NEWS items (JSON — one entry per government ACTION; "document" is the source's own text, "why" is a prior note, "alsoFiledAs" means the same action filed elsewhere) ===\n${JSON.stringify(compactHits, null, 1)}\n\n` +
           `=== TRACKED ITEMS (pinned) ===\n${tracked.length ? tracked.map((t) => `- ${t.title}${t.jurisdiction ? ` (${t.jurisdiction})` : ""}${t.url ? ` ${t.url}` : ""}`).join("\n") : "(none)"}\n\n` +
           `=== UPCOMING COMMENT DEADLINES ===\n${deadlines.length ? deadlines.map((d) => `- ${d.comment_deadline}: ${d.title}${d.url ? ` ${d.url}` : ""}`).join("\n") : "(none)"}\n\n` +
           `=== DAILY BRIEFS IN WINDOW ===\n${briefTexts.join("\n\n") || "(none)"}` +
@@ -983,10 +1097,44 @@ export function getCachedMarketIntel() {
   }
 }
 
-/** The cached market-intel markdown for prompt injection, or "" if none. */
-export function marketIntelText() {
-  return getCachedMarketIntel()?.markdown || "";
+// How old a cached LLM digest may be before it stops being context and starts being misinformation.
+// Set from an observed failure: the Markets page rendered a signal card written on 2026-07-08 —
+// "managed-money funds… net-long 38,149 contracts (39th percentile)" and "The July WASDE, releasing
+// July 10" — directly beneath a live signal board reading 130,505 contracts at the 79th percentile,
+// three weeks after that WASDE. The same cached text is injected into the Analyst Note and the Ask
+// box, where nothing marks it as historical, so a stale block quietly outranks fresh series data.
+const CACHED_TEXT_MAX_AGE_DAYS = 4;
+
+/** Days between an ISO timestamp and now, or Infinity if unparseable. */
+function ageDays(iso) {
+  const t = Date.parse(iso ?? "");
+  return Number.isNaN(t) ? Infinity : (Date.now() - t) / 86400e3;
 }
+
+/**
+ * The cached market-intel markdown for prompt injection.
+ *
+ * Two changes from "return the markdown": it is DATED in the text (so the model can weigh it against
+ * a fresher figure instead of averaging the two), and it is withheld entirely once stale, because a
+ * three-week-old cash-basis quote presented as current context is worse than no context at all.
+ * @returns {string} "" when absent or stale
+ */
+export function marketIntelText() {
+  const cached = getCachedMarketIntel();
+  if (!cached?.markdown) return "";
+  const age = ageDays(cached.createdAt);
+  if (age > CACHED_TEXT_MAX_AGE_DAYS) return "";
+  return `(distilled from newsletters as of ${cached.date}${age >= 1 ? `, ${Math.floor(age)} day(s) ago — prefer any fresher figure in the market-data block` : ""})\n${cached.markdown}`;
+}
+
+/** Age in days of a cached kv_state panel, for the UI's freshness badge. Infinity if never run. */
+export function cachedAgeDays(kind) {
+  const get = { news_digest: getCachedNewsDigest, market_intel: getCachedMarketIntel, market_cards: getCachedMarketCards }[kind];
+  return get ? ageDays(get()?.createdAt) : Infinity;
+}
+
+/** Panels older than this are collapsed and flagged in the UI rather than shown as current. */
+export const STALE_PANEL_DAYS = CACHED_TEXT_MAX_AGE_DAYS;
 
 /**
  * Signal cards — the internal output of the condition-trigger engine. Evaluates the active
