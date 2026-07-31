@@ -30,7 +30,7 @@ import { postToTeams, recipientFor, sendTestEmail } from "./deliver.js";
 import { summarizeItem } from "./summarize.js";
 import { syncRegistryFromSeed } from "./registry.js";
 import { studioBody, studioCatalog, studioSeries, studioSeriesCSV, studioEvents } from "./studio.js";
-import { sanitizeEmailHtml, emailBodyToText, emailBodyToPreview } from "./emailhtml.js";
+import { sanitizeEmailHtml, emailBodyToText, emailBodyToPreview, textToHtml } from "./emailhtml.js";
 
 // All user-facing timestamps render in Central time (the ISA org timezone).
 const CENTRAL_TZ = "America/Chicago";
@@ -1659,7 +1659,14 @@ function inboxFeed() {
   const senderName = (r) => {
     if (r.entity_id) {
       if (!entCache.has(r.entity_id)) {
-        try { entCache.set(r.entity_id, store.getEntity(r.entity_id)?.name || null); } catch { entCache.set(r.entity_id, null); }
+        // ⚠️ `full_name`, NOT `name` — the entity table has no `name` column, so this read was
+        // always undefined and EVERY row fell through to the adapter label, printing "Entity
+        // RSS/Atom feeds" 68 times where the publisher was known all along. Measured on the stored
+        // feed: 100% of news rows join to a real entity (Farm Progress 50, farmdoc daily 7,
+        // Feedstuffs 6, Farm Policy News 3, Growth Energy 1, Clean Fuels Alliance 1). Telling a wire
+        // report from a trade group's press release is exactly the judgement the reader needs, and
+        // it was one property name away the whole time.
+        try { entCache.set(r.entity_id, store.getEntity(r.entity_id)?.full_name || null); } catch { entCache.set(r.entity_id, null); }
       }
       const n = entCache.get(r.entity_id);
       if (n) return n;
@@ -1676,15 +1683,32 @@ function inboxFeed() {
     // it used to run through emailBodyToText, whose job is to inline every href for LLM prompts, so
     // a publisher newsletter previewed as 180 characters of tracking URL. emailBodyToPreview strips
     // urls + ESP chrome and starts at the first sentence.
-    let preview = decodeEntities(r.one_line || "");
-    // decodeEntities as well as the one_line path: RSS bodies arrive double-encoded, so the text
-    // still carries literal &#8212; / &#8217; after cheerio has done its one decode pass.
-    if (!preview && rawBody) preview = decodeEntities(emailBodyToPreview(rawBody, 180));
+    //
+    // ⚠️ 1.28.0 INVERTS THE PRECEDENCE, DELIBERATELY. News now gets a triage one-liner, so leaving this
+    // as `one_line || body` would silently flip EVERY inbox preview from the story's own prose to
+    // Haiku's why-it-matters sentence — undoing the 1.25.0 fix and turning the mail into a briefing.
+    // The user's requirement is that this stays mail ("the mail need to be time ranked"), so the
+    // article's own words lead here and the one-liner appears in the ⚡ attention strip above, where a
+    // why-it-matters IS the point. Official rows keep the old order (their body is often an empty
+    // abstract, so one_line is the better first choice there).
+    const preferProse = classOf(r.source_id) === "news";
+    // decodeEntities on both paths: RSS bodies arrive double-encoded, so the text still carries
+    // literal &#8212; / &#8217; after cheerio has done its one decode pass.
+    const prose = rawBody ? decodeEntities(emailBodyToPreview(rawBody, 180)) : "";
+    let preview = preferProse ? prose || decodeEntities(r.one_line || "") : decodeEntities(r.one_line || "") || prose;
     // Re-sanitize the stored body at render time (defence in depth for every source, incl. legacy
     // RSS rows never cleaned at ingest), then render it as real HTML so links/lists/headings show.
     // Render-time sanitizing also means the chrome pass cleans mail that was stored before it existed.
+    // ⚠️ A GROUNDED ARTICLE IS PLAIN TEXT, so it has no tags to break it up (found in review). Passing
+    // it through sanitizeEmailHtml alone rendered up to 8,000 characters as one unbroken wall — a
+    // readability regression that news grounding itself introduced. textToHtml is the existing
+    // plain-text path (it recovers links and paragraphs), so tag-less bodies go through that instead.
+    const looksLikeHtml = /<\/?(p|div|br|table|ul|ol|li|h[1-6]|a|span|img)\b/i.test(rawBody);
     const bodyHtml = rawBody
-      ? sanitizeEmailHtml(rawBody).replace(/<a /g, '<a target="_blank" rel="noopener noreferrer" ')
+      ? (looksLikeHtml ? sanitizeEmailHtml(rawBody) : textToHtml(rawBody)).replace(
+          /<a /g,
+          '<a target="_blank" rel="noopener noreferrer" '
+        )
       : "";
     return `<details class="mailitem">
       <summary>
@@ -1703,7 +1727,64 @@ function inboxFeed() {
   const olderBlock = older.length
     ? `<details class="topic mi-older"><summary>📬 Older mail <span class="muted">(${older.length})</span></summary>${older.map(item).join("")}</details>`
     : "";
-  return `<div class="inbox">${recent}</div>${olderBlock}`;
+  return `${attentionStrip(rows, senderName)}<div class="inbox">${recent}</div>${olderBlock}`;
+}
+
+// ⚡ WORTH YOUR ATTENTION — the ranking surface for news.
+//
+// THE DESIGN CONSTRAINT, from the user: "I think the mail need to be time ranked." An inbox that
+// reorders itself is disorienting, and with breaking news the arrival order IS information. So ranking
+// is additive: this strip sits ABOVE the inbox and the inbox below it stays strictly reverse-
+// chronological. It is built from a SORTED COPY (`[...rows]`) for exactly that reason — sorting `rows`
+// in place would silently reorder the mail, which is the one thing that must not happen.
+//
+// Only `must_read` appears here. That is the same bar newsrank.js defines as the push candidate, so
+// what this panel shows is what a future higher-frequency check would consider notifying on — the user
+// gets to calibrate the threshold by reading it for a while before any notification is wired up.
+//
+// Deliberately NOT a per-row badge on every mail item: triage assigns `background` to everything it
+// judges irrelevant, so badging by tier alone would chip nearly every row with a grey "background" that
+// actually means "not relevant" — noise dressed as information.
+function attentionStrip(rows, senderName) {
+  const HOURS = 48;
+  const cutoff = Date.now() - HOURS * 3600e3;
+  const MAX_SHOWN = 8;
+  // [...rows] — a COPY. Filtering doesn't mutate, but this panel is one edit away from someone adding a
+  // .sort() here, and sorting `rows` in place would silently reorder the mail below.
+  const all = [...rows].filter(
+    (r) =>
+      r.triage_tier === "must_read" &&
+      r.triage_verdict === "relevant" &&
+      Date.parse(r.first_seen_at || 0) >= cutoff
+  );
+  if (!all.length) return "";
+  const hot = all.slice(0, MAX_SHOWN);
+  const item = (r) => {
+    const why = decodeEntities(r.one_line || "");
+    // ⚠️ PUBLICATION time, not ingest time (found in review). first_seen_at is the batch clock, so on a
+    // twice-daily run every entry printed the SAME timestamp — useless in a panel whose whole purpose is
+    // breaking news, and actively misleading about when something happened. published_at is what the
+    // publisher stamped; first_seen_at is the fallback for a feed that omits it.
+    const stamp = Date.parse(r.published_at || "") ? r.published_at : r.first_seen_at;
+    const d = new Date(stamp);
+    const when = Number.isNaN(d.getTime())
+      ? ""
+      : d.toLocaleString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    const title = decodeEntities(r.title || "(untitled)");
+    return `<li class="att-item">
+      <div class="att-head"><span class="att-from">${esc(senderName(r))}</span><span class="muted att-when">${esc(when)}</span></div>
+      <div class="att-title">${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(title)}</a>` : esc(title)}</div>
+      ${why ? `<div class="att-why">${esc(why)}</div>` : ""}
+    </li>`;
+  };
+  // NO SILENT CAPS (house rule). Report the true count and say plainly when the panel is showing fewer,
+  // otherwise "8 of the last 48 hours" reads as "there were 8" when there were 14.
+  const more = all.length - hot.length;
+  return `<section class="attention">
+    <h2 class="att-h">⚡ Worth your attention <span class="lb lb-must">must read</span></h2>
+    <p class="muted att-sub">${all.length} item${all.length === 1 ? "" : "s"} from the last ${HOURS} hours graded as a development that could move soybean demand, price, cost, or policy${more > 0 ? ` — showing the ${hot.length} most recent, the other ${more} ${more === 1 ? "is" : "are"} in the mail below` : ""}. The mail below stays in arrival order.</p>
+    <ul class="att-list">${hot.map(item).join("")}</ul>
+  </section>`;
 }
 
 // The market-intel block distilled from newsletter bodies (extractMarketIntel). Shown collapsed so
@@ -1732,6 +1813,28 @@ function newsBody(notice) {
   return `<h1>📰 News</h1>
     ${notice ? `<div class="banner">${esc(notice)}</div>` : ""}
     <style>
+      /* ⚡ Worth your attention. The .lb/.lb-must chip classes are defined inside itemsBody()'s own
+         <style> block, which is served only on /items — so they are repeated here rather than
+         inherited. Same values on purpose: a "must read" chip must look identical on both tabs or it
+         reads as a different concept. If the palette changes on one, change it on the other. */
+      .lb{display:inline-block;font-size:.72em;font-weight:600;padding:1px 6px;border-radius:9px;margin-top:2px;white-space:nowrap}
+      .lb-must{background:#fbe3dc;color:#a63c17}
+      .attention{border:1px solid #f0cfc4;background:#fffaf8;border-radius:8px;padding:12px 14px;margin:0 0 18px}
+      .att-h{font-size:1.02em;margin:0 0 2px;display:flex;align-items:center;gap:8px}
+      .att-sub{font-size:.83em;margin:0 0 10px}
+      .att-list{list-style:none;margin:0;padding:0}
+      .att-item{padding:8px 0;border-top:1px solid #f2ded6}
+      .att-item:first-child{border-top:none}
+      .att-head{display:flex;justify-content:space-between;gap:10px;font-size:.78em}
+      .att-from{font-weight:600;color:var(--isa-blue,#1d4e79)}
+      .att-title{font-weight:600;margin:1px 0 2px;line-height:1.3}
+      .att-title a{color:inherit}
+      .att-why{font-size:.88em;color:#444;line-height:1.35}
+      @media (max-width:640px){
+        .attention{padding:10px 11px;margin-bottom:14px}
+        .att-head{flex-direction:column;gap:0}
+        .att-when{font-size:.95em}
+      }
       .inbox{border-top:1px solid var(--isa-blue-40)}
       .mailitem{border-bottom:1px solid var(--isa-blue-40);padding:9px 0}
       .mailitem>summary{cursor:pointer;list-style:none;display:block}
@@ -2077,8 +2180,17 @@ function coveragePanel(term) {
   }
   const tag = (r) => {
     if (r.archived) return { t: "set aside", c: "#607d8b" };
-    if (r.triage_verdict === "relevant") return { t: r.triage_tier === "background" ? "relevant · background" : "in your feed", c: "#1f6b2e" };
-    if (r.triage_verdict === "irrelevant") return { t: "triaged out", c: "#b8481f" };
+    // ⚠️ SAY WHICH feed. This panel's entire job is to answer "where did my item go?" honestly, so
+    // "in your feed" must not be shown for a row that is NOT in the Laws/Rules/Decisions feed. Since
+    // 1.28.0 news rows carry a verdict too, and news never appears in LRD (that query is pinned to
+    // sourceIdsForClass("official")) — it lives on the News tab. Sending someone to hunt through LRD
+    // for a row that was never going to be there is the precise failure this panel exists to prevent.
+    const isNews = classOf(r.source_id) === "news";
+    if (r.triage_verdict === "relevant") {
+      if (isNews) return { t: r.triage_tier === "must_read" ? "on News · must read" : "on the News tab", c: "#1f6b2e" };
+      return { t: r.triage_tier === "background" ? "relevant · background" : "in your feed", c: "#1f6b2e" };
+    }
+    if (r.triage_verdict === "irrelevant") return { t: isNews ? "on News · background" : "triaged out", c: "#b8481f" };
     return { t: "dropped before triage", c: "#8a5a00" };
   };
   const rows = d.rows

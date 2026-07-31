@@ -13,8 +13,18 @@ import * as store from "./store.js";
 const MAX_DOC_CHARS = 18000; // keep token cost bounded for long rules
 const FETCH_TIMEOUT_MS = 15000;
 
-/** Best-effort fetch + readable-text extraction for a document/article URL. */
-export async function fetchDocumentText(url) {
+/**
+ * Best-effort fetch + readable-text extraction for a document/article URL.
+ *
+ * @param {string} url
+ * @param {{preserveParagraphs?: boolean}} [opts]
+ *   `preserveParagraphs` joins block elements with a blank line instead of flattening all whitespace.
+ *   Added for news grounding (1.28.0): the stored article text is now READ BY A HUMAN in the News tab,
+ *   not just fed to a model, and `replace(/\s+/g, " ")` turns 8,000 characters into one unbroken wall.
+ *   Off by default so the existing summarizeItem path is byte-for-byte unchanged — a model does not care
+ *   about paragraphs and the flattened form is marginally cheaper.
+ */
+export async function fetchDocumentText(url, { preserveParagraphs = false } = {}) {
   if (!url) return { text: "", note: "no link was available" };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
@@ -31,8 +41,22 @@ export async function fetchDocumentText(url) {
     const html = await res.text();
     const $ = cheerio.load(html);
     $("script, style, noscript, nav, header, footer, form, aside").remove();
-    const raw = $("main").text() || $("article").text() || $("body").text() || "";
-    const clean = raw.replace(/\s+/g, " ").trim();
+    let clean;
+    if (preserveParagraphs) {
+      // Take the block elements in document order and join with a blank line, so the paragraph
+      // boundaries the publisher wrote survive into storage. Falls back to the flattened form when a
+      // page has no recognizable blocks (some CMSs emit bare text inside a div).
+      const root = $("main").length ? $("main") : $("article").length ? $("article") : $("body");
+      const blocks = root
+        .find("p, h1, h2, h3, h4, h5, h6, li, blockquote")
+        .map((_, el) => $(el).text().replace(/\s+/g, " ").trim())
+        .get()
+        .filter((t) => t.length > 1);
+      clean = blocks.length ? blocks.join("\n\n") : root.text().replace(/\s+/g, " ").trim();
+    } else {
+      const raw = $("main").text() || $("article").text() || $("body").text() || "";
+      clean = raw.replace(/\s+/g, " ").trim();
+    }
     if (!clean) return { text: "", note: "the document had no extractable text" };
     return { text: clean.slice(0, MAX_DOC_CHARS), note: null };
   } catch (err) {

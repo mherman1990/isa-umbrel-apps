@@ -27,7 +27,8 @@ import { evaluateTriggers, triggersText } from "./triggers.js";
 // compliance.js is intentionally NOT imported here — it's decoupled (platform split 2026-07-11)
 // and reserved for the future farmer-facing tool. Bean Brief's internal outputs run un-muzzled.
 import { mapPool } from "./util.js";
-import { enrichItems } from "./enrich.js";
+import { enrichItems, groundNewsItems } from "./enrich.js";
+import { rankNewsItems } from "./newsrank.js";
 import { eventKeyFor, groupByEvent, pickLead } from "./eventkey.js";
 
 // How many market adapters to refresh at once — independent hosts, so the phase is the slowest
@@ -292,12 +293,73 @@ export async function runPipeline({ edition = "am", dryRun = false, source = nul
       console.log(`⚠️  Document enrichment skipped: ${err.message}`);
     }
   }
+  // 1b-ii. GROUND THE NEWS ITEMS IN THEIR ARTICLES — the same fix, for the stream that carries more
+  // than half the corpus.
+  //
+  // Must run BEFORE the markSeen below, because that write is what persists `summary` into `body`.
+  // Measured on the stored feed: 60 of 68 news rows held under 200 characters, so retrieval (which
+  // weights a body hit) and every prompt (whose `document` field IS body) were working from a
+  // truncated teaser. The text was already being fetched once a run by generateNewsDigest and thrown
+  // away; this keeps it. Markets items are excluded deliberately — they are data points, not
+  // articles, and have no readable page to fetch.
+  if (!dryRun && sideItems.length) {
+    const newsIdx = sideItems.map((it, i) => (classOf(it.sourceId) === "news" ? i : -1)).filter((i) => i >= 0);
+    if (newsIdx.length) {
+      try {
+        const { items: grounded } = await groundNewsItems(newsIdx.map((i) => sideItems[i]), {});
+        newsIdx.forEach((i, k) => { sideItems[i] = grounded[k]; });
+      } catch (err) {
+        console.log(`⚠️  News grounding skipped: ${err.message}`);
+      }
+    }
+  }
+
   for (const it of [...officialItems, ...sideItems]) {
     it.raw = { ...(it.raw ?? {}), eventKey: eventKeyFor(it) };
   }
 
+  // 1b-iii. RANK THE NEWS (1.28.0) — graded relevance for the stream that had none.
+  //
+  // ⚠️ ORDERING IS LOAD-BEARING AND EASY TO GET WRONG. The verdicts must be computed BEFORE the
+  // markSeen below, and each news item must be marked seen EXACTLY ONCE, carrying its verdict.
+  // `markSeen(it, null)` writes triage_verdict='unscored' and one_line=NULL, so a ranking pass that
+  // ran after it — or a second markSeen(null) alongside it — would silently erase every verdict and
+  // the whole feature would appear to do nothing.
+  //
+  // ⚠️ NO LOCAL SCORE GATE. scoreItems is used ONLY to attach `matchedTopics` as a hint for the model.
+  // Measured on the real corpus, gating news at localScore >= 5 drops "USMCA renewal rejected"
+  // (score 0), "USDA releases June 2026 Acreage Report and Grain Stocks" (score 0) and "Crop progress:
+  // Soybean quality fades lower" (score 3) — 3 of the 8 highest-value items — because focus-area terms
+  // are written for policy documents and news says the same things in different words. See newsrank.js.
+  const newsVerdicts = new Map();
   if (!dryRun && sideItems.length) {
-    for (const it of sideItems) store.markSeen(it, null);
+    const newsItems = sideItems.filter((it) => classOf(it.sourceId) === "news");
+    if (newsItems.length) {
+      try {
+        // minLocalScoreForTriage 0 + no cap: this call classifies, it does not filter.
+        const { kept } = scoreItems(newsItems, watchlist.topics ?? [], {
+          ...watchlist.output,
+          minLocalScoreForTriage: 0,
+          maxItemsToTriage: Number.MAX_SAFE_INTEGER,
+        });
+        // Honour the analyst's global exclusion terms: an excluded item is stored and still appears in
+        // the inbox in time order, but we don't spend a model call ranking something he has said he
+        // doesn't care about, and it can never be promoted.
+        const toRank = kept.filter((it) => it.excludedBy !== "global");
+        const nExcluded = kept.length - toRank.length;
+        if (nExcluded) console.log(`   ${nExcluded} news item${nExcluded === 1 ? "" : "s"} skipped by exclusion terms (stored, not ranked)`);
+        const { verdicts } = await rankNewsItems(toRank, watchlist.topics ?? [], env);
+        for (const [uid, v] of verdicts) newsVerdicts.set(uid, v);
+      } catch (err) {
+        // A ranking failure must never cost the mail. Items fall through unranked below.
+        console.log(`⚠️  News ranking skipped: ${err.message}`);
+      }
+    }
+  }
+
+  if (!dryRun && sideItems.length) {
+    // News rows carry their verdict; markets rows stay unscored (they are data points, not documents).
+    for (const it of sideItems) store.markSeen(it, newsVerdicts.get(it.uid) ?? null);
     console.log(`🗂️  Stored ${sideItems.length} news/markets item${sideItems.length === 1 ? "" : "s"} for their tabs (kept out of the brief).`);
   }
 
@@ -445,14 +507,41 @@ export async function runFullPipeline({ watchlist, env, edition, kept, items, sk
     if (!keptUids.has(item.uid)) store.markSeen(item, null);
   }
 
-  // Watermark commit point. Every item fetched this run is now durably in seen_items — side items
-  // (news/markets) above, triaged items during triage, locally-dropped items just now. ONLY here is
-  // it safe to advance each source's last_success_at: collect deferred these instead of writing them
+  // Watermark commit point. Every item fetched this run should now be durably in seen_items — side
+  // items (news/markets) above, triaged items during triage, locally-dropped items just now. ONLY here
+  // is it safe to advance each source's last_success_at: collect deferred these instead of writing them
   // mid-fetch, so if the run had died earlier (missing ANTHROPIC_API_KEY at runFullPipeline entry, an
   // Anthropic 429/5xx during triage, a crash) the watermarks stay put and the next run re-fetches —
   // isSeen dedupes the survivors. ts is each source's fetch-start, so nothing published during the
   // run is skipped. Prevents silent, permanent data loss.
-  for (const { sourceId, ts } of pendingWatermarks) store.setLastSuccess(sourceId, ts);
+  //
+  // ⚠️ VERIFY THE INVARIANT, DON'T ASSUME IT (1.28.0). This loop used to advance every watermark
+  // unconditionally, which was safe only while every code path above really did mark every item seen.
+  // 1.28.0's triage change broke that assumption: an unparseable batch now leaves its items UNSEEN so a
+  // later run can retry them — but advancing the cursor past them means the retry never happens and the
+  // items exist in no table at all. Reproduced end to end: a congress_gov bill whose triage batch failed
+  // twice was absent from seen_items while `getSince("congress_gov")` moved from 6 hours ago to this
+  // run's start, so the next fetch (`fromDateTime`, filtering on updateDate) could never return it.
+  // Silent, permanent loss — strictly worse than the crash it replaced, which at least left the
+  // watermark alone.
+  //
+  // So the durability claim is now CHECKED rather than trusted, generically: any source with an item
+  // this run that is not in seen_items keeps its old watermark. That covers the failed-triage-batch
+  // case, the "lead never reached the model so its copies stay unseen" case above (whose copies may
+  // belong to a DIFFERENT source than the lead, since one FR notice is cross-filed across sources), and
+  // any future path that leaves something unseen. `isSeen` is a primary-key lookup and there are ≤ a
+  // few hundred items, so the check is negligible. Withholding costs exactly one re-fetch.
+  const unseenSources = new Set();
+  for (const item of items) {
+    if (!store.isSeen(item.uid)) unseenSources.add(item.sourceId);
+  }
+  for (const { sourceId, ts } of pendingWatermarks) {
+    if (unseenSources.has(sourceId)) {
+      console.log(`   ⏸️  ${sourceId}: watermark held back — some items weren't stored this run, so the next run will re-fetch them`);
+      continue;
+    }
+    store.setLastSuccess(sourceId, ts);
+  }
 
   // 4. Sonnet brief — only when there's something to report. On a quiet scan we
   // skip the brief entirely: no file, no clutter in Saved briefs. The run still did
@@ -642,8 +731,17 @@ export async function answerQuery(question, env) {
   // Keep the literal-phrase search as a second opinion: it catches a long exact quote that the
   // tokenizer splits, and it is one indexed scan.
   const literal = ranked.length < 8 ? store.searchSeenItems(question, 10) : [];
-  const recent = store.listItems({ verdict: "relevant", days: 30, limit: 12 });
-  const merged = [...new Map([...ranked, ...literal, ...recent].map((h) => [h.uid, h])).values()].slice(0, 36);
+  // ⚠️ CLASS-SCOPED ON PURPOSE, with a separate news budget.
+  //
+  // This was one unscoped `listItems({verdict:"relevant", days:30, limit:12})`. That was harmless only
+  // because news rows were all `unscored` and therefore invisible to it. Now that 1.28.0 grades news,
+  // an unscoped query here would let the higher-volume news stream take most of those 12 recency slots
+  // from the regulatory items — a silent regression in the Ask box, caused by an improvement elsewhere.
+  // Two fixed budgets instead, so neither stream can starve the other, and news must be must_read to
+  // occupy a slot it did not earn on the ranked search above.
+  const recentOfficial = store.listItems({ verdict: "relevant", days: 30, limit: 12, sourceIds: sourceIdsForClass("official") });
+  const recentNews = store.listItems({ verdict: "relevant", days: 14, limit: 6, tier: "must_read", sourceIds: sourceIdsForClass("news") });
+  const merged = [...new Map([...ranked, ...literal, ...recentOfficial, ...recentNews].map((h) => [h.uid, h])).values()].slice(0, 40);
   const compactHits = compactItems(merged);
 
   // 2. Market data — the structured demand-side timeseries (price, crush, stocks, biofuel
@@ -1004,19 +1102,35 @@ export async function generateNewsDigest(env = process.env) {
   // Go beyond headlines: use the stored body (email bodies) where we have it, and for the rest
   // fetch the linked article's readable text (capped, in parallel) so the digest distills real
   // content, not just titles.
+  // Items collected since 1.28.0 are grounded at ingest (enrich.js groundNewsItems), so this fetch
+  // is now a BACKFILL for rows stored before that — which on the Pi is a month of history holding a
+  // ~180-character teaser. The threshold is "thin", not "empty": a teaser is not article text, and
+  // the old `!body.trim()` test skipped the 48-of-68 rows that had one.
+  //
+  // ⚠️ What it fetches is now PERSISTED (store.groundItemBody). Before, this pulled up to 14
+  // articles' text into this Map, used it for one Haiku call and discarded it — paying the HTTP cost
+  // every single run and keeping nothing, while retrieval and every other prompt continued to see
+  // only the teaser. Same fetches, kept.
   const MAX_FETCH = 14;
-  const needFetch = items.filter((it) => !(it.body || "").trim() && it.url).slice(0, MAX_FETCH);
+  const THIN = 200; // matches enrich.js GROUNDED_MIN_CHARS
+  const needFetch = items.filter((it) => (it.body || "").trim().length < THIN && it.url).slice(0, MAX_FETCH);
   const fetched = new Map();
+  let healed = 0;
   await Promise.allSettled(
     needFetch.map(async (it) => {
       try {
-        const { text } = await fetchDocumentText(it.url);
-        if (text) fetched.set(it.uid, text);
+        const { text } = await fetchDocumentText(it.url, { preserveParagraphs: true });
+        if (text) {
+          fetched.set(it.uid, text);
+          // groundItemBody refuses to shorten, so a nav stub can't overwrite a longer teaser.
+          if (store.groundItemBody(it.uid, text)) healed++;
+        }
       } catch {
         /* a failed fetch just falls back to the headline */
       }
     })
   );
+  if (healed) console.log(`   📰 Backfilled article text onto ${healed} older news item${healed === 1 ? "" : "s"}`);
   const enriched = items.map((it, i) => {
     // Stored email bodies are now sanitized HTML — flatten to text (keeping link URLs) for the prompt.
     const content = (emailBodyToText(it.body) || (fetched.get(it.uid) || "").replace(/\s+/g, " ")).slice(0, 1200);

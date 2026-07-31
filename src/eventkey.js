@@ -157,10 +157,63 @@ export function groupByEvent(rows) {
  * record, then the longest title (docket copies truncate).
  */
 const SOURCE_RANK = { federal_register: 0, regulations_gov: 1, congress_gov: 2, legiscan: 2, courtlistener: 3 };
+
+/**
+ * The non-official source ids, as a LOCAL COPY of adapters/index.js's SOURCE_CLASS.
+ *
+ * ⚠️ WHY DUPLICATED INSTEAD OF IMPORTED. This module is deliberately PURE — `node:crypto` and nothing
+ * else — which is what makes it unit-testable without a database. Importing `classOf` from
+ * adapters/index.js would create a real cycle: eventkey → adapters/index → rss → store → eventkey
+ * (store.js:16 imports eventKeyFor). ESM would tolerate it here because the lookup happens at call
+ * time, but a load-order cycle through the database layer is not worth a tidier import.
+ *
+ * Mirrors classOf's semantics exactly, INCLUDING its default: anything unlisted counts as official. So
+ * a newly added official adapter automatically gets lead priority, and only a new news/markets source
+ * needs adding here. `test/newsrank.test.js` asserts this set matches SOURCE_CLASS exactly, so the two
+ * cannot drift silently.
+ */
+const NON_OFFICIAL = new Set([
+  "rss",
+  "email_intake",
+  "fas_export_sales",
+  "usda_nass",
+  "eia",
+  "cftc",
+  "usda_ams",
+  "open_meteo",
+  "agtransport",
+  "drought_monitor",
+  "ibge_brazil",
+  "fred",
+  "wasde",
+  "barchart",
+  "vegscape",
+  "cropcasma",
+  "cbot_futures",
+]);
+const isOfficial = (sourceId) => !NON_OFFICIAL.has(sourceId);
 export function pickLead(members) {
   return [...members].sort((a, b) => {
     const aBody = (a.body ?? a.summary ?? "").length;
     const bBody = (b.body ?? b.summary ?? "").length;
+    // ⚠️ CLASS OUTRANKS EVERYTHING — checked FIRST, before body length.
+    //
+    // A group can span classes: a news article about a rule and the rule's own Federal Register notice
+    // normalize to the same title and land in one event. The publisher of record must lead it, because
+    // compactItems presents the lead as THE action — its title, its url, its document text and (since
+    // 1.28.0) its priority tier go to the model as the sourced fact about a government action. A news
+    // row leading such a group means the deepest model in the system cites a trade-press write-up as
+    // the rule.
+    //
+    // This became a live risk in 1.28.0 rather than a theoretical one: news grounding gives news rows
+    // ~5,000-character bodies, while `iowa_admin_rules` and `eurlex_oj` still emit `summary: ""`. So on
+    // the old ordering the FIRST comparison — `(aBody >= 200) !== (bBody >= 200)` — handed the lead to
+    // the news article over the actual Iowa Administrative Bulletin filing. SOURCE_RANK could not save
+    // it either: news sources aren't in the table, so they scored the same `?? 9` as those two official
+    // sources and the tie fell through to body length. Locked by test.
+    const aOfficial = isOfficial(a.source_id ?? a.sourceId);
+    const bOfficial = isOfficial(b.source_id ?? b.sourceId);
+    if (aOfficial !== bOfficial) return aOfficial ? -1 : 1;
     // A copy with real document text beats one without — that's the whole point of enrichment.
     if ((aBody >= 200) !== (bBody >= 200)) return bBody - aBody;
     const ar = SOURCE_RANK[a.source_id ?? a.sourceId] ?? 9;

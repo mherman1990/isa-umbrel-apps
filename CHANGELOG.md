@@ -1,5 +1,234 @@
 # Changelog
 
+## 1.28.0 — Fix the release-breaking triage crash; ground the news stream
+
+Two things: a **release-breaking regression in 1.27.0**, caught before it reached the Pi, and then
+1.27.0's own thesis applied to the stream it skipped.
+
+### Fixed — 1.27.0 crashed the twice-daily brief on every run
+
+`triageItems` threw on the **first item of the first batch of every run**. 1.27.0 added a `verdicts`
+Map so one representative's judgement could reach the other filings of a cross-filed document, and
+named the per-batch parse result `verdicts` as well — which shadowed the Map for the rest of the loop
+body:
+
+```js
+const verdicts = new Map();          // returned to pipeline.js
+for (...batches...) {
+  let verdicts = null;               // ← shadows it
+  verdicts = parseVerdicts(text);    //   now an Array
+  ...
+  store.markSeen(item, verdict);
+  verdicts.set(item.uid, verdict);   // TypeError: verdicts.set is not a function
+```
+
+Reproduced against the shipped code: the everyday path threw `TypeError: verdicts.set is not a
+function`; the malformed-JSON fallback threw `Cannot read properties of null (reading 'set')`. Both
+threw **after** `markSeen` had written the row and **before** the brief was generated, and
+`runFullPipeline` awaits `triageItems` with no `try`/`catch`. So each run marked exactly one item
+permanently seen — never re-fetched, never judged — and then died. No brief would ever have been
+written.
+
+**Why 37 green tests missed it: `triage.js` had no test coverage at all** — the gate the entire daily
+brief depends on. It now has `test/triage.test.js` (5 tests, asserting on behaviour rather than on a
+variable name). All 5 fail against the shipped 1.27.0 file with exactly the two TypeErrors above.
+
+While fixing it, the failed-batch path changed behaviour deliberately: a batch the model never
+answered now leaves its items **unseen** instead of `markSeen(item, null)`. Recording them retires
+items nobody ever judged, and lets cross-filed copies inherit a null verdict as though it decided
+something — and `pipeline.js` already guards on `verdicts.has(lead.uid)` for exactly this case.
+
+### Added — news carries its article, not a truncated teaser
+
+Same loss as 1.27.0's, in the stream that holds **more than half the corpus** (68 of 126 stored rows).
+Measured before writing anything: of 68 news items, **12 had no body, 48 had 1–199 characters, 8 had
+200–799, and nothing exceeded 800.** The 48 are RSS `<description>` teasers the publisher truncates
+mid-word — *"U.S. farmers planted 95.3 million acres of corn and 85.4 mil"*.
+
+Every consumer downstream reads `body`: `searchItemsRanked` weights a body hit, `compactItems`'
+`document` field **is** `body`, and the Ask box and Analyst Note read `compactItems`. So a SCOTUS FIFRA
+preemption ruling was stored as **83 characters**.
+
+The text was already being fetched and discarded — `generateNewsDigest` pulled up to 14 articles' text
+into a local Map, used it for one Haiku call and dropped it, paying the HTTP cost every run and keeping
+nothing. New `groundNewsItems` (in `enrich.js`, same budget/pool/fail-soft shape as the official path)
+persists it into `summary`, which `markSeen` writes to `body`. **Zero model spend; roughly the same
+number of HTTP calls, kept.**
+
+Measured on 4 questions whose answers live in an article's body rather than its headline:
+
+| | retrieved | **answerable** |
+|---|---|---|
+| as delivered by the feed | 3/4 | **0/4** |
+| grounded | 4/4 | **4/4** |
+
+The distinction matters more than the totals: the teaser row *was* retrieved on a keyword and still
+could not answer, which is arguably worse than a miss — the model is handed a citation that cannot
+support the claim, and the honest outcomes are a hedge or a confabulated figure.
+
+- **Never shortens.** A paywall or JS-rendered page can return nav chrome shorter than the teaser, so
+  the longer text wins. Grounding can only ever add information; its worst case is exactly the old
+  behaviour.
+- **Emails are never fetched** — a collector message has no URL and its body already *is* the message.
+- **`store.groundItemBody`** lets the digest keep what it fetches, so the Pi's existing month of thin
+  rows heals as it is read rather than needing a backfill job. Additive-only and idempotent: it
+  refuses to shorten a body or write an empty one.
+
+### Fixed — the News list shows the publisher again
+
+`inboxFeed` read `store.getEntity(id)?.name`, and the `entity` table has **no `name` column** — it is
+`full_name`. So the lookup was always `undefined` and **every** row fell through to the adapter label,
+printing "Entity RSS/Atom feeds" 68 times. The publisher was known all along: 100% of news rows join to
+a real entity (Farm Progress 50, farmdoc daily 7, Feedstuffs 6, Farm Policy News 3, Growth Energy 1,
+Clean Fuels Alliance 1). Verified in the rendered page — 68/68 rows now name their publisher. This was
+the only such misread in the codebase; every other call site correctly uses `full_name`.
+
+### Added — news is ranked (and the mail stays in arrival order)
+
+News had no relevance signal at all: every row stored `triage_verdict='unscored'` with `triage_tier
+NULL`, so the SCOTUS FIFRA ruling sat at the same weight as "Dad's 1952 Wheatland tractor returns home
+after 11 years". New `src/newsrank.js` grades every news item `must_read` / `worth_knowing` /
+`background`.
+
+**Why a separate module rather than a flag on `triage.js` — three measured reasons.**
+
+1. **A local score gate would delete the best items.** With the entity boost removed, a `localScore >= 5`
+   gate keeps 12 of 68 and discards 8 of 9 known-noise items for free — but drops **3 of the 8
+   known-must-reads**: "USMCA renewal rejected" (score **0**), "USDA releases June 2026 Acreage Report and
+   Grain Stocks" (score **0**), "Crop progress: Soybean quality fades lower" (score **3**). The cause is
+   structural: focus-area terms are written for policy documents ("45Z", "renewable diesel", "pesticide
+   tolerance") and news says the same things in other words. **So there is no gate.** The keyword match is
+   passed to the model as a hint and never as a filter. Do not "optimise" this by adding a threshold.
+2. **The existing gate was moot anyway.** `entitySourceBoost` defaults to 6, `minLocalScoreForTriage` is
+   5, and every rss item carries `raw.entityId` — so the free filter dropped **zero** news items.
+3. **The tier definitions did not transfer.** `triage.js` grades `must_read` as "ISA would act, comment,
+   or brief leadership on this" — a rule/docket framing nothing in a news feed satisfies — and instructs
+   the model to distrust titles, which is exactly wrong for news, where the headline is the best field.
+
+`must_read` is deliberately defined as the **push-candidate bar**, because the stated next step is a
+higher-frequency check that decides whether to notify. `pushCandidates()` is exported with no caller yet,
+so "would we push on this?" has one definition rather than being re-derived later.
+
+**Measured on the labelled ends of the real corpus** (`test/fixtures/news-eval-corpus.js`, 18 of 68 rows;
+the arguable middle is recorded and deliberately unscored):
+
+| | must-reads surfaced | noise suppressed |
+|---|---|---|
+| before (all `unscored`, tier NULL) | 0/8 | 0/10 |
+| after | **8/8** | **10/10** |
+
+The decisive case is "Clean Fuels Alliance Foundation **Welcomes** Chelsey Robinson as New Board
+Director" — it scores **10** on keywords, higher than the SCOTUS FIFRA ruling's 8, and is a personnel
+announcement. A push driven by keyword score would have fired on it.
+
+**Cost:** no gate means ~68 items/run in batches of 15. The document budget is **1,200 chars, not the
+official path's 2,500**, because news is an inverted pyramid — the lede carries the significance, an FR
+abstract does not front-load the same way. ≈$1.50–3/month against a $5–10 total.
+
+**Fail-soft diverges from the official path, deliberately.** `triage.js` leaves an unparseable batch's
+items *unseen* so a later run retries — right for a rule, wrong for mail. Here a failed batch yields null
+verdicts, the items are still stored, and they appear in the inbox in time order without a badge. **Mail
+must never disappear.**
+
+### Added — ⚡ Worth your attention (ranking without reordering)
+
+The requirement was "the mail need to be time ranked", so ranking is **additive**: a strip above the
+inbox lists `must_read` news from the last 48 hours with its publisher and why-it-matters, and the inbox
+below stays strictly reverse-chronological. Built from a **copy** (`[...rows]`) — sorting `rows` in place
+would silently reorder the mail. Verified in the rendered page: strip before inbox, 20 mail rows still in
+descending date order, `.lb-must` chip actually styled (`rgb(251, 227, 220)`), no horizontal overflow at
+375px.
+
+No per-row tier badge: triage assigns `background` to everything it judges irrelevant, so badging by tier
+alone would chip nearly every row with a grey "background" that actually means "not relevant".
+
+### Fixed — three guards that ranking news made necessary
+
+- **`pickLead` now puts class first.** A group can span classes (a news write-up and the rule's own FR
+  notice normalize to the same title), and `compactItems` presents the lead as **the action** — its title,
+  url, document text and tier go to the model as sourced fact. **1.28.0's own news grounding created the
+  live risk:** grounding gives news ~5,000-char bodies while `iowa_admin_rules` and `eurlex_oj` still emit
+  `summary: ""`, so the first comparison `(aBody >= 200) !== (bBody >= 200)` handed the lead to the news
+  article, and `SOURCE_RANK` could not save it (news isn't in the table, so it tied at `?? 9` with those
+  two official sources and fell through to body length). `eventkey.js` stays a **pure** module — importing
+  `classOf` would cycle `eventkey → adapters → rss → store → eventkey` — so the non-official ids are a
+  local copy, locked to `SOURCE_CLASS` by a test that probes every id.
+- **`answerQuery`'s recency union is class-scoped.** It was one unscoped
+  `listItems({verdict:"relevant", days:30, limit:12})`, harmless only because news was never `relevant`.
+  Now two fixed budgets (official 12, news 6 and `must_read` only) so the higher-volume stream cannot
+  starve the regulatory one.
+- **"Did we see this?" says which feed.** A news row would have been badged green "in your feed" while
+  never appearing in Laws/Rules/Decisions (that query is pinned to `sourceIdsForClass("official")`) —
+  sending someone to hunt for a row that was never going to be there, the exact failure the panel exists
+  to prevent. Now "on the News tab" / "on News · must read".
+- **The inbox preview keeps the article's own words.** Precedence was `one_line || body`, so giving news a
+  one-liner would have silently flipped every preview from prose to Haiku's sentence, undoing the 1.25.0
+  fix. News now prefers prose; official rows keep the old order (their body is often an empty abstract).
+
+### ⚠️ Known limit, documented not fixed — cross-outlet duplicates
+
+`eventkey.js` keys news on an **exact normalized title**, so one announcement covered by two outlets is
+two events. Real example from the corpus: "USDA to Fund $500 Million Expansion of Domestic Fertilizer
+Production" and "USDA puts $500M into fertilizer investment initiative" are one story and do not collapse.
+**A future push would notify twice.** Fixing it needs similarity matching, which is a much riskier change —
+a false merge silently deletes a real story, and the standing rule is that a false merge is worse than no
+dedup. Locked by a test that asserts the limit rather than hiding it.
+
+### ⚠️ Measured limitation — Farm Progress cannot be read, and now says so
+
+**farmprogress.com returns HTTP 403 from Cloudflare to every user-agent tried, including an ordinary
+browser one** — an edge-level bot block, not a user-agent policy, and the same class of wall as Stooq
+(see STATE.md). Its `robots.txt` is permissive, so this is CDN bot management rather than a stated
+publisher policy. It is **50 of 68 stored news rows**, so most of the news feed is not groundable this
+way. `farmdocdaily.illinois.edu` returns 5,032 characters cleanly.
+
+**No user-agent spoofing was added.** Defeating a publisher's access control is a licensing decision
+for ISA, not an engineering one — and it would be silently fragile. Instead the run log now names every
+publisher it could not read (`↳ farmprogress.com: 11 items unreadable — HTTP 403`), because a grounding
+pass that appears to work while the largest publisher contributes nothing is exactly how an absence of
+evidence gets mistaken for an absence of news. Locked by test.
+
+### Fixed — defects found by adversarially reviewing this release's own diff
+
+The diff was reviewed across four dimensions with every finding handed to a skeptic instructed to refute
+it. 18 raw findings, most correctly refuted; these survived and are fixed.
+
+- **CRITICAL, and introduced by this release: permanent item loss.** Changing triage's failed-batch path
+  to leave items *unseen* is only safe if the cursor stays put — and `runFullPipeline` advanced every
+  `pendingWatermark` **unconditionally**. Reproduced end to end: a `congress_gov` bill whose triage batch
+  failed twice was absent from `seen_items` while `getSince("congress_gov")` moved from 6 hours ago to
+  this run's start, and `congress_gov` filters server-side on `fromDateTime`/`updateDate`, so the next
+  fetch could never return it. **The item existed in no table and no future fetch.** That is strictly
+  worse than the v1.27.0 crash it replaced, which at least left the watermark alone. The durability claim
+  the comment there has always made is now **checked rather than trusted**: any source with an item that
+  isn't in `seen_items` keeps its old watermark. Generic, so it also covers the pre-existing
+  "lead never reached the model, so its copies stay unseen" path — whose copies may belong to a
+  *different* source than the lead, since one FR notice is cross-filed across sources. Locked by two
+  tests (holds back on failure; still advances on success, so it can't degrade into never advancing).
+- **An API blip discarded every verdict already paid for.** The SDK throws on a 429/529 that outlives its
+  own retries; uncaught, that propagated out of `rankNewsItems`, and `pipeline.js` copies the verdict Map
+  only *after* the call returns — so an outage on batch 4 of 5 threw away 45 billed verdicts and stored
+  all 68 items `unscored` forever. Now caught per batch, with a stop after 2 consecutive errors.
+- **The grounding budget was spent on a host already refusing us.** farmprogress.com is 50 of 68 news
+  rows and arrives first in array order, so all 25 fetches went to a host returning 403 — starving
+  farmdocdaily, Farm Policy News and Feedstuffs, which work. After two refusals a host is skipped for the
+  rest of the run (per-run, never persisted: a CDN rule can change, and the Pi may not be blocked where
+  this dev PC is).
+- **The attention strip showed the batch clock, not publication time** — on a twice-daily run every entry
+  printed the *same* timestamp, useless in a breaking-news panel. Now `published_at`, falling back to
+  `first_seen_at`.
+- **The strip printed its cap as the total** — "8 of the last 48 hours" when there were 14. It now reports
+  the true count and says how many are in the mail below (house rule: no silent caps).
+- **Grounded articles rendered as one unbroken 8,000-character wall.** Fixing this in the renderer was
+  cosmetic and *did not work* — with all whitespace collapsed there is nothing to split on. Fixed where
+  the information was actually lost: `fetchDocumentText` gained `preserveParagraphs` (off by default, so
+  `summarizeItem` is byte-for-byte unchanged) and grounding uses a newline-preserving normalizer.
+- **The duplicated `.lb` chip CSS did not match** the definition it claimed to copy (`.7em` +
+  `letter-spacing` vs `.72em` + `nowrap`). Now byte-identical, and the comment no longer asserts something
+  false.
+
+**Tests: 37 → 69, all green.**
+
 ## 1.27.0 — Read the document, count the action once
 
 One theme: **stop losing information between fetching it and reasoning about it.** Collection and the

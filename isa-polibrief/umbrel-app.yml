@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-polibrief
 category: automation
 name: The Bean Brief
-version: "1.27.0"
+version: "1.28.0"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
@@ -28,19 +28,44 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  The Bean Brief now reads the document, and counts each government action once. Until now three of
-  the official sources — including Regulations.gov, where public comments are actually filed — passed
-  along only a headline, so relevance decisions, one-line summaries and every AI report were written
-  without ever seeing the rule. The Bean Brief now fetches the real Federal Register text behind each
-  docket item (abstract, action and agency) before it decides anything, which also means a rule whose
-  title is vague but whose text mentions soybeans no longer slips through the filter. The same lookup
-  reveals when several feed items are the same notice cross-filed into different dockets: nine
-  "August 6" comment deadlines on your calendar turned out to be three notices. Laws, Rules &
-  Decisions, the calendar and the deadline list now show one row per action, with "also filed in N
-  other dockets" to open the rest — nothing is hidden, and "Did we see this?" still shows every copy.
-  Ask the Bean Brief also searches properly now: short terms like 45Z, RFS and RIN were being thrown
-  away before the search ran, so questions about them returned unrelated recent items. Finally, AI
-  panels say how old they are, and a stale one is no longer quoted to the Analyst as though it were
-  current. Update only — no new keys, no settings to change.
+  IMPORTANT — INSTALL THIS INSTEAD OF 1.27.0. Version 1.27.0 had a fault that would have stopped the
+  twice-daily policy brief from running at all: every run would have failed part-way through the
+  relevance step, so no brief would have been written, and one item per run would have been quietly
+  marked as already-handled without ever being read. It was found and fixed before 1.27.0 was ever
+  installed, and the relevance step now has its own tests so this cannot come back unnoticed. If you
+  are on 1.26.0 or earlier, updating straight to 1.28.0 gets you everything 1.27.0 was meant to
+  deliver, working.
+  ALSO IN THIS RELEASE — the News tab. News is more than half of everything The Bean Brief collects,
+  and it was being stored as a headline plus the first line or two of the story, cut off mid-sentence
+  by the publisher's feed. Everything downstream — the search box, the daily digest, the Analyst Note
+  — could only ever see that fragment, so a question like "how many soybean acres were planted?" would
+  find the right article and still not be able to answer it. The Bean Brief now saves the full article
+  text when it first sees a story, so the answer is actually there. It was already fetching those
+  articles once a day and throwing them away, so this costs no extra time and no AI spend. Older
+  stories fill themselves in as the digest reads them.
+  The News list also shows WHO published each item — "Farm Progress", "farmdoc daily", "Feedstuffs" —
+  where every row previously read "Entity RSS/Atom feeds". Telling a wire report from a trade group's
+  press release is a judgement you need to make at a glance, and the publisher was already recorded;
+  it just was not being displayed.
+  NEWS IS NOW RANKED, and the mail still arrives in time order. Until now nothing in the News tab was
+  graded, so a Supreme Court ruling on pesticide labelling sat at exactly the same weight as a story about
+  a 1952 tractor coming home. Every news item is now graded must-read, worth-knowing, or background, and a
+  new "⚡ Worth your attention" panel at the top of the News tab lists the must-reads from the last 48
+  hours with the publisher and a one-line why-it-matters. The mail below it is untouched and still runs
+  newest-first, because with breaking news the order it arrived in is itself information. Nothing is
+  hidden and nothing is reordered — the ranking only adds a panel.
+  The must-read bar is set deliberately high: a development that could move soybean demand, price, cost,
+  or policy. Court rulings, trade actions, tariffs, 45Z and RFS decisions, the big USDA reports, crush or
+  renewable-diesel capacity changes, China and Brazil shifts. Board appointments, awards, trade shows,
+  equipment tips and human-interest stories are graded background however many times they mention
+  biofuels — that was a real failure case, not a hypothetical one. That same bar is what a future
+  higher-frequency check would use to decide whether something is worth notifying you about, so reading
+  this panel for a couple of weeks is the way to tell whether the threshold is set where you want it.
+  Ranking is a judgement call made by the AI, not a keyword count, because keyword counting scored a
+  press release announcing a new board director HIGHER than the Supreme Court ruling.
+  One honest limitation: Farm Progress blocks automated reading of its articles, and it is the source
+  of most of the news feed. Those items keep their headline and feed summary exactly as before, and the
+  run log now names any publisher it could not read rather than staying silent about it.
+  Update only — no new keys, no settings to change.
 submitter: Matt
 submission: https://github.com/mherman1990/isa-umbrel-apps

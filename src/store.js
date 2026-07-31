@@ -926,6 +926,27 @@ export function markSeen(item, verdict = null) {
 }
 
 /**
+ * Store document/article text on a row that was saved without it.
+ *
+ * WHY THIS EXISTS. News grounding (enrich.js) runs at ingest, so it only ever helps items collected
+ * from now on — and the history that matters lives on the Pi, where a month of news rows hold a
+ * ~180-character RSS teaser. The news digest already fetches those articles' text once a run; this
+ * lets it keep what it fetched, so existing rows heal as they're read rather than needing a backfill
+ * job. Idempotent and strictly additive: it refuses to shorten a body, so a paywall stub can never
+ * overwrite real text, and a re-run is a no-op.
+ *
+ * @returns {boolean} whether the row was actually updated
+ */
+export function groundItemBody(uid, text) {
+  const body = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (!uid || !body) return false;
+  const info = db
+    .prepare("UPDATE seen_items SET body = ? WHERE uid = ? AND LENGTH(COALESCE(body,'')) < ?")
+    .run(body.slice(0, 8000), uid, body.length);
+  return info.changes > 0;
+}
+
+/**
  * Fill `event_key` in for rows stored before the column existed. Cheap (one UPDATE per row, keyed on
  * the primary key, inside one transaction) and idempotent — it only touches NULLs, so it runs once
  * and then finds nothing. Called on boot so the grouped views work on existing history rather than

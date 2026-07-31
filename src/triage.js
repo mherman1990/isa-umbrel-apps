@@ -110,8 +110,14 @@ export async function triageItems(kept, topics, env) {
       localTopicGuesses: item.matchedTopics?.map((t) => t.id) ?? [],
     }));
 
-    let verdicts = null;
-    for (let attempt = 1; attempt <= 2 && verdicts === null; attempt++) {
+    // NAME THIS `parsed`, NOT `verdicts`. It used to be `verdicts`, which shadowed the outer Map for
+    // the rest of the loop body — so `verdicts.set(...)` below hit an Array (TypeError: verdicts.set
+    // is not a function) on the first item of the first batch, and hit `null` on the malformed-JSON
+    // path. Both crashed the run after markSeen had already recorded the item, which meant the brief
+    // never got written AND the item was durably marked seen so no later run re-fetched it.
+    // Locked by test/triage.test.js.
+    let parsed = null;
+    for (let attempt = 1; attempt <= 2 && parsed === null; attempt++) {
       const response = await client.messages.create({
         model,
         max_tokens: 4000,
@@ -125,23 +131,26 @@ export async function triageItems(kept, topics, env) {
       });
       store.recordUsage(model, "triage", response.usage.input_tokens, response.usage.output_tokens);
       const text = response.content.find((b) => b.type === "text")?.text ?? "";
-      verdicts = parseVerdicts(text);
-      if (verdicts === null && attempt === 1) {
+      parsed = parseVerdicts(text);
+      if (parsed === null && attempt === 1) {
         console.log("   ⚠️ triage batch returned malformed JSON — retrying once");
       }
     }
 
-    if (verdicts === null) {
-      // Give up on this batch: mark items seen-but-unscored so the run continues.
-      console.log(`   ⚠️ triage batch ${i / BATCH_SIZE + 1} failed twice — ${batch.length} items recorded as unscored`);
-      for (const item of batch) {
-        store.markSeen(item, null);
-        verdicts.set(item.uid, null);
-      }
+    if (parsed === null) {
+      // Give up on this batch — but leave its items UNSEEN so the next run retries them.
+      //
+      // ⚠️ Deliberately NOT markSeen here. This is the "lead never reached the model" case that
+      // pipeline.js checks for with `verdicts.has(lead.uid)`: recording the batch as seen would
+      // permanently retire items nobody ever judged, and would also let the cross-filed copies
+      // inherit a null verdict as though it were a decision. Leaving them unseen costs one re-fetch
+      // and keeps the watermark logic (collect.js defers last_success_at until items are durable)
+      // able to do its job.
+      console.log(`   ⚠️ triage batch ${i / BATCH_SIZE + 1} failed twice — ${batch.length} items left unseen for the next run`);
       continue;
     }
 
-    const byUid = new Map(verdicts.filter((v) => v && v.uid).map((v) => [v.uid, v]));
+    const byUid = new Map(parsed.filter((v) => v && v.uid).map((v) => [v.uid, v]));
     for (const item of batch) {
       const v = byUid.get(item.uid);
       const verdict = v
