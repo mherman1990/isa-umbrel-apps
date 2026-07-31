@@ -113,7 +113,10 @@ const LINK_GLYPH = '<a class="mi-x" href="$URL$" title="$URL$">&#8599;</a>';
 function recoverTextLinks(escaped) {
   let s = escaped;
   // 1. Bracketed image URLs are pure layout — drop them (and any alt text left dangling is prose).
-  s = s.replace(/\s*\[(https?:\/\/[^\]\s]*\.(?:png|jpe?g|gif|svg|webp|bmp|ico)(?:\?[^\]\s]*)?)\]/gi, "");
+  //    Leave a SPACE behind: ESP text runs these together as "Facebook [icon.png]https://track…",
+  //    and removing the bracket with no separator glued the label to the next URL ("Facebookhttps://…"),
+  //    which then failed the word-boundary test in step 3 and printed the tracker as visible text.
+  s = s.replace(/\s*\[(https?:\/\/[^\]\s]*\.(?:png|jpe?g|gif|svg|webp|bmp|ico)(?:\?[^\]\s]*)?)\]/gi, " ");
   // 2. Any other bracketed URL is a real link whose label is the text right before it — keep the
   //    label as prose and reduce the URL itself to a compact ↗ rather than printing it.
   s = s.replace(/\s*\[(https?:\/\/[^\]\s]+)\]/g, (_m, u) => " " + LINK_GLYPH.replace(/\$URL\$/g, u));

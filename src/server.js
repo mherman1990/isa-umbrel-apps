@@ -22,10 +22,10 @@ import zlib from "node:zlib";
 
 import * as store from "./store.js";
 import { runPipeline, runMemo, answerQuery, loadWatchlist, saveWatchlist, generateNewsDigest, getCachedNewsDigest, extractMarketIntel, getCachedMarketIntel, generateMarketCards, getCachedMarketCards, generateStorylines, getStorylinesMeta } from "./pipeline.js";
-import { computeSignals } from "./signals.js";
+import { computeSignals, SIGNAL_CHART } from "./signals.js";
 import { upcomingReports, upcomingPolicyEvents } from "./calendar.js";
 import { adapters, sourceIdsForClass, classOf } from "./adapters/index.js";
-import { postToTeams } from "./deliver.js";
+import { postToTeams, recipientFor, sendTestEmail } from "./deliver.js";
 import { summarizeItem } from "./summarize.js";
 import { syncRegistryFromSeed } from "./registry.js";
 import { studioBody, studioCatalog, studioSeries, studioSeriesCSV, studioEvents } from "./studio.js";
@@ -285,6 +285,9 @@ function page(title, body) {
     border: 1px solid var(--isa-gold); border-radius: 999px; padding: 2px 4px 2px 10px; font-size: .9em; }
   form.chip button { background: none; color: inherit; padding: 0 6px; font-size: 1em; opacity: .6; }
   form.chip button:hover { opacity: 1; background: none; }
+  /* Exclusion chips read as the opposite of a term chip — struck through, muted, not gold. */
+  form.chip.chip-ex { background: #f1f3f5; border-color: var(--isa-dark-40); }
+  form.chip.chip-ex span { text-decoration: line-through; opacity: .8; }
   form.pill { display: inline-flex; }
   form.pill button { border-radius: 999px; padding: 3px 11px; font-size: .82em; font-weight: 600;
     border: 1px solid var(--isa-dark-40); background: transparent; color: var(--isa-dark); }
@@ -299,6 +302,9 @@ function page(title, body) {
   .kicker { font-size: .85em; opacity: .75; margin: 10px 0 2px; font-weight: 600; color: var(--isa-dark); }
   .spark { vertical-align: middle; margin-left: 8px; opacity: .8; }
   .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; align-items: center; }
+  /* Settings: report schedules + per-report recipients, one row each so the labels line up. */
+  .sched-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 6px 18px; margin: 6px 0 10px; }
+  .sched-grid label { display: flex; align-items: center; gap: 6px; justify-content: space-between; }
   .answer { border: 1px solid var(--isa-blue); border-radius: 10px; padding: 6px 18px; margin: 14px 0;
     background: var(--isa-blue-40); }
   /* figure drill-down: a cited series name links to its chart — subtle dotted underline, not a loud link */
@@ -337,6 +343,27 @@ function page(title, body) {
   .sig-bullish { border-left-color: #3f9d5e; } .sig-bullish .sig-dir { color: #2f7d4e; }
   .sig-bearish { border-left-color: #cf6a45; } .sig-bearish .sig-dir { color: #b8481f; }
   .sig-neutral { border-left-color: var(--isa-dark-40); } .sig-neutral .sig-dir { color: var(--muted); }
+  /* Flip cards: front = the read, back = the trend behind it. Implemented as two stacked faces
+     rather than a 3-D rotation of the whole card, because the two faces have very different natural
+     heights and a rotated container would size to the taller one on every card. */
+  .sig-flip { position: relative; cursor: pointer; transition: box-shadow .15s; }
+  .sig-flip:hover { box-shadow: 0 1px 6px rgba(0,74,141,.14); }
+  .sig-flip:focus-visible { outline: 2px solid var(--isa-blue); outline-offset: 1px; }
+  .sig-flip .sig-back { display: none; }
+  .sig-flip.flipped .sig-face { display: none; }
+  .sig-flip.flipped .sig-back { display: block; animation: sigin .16s ease-out; }
+  @keyframes sigin { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .sig-flip.flipped .sig-back { animation: none; } }
+  .sig-hint { position: absolute; top: 7px; right: 9px; font-size: .8em; opacity: .3; }
+  .sig-flip:hover .sig-hint { opacity: .7; }
+  .sig-back .sb-title { font-weight: 700; color: var(--isa-dark); font-size: .86em; margin-bottom: 2px; }
+  .sig-back .sigspark { display: block; margin: 2px 0 5px; }
+  .sig-back .sb-row { display: flex; justify-content: space-between; gap: 8px; font-size: .76em; line-height: 1.45; }
+  .sig-back .sb-row span { opacity: .65; }
+  .sig-back .sb-row strong { font-variant-numeric: tabular-nums; text-align: right; }
+  .sig-back .sb-meta { font-size: .68em; margin-top: 4px; line-height: 1.35; }
+  .sig-back .sb-none { font-size: .78em; margin: 4px 0; }
+  .sig-back .sb-link { display: inline-block; margin-top: 5px; font-size: .76em; font-weight: 600; }
   .chart-range { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 4px 0 16px;
     padding: 8px 12px; background: var(--isa-blue-40); border-radius: 8px; font-size: .85em; }
   .chart-range .rlabel { font-weight: 600; color: var(--isa-dark); margin-right: 2px; }
@@ -375,6 +402,9 @@ function page(title, body) {
     .sig { padding: 7px 9px; }
     .sig-label { margin-bottom: 0; }
     .sig-detail { display: none; }
+    /* The compact board hides the front's detail line on a phone — tapping to flip is how you get
+       the substance back, and the back gets the full card width. */
+    .sig-flip.flipped { grid-column: 1 / -1; }
     /* NAV: ten tabs wrapped into three or four rows and pushed the page content below the fold.
        One horizontal strip instead, with the current tab scrolled into view (see the script in
        the footer). */
@@ -645,6 +675,20 @@ function watchlistSection(watchlist, openId, activity) {
         <input type="hidden" name="action" value="add"><input type="hidden" name="areaId" value="${esc(fa.id)}">
         <input type="text" name="term" placeholder="add term…" required><button>Add</button></form>`;
 
+      // Exclusion terms — the "not this" half of the filter, which didn't exist before 1.26.0.
+      const excludes = fa.excludeTerms ?? [];
+      const excludeChips = excludes
+        .map(
+          (t) => `<form method="post" action="/watchlist/term" class="chip chip-ex">
+            <input type="hidden" name="action" value="remove-exclude"><input type="hidden" name="areaId" value="${esc(fa.id)}">
+            <input type="hidden" name="term" value="${esc(t)}">
+            <span>${esc(t)}</span><button title="Remove exclusion '${esc(t)}'">×</button></form>`
+        )
+        .join("");
+      const addExclude = `<form method="post" action="/watchlist/term" class="addterm">
+        <input type="hidden" name="action" value="add-exclude"><input type="hidden" name="areaId" value="${esc(fa.id)}">
+        <input type="text" name="term" placeholder="add exclusion…" required><button class="ghost">Exclude</button></form>`;
+
       const sourcePills = sources
         .map((s) => {
           const on = applies.includes(s.id);
@@ -671,6 +715,8 @@ function watchlistSection(watchlist, openId, activity) {
         <div class="toolbar">${weightForm} ${toggleForm} ${deleteForm}</div>
         <div class="kicker">Terms <span class="muted" style="font-weight:400">— used to search sources AND to score &amp; tag items</span></div>
         <div class="chips">${termChips} ${addTerm}</div>
+        <div class="kicker">Exclusions <span class="muted" style="font-weight:400">— if one of these appears, this area stops counting for that item (it can still qualify elsewhere)</span></div>
+        <div class="chips">${excludeChips} ${addExclude}</div>
         <div class="kicker">Applies to sources</div>
         <div class="chips">${sourcePills}</div>
       </details>`;
@@ -693,6 +739,24 @@ ${areas || '<p class="muted">No focus areas yet.</p>'}
 </details>`;
 }
 
+// The memo presets that can be scheduled on a weekday + time, and their default time. Education is
+// here because it needs its own cadence AND its own Teams channel; Analyst because a scheduled
+// Analyst Note is what keeps the forecast ledger fed (it's the only preset that files claims).
+const DAY_SCHEDULED = [
+  ["weekly", "Weekly memo", "17:00"],
+  ["monthly", "Monthly review", "08:00"],
+  ["education", "🎓 Market-education", "07:00"],
+  ["analyst", "🔭 Analyst Note", "06:00"],
+];
+// Every edition that can have its own recipient, including the twice-daily policy brief.
+const MEMO_EDITIONS = [
+  ["am", "Daily policy brief (AM/PM)"],
+  ["weekly", "Weekly memo"],
+  ["monthly", "Monthly review"],
+  ["education", "🎓 Market-education"],
+  ["analyst", "🔭 Analyst Note"],
+];
+
 function settingsSection(watchlist, openId) {
   const ed = watchlist?.briefEditions ?? {};
   const out = watchlist?.output ?? {};
@@ -707,14 +771,36 @@ function settingsSection(watchlist, openId) {
     <div class="toolbar">
       <label class="muted">AM <input type="time" name="am" value="${esc(ed.am ?? "06:30")}"></label>
       <label class="muted">PM <input type="time" name="pm" value="${esc(ed.pm ?? "16:30")}"></label>
-      <label class="muted">Weekly memo
-        <select name="weeklyDay">
-          ${["off", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-            .map((d) => `<option value="${d}"${(ed.weekly ?? "Fri 17:00").startsWith(d) || (d === "off" && !ed.weekly) ? " selected" : ""}>${d}</option>`)
-            .join("")}
-        </select>
-        <input type="time" name="weeklyTime" value="${esc((ed.weekly ?? "Fri 17:00").split(" ")[1] ?? "17:00")}">
-      </label>
+    </div>
+    <div class="kicker">Scheduled reports <span class="muted" style="font-weight:400">— set a day to schedule; "off" leaves it on-demand</span></div>
+    <div class="sched-grid">
+      ${DAY_SCHEDULED
+        .map(([edition, label, dflt]) => {
+          const cur = typeof ed[edition] === "string" ? ed[edition] : "";
+          const curDay = cur ? cur.split(" ")[0] : "off";
+          const curTime = (cur ? cur.split(" ")[1] : "") || dflt;
+          return `<label class="muted">${esc(label)}
+            <select name="${edition}Day">
+              ${["off", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+                .map((d) => `<option value="${d}"${d === curDay ? " selected" : ""}>${d}</option>`)
+                .join("")}
+            </select>
+            <input type="time" name="${edition}Time" value="${esc(curTime)}">
+          </label>`;
+        })
+        .join("")}
+    </div>
+    <div class="kicker">Where each report goes <span class="muted" style="font-weight:400">— one address per report, so each can land in its own Teams channel</span></div>
+    <p class="muted" style="margin:2px 0 6px;font-size:.85em">A Teams channel has its own email address (channel → ⋯ → Get email address). Leave a box blank to use the default below. Saved in watchlist.json on this machine — not in the public repo.</p>
+    <div class="sched-grid">
+      ${MEMO_EDITIONS.map(([edition, label]) => {
+        const envKey = `BRIEF_EMAIL_TO_${edition.toUpperCase()}`;
+        const fromEnv = process.env[envKey];
+        return `<label class="muted">${esc(label)}
+          <input type="email" name="to_${edition}" value="${esc(watchlist?.output?.editionEmail?.[edition] ?? "")}"
+            placeholder="${esc(fromEnv ? `set in .env (${envKey})` : "default channel")}" ${fromEnv ? "disabled" : ""} style="min-width:230px">
+        </label>`;
+      }).join("")}
     </div>
     <div class="kicker">Pipeline thresholds</div>
     <div class="toolbar">
@@ -727,11 +813,28 @@ function settingsSection(watchlist, openId) {
   <div class="kicker">Email delivery</div>
   <p class="muted">${
     emailConfigured
-      ? `Briefs email to <strong>${esc(emailTo)}</strong> via ${esc(process.env.SMTP_HOST)}${
+      ? `Sent as <strong>${esc(process.env.SMTP_FROM && process.env.SMTP_FROM.includes(process.env.SMTP_USER) ? process.env.SMTP_FROM : process.env.SMTP_USER)}</strong> via ${esc(process.env.SMTP_HOST)}; default recipient <strong>${esc(emailTo)}</strong>${
           emailOn ? "." : " — but email delivery is currently <strong>off</strong> in the watchlist (set output.email to true, then restart)."
-        }`
+        }<br>The sender is whoever <code>SMTP_USER</code> authenticates as — Gmail won't let a message claim another address — so changing who briefs come from is an <code>SMTP_USER</code>/<code>SMTP_PASS</code> change in <code>.env</code>, then a restart. <code>SMTP_FROM</code> only adds a display name.`
       : "Not configured — set SMTP_HOST, SMTP_USER, SMTP_PASS and BRIEF_EMAIL_TO in the .env file, enable email in the watchlist, then restart the app."
   }</p>
+  <table class="sources" style="margin-top:6px"><thead><tr><th>Report</th><th>Goes to</th><th>Schedule</th></tr></thead>
+    ${MEMO_EDITIONS.map(([edition, label]) => {
+      const to = recipientFor(edition, process.env, watchlist);
+      const sched = DAY_SCHEDULED.find(([e]) => e === edition);
+      const when = edition === "am" ? `${esc(ed.am ?? "06:30")} / ${esc(ed.pm ?? "16:30")} daily` : (typeof ed[edition] === "string" && ed[edition] ? esc(ed[edition]) : '<span class="muted">on demand</span>');
+      void sched;
+      return `<tr><td>${esc(label)}</td><td>${to ? esc(to) : '<span class="muted">nowhere — not configured</span>'}</td><td>${when}</td></tr>`;
+    }).join("")}
+  </table>
+  <div class="kicker">Send a test</div>
+  <p class="muted" style="margin:2px 0 6px;font-size:.85em">Proves the address works and that the channel accepts mail from <strong>${esc(process.env.SMTP_USER || "(no SMTP_USER set)")}</strong> — worth doing after changing the sender, since a Teams channel can be set to reject outside senders.</p>
+  <div class="toolbar">
+    ${MEMO_EDITIONS.map(
+      ([edition, label]) =>
+        `<form method="post" action="/watchlist/test-email"><input type="hidden" name="edition" value="${esc(edition)}"><button class="ghost tiny">✉️ ${esc(label)}</button></form>`
+    ).join("")}
+  </div>
   <div class="kicker">Security</div>
   <p class="muted">${process.env.POLIBRIEF_PASSWORD ? "Password protection is ON." : "No password set. To require one, add POLIBRIEF_PASSWORD=yourpassword to .env and restart (fine to skip on a Tailscale-only network)."}</p>
   <div class="kicker">Comment-deadline calendar</div>
@@ -802,20 +905,44 @@ function marketCardsSection() {
 
 // The homepage calendar — merges the four dated streams the Bean Brief tracks into one month view:
 // USDA/market report releases, comment deadlines, congressional hearings, and political/policy dates.
-function homeCalendarEvents() {
+// A stable key for an event with no database row (USDA reports, policy milestones) so it can be
+// dismissed and stay dismissed across restarts and redeploys.
+const calKey = (kind, date, label) => `${kind}:${date}:${String(label).slice(0, 60)}`;
+
+function homeCalendarEvents({ includeHidden = false } = {}) {
   const out = [];
-  for (const r of upcomingReports(160)) out.push({ date: r.date, label: r.name, kind: "report", impact: r.impact, note: r.note || "", url: "" });
-  for (const p of upcomingPolicyEvents(240)) out.push({ date: p.date, label: p.name, kind: "policy", impact: p.impact, note: p.note || "", url: "" });
-  for (const d of store.upcomingDeadlines(60)) out.push({ date: (d.comment_deadline || "").slice(0, 10), label: `Comment deadline — ${d.title}`, kind: "deadline", impact: "medium", note: d.one_line || "", url: d.url || "" });
-  for (const h of store.upcomingHearings(80)) out.push({ date: (h.published_at || "").slice(0, 10), label: h.title, kind: "hearing", impact: "medium", note: h.one_line || "", url: h.url || "" });
-  return out.filter((e) => e.date).sort((a, b) => a.date.localeCompare(b.date) || a.kind.localeCompare(b.kind));
+  const push = (e) => out.push({ ...e, key: e.key ?? calKey(e.kind, e.date, e.label) });
+  for (const r of upcomingReports(160)) push({ date: r.date, label: r.name, kind: "report", impact: r.impact, note: r.note || "", url: "" });
+  for (const p of upcomingPolicyEvents(240)) push({ date: p.date, label: p.name, kind: "policy", impact: p.impact, note: p.note || "", url: "" });
+  // Deadlines and hearings carry their item uid, so "hide" on one of those hides that ITEM's event
+  // (and the item's own 🗄 set-aside in Laws/Rules/Decisions removes it too).
+  for (const d of store.upcomingDeadlines(60)) push({ date: (d.comment_deadline || "").slice(0, 10), label: `Comment deadline — ${d.title}`, kind: "deadline", impact: "medium", note: d.one_line || "", url: d.url || "", key: `deadline:${d.uid}` });
+  for (const h of store.upcomingHearings(80)) push({ date: (h.published_at || "").slice(0, 10), label: h.title, kind: "hearing", impact: "medium", note: h.one_line || "", url: h.url || "", key: `hearing:${h.uid}` });
+  // Tracked (📌) rules with a comment deadline ride along as their own kind so the things Matt has
+  // explicitly said he cares about stand out from the generic USDA calendar. Deduped against the
+  // deadline entries above by uid.
+  let trackedKeys = new Set();
+  try {
+    trackedKeys = new Set(store.listTracked().map((t) => t.uid));
+  } catch { /* tracked list unavailable — the rest of the calendar still renders */ }
+  for (const e of out) {
+    if (e.kind === "deadline" && trackedKeys.has(String(e.key).slice("deadline:".length))) {
+      e.kind = "tracked";
+      e.impact = "high";
+    }
+  }
+  const hidden = includeHidden ? new Set() : store.calendarHidden();
+  return out
+    .filter((e) => e.date && !hidden.has(e.key))
+    .sort((a, b) => a.date.localeCompare(b.date) || a.kind.localeCompare(b.kind));
 }
 
 function homeCalendar() {
   const events = homeCalendarEvents();
+  const nHidden = store.calendarHidden().size;
   const blob = JSON.stringify(events).replace(/</g, "\\u003c");
   return `<h2 style="margin-bottom:2px">📅 Calendar</h2>
-<p class="muted" style="margin-top:0">Major dates ahead — <span style="color:var(--isa-blue)">reports</span>, <span style="color:var(--isa-rust)">comment deadlines</span>, <span style="color:#4a7c1f">hearings</span>, and <span style="color:var(--isa-gold)">policy milestones</span>. Click a highlighted day.</p>
+<p class="muted" style="margin-top:0">Major dates ahead — <span style="color:var(--isa-blue)">reports</span>, <span style="color:var(--isa-rust)">comment deadlines</span>, <span style="color:#4a7c1f">hearings</span>, <span style="color:#7A4FBF">📌 tracked rules</span>, and <span style="color:var(--isa-gold)">policy milestones</span>. Click a highlighted day; use × to drop an event you don't care about.</p>
 <style>
   .bbcal-layout{display:grid;grid-template-columns:minmax(0,330px) 1fr;gap:20px;align-items:start}
   @media(max-width:640px){.bbcal-layout{grid-template-columns:1fr}}
@@ -843,7 +970,12 @@ function homeCalendar() {
   .bbcal-dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex:0 0 auto}
   .bbcal-dtitle{font-weight:700;margin-bottom:8px}
   .bbcal-elist{list-style:none;padding:0;margin:0}
-  .bbcal-elist li{margin:0 0 10px;font-size:.9em;line-height:1.45}
+  .bbcal-elist li{margin:0 0 10px;font-size:.9em;line-height:1.45;position:relative;padding-right:20px}
+  .bbcal-filters{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;font-size:.82em;margin:0 0 8px}
+  .bbcal-filters label{display:inline-flex;align-items:center;gap:4px;cursor:pointer;color:var(--isa-dark)}
+  .bbcal-x{position:absolute;top:0;right:0;background:none;border:none;color:var(--muted);opacity:.35;
+    cursor:pointer;font-size:1.1em;line-height:1;padding:0 3px}
+  .bbcal-x:hover{opacity:1;color:var(--isa-rust);background:none}
   .bbcal-ekind{font-size:.7em;font-weight:700;text-transform:uppercase;letter-spacing:.03em;margin-right:5px}
   .bbcal-note{font-size:.85em;margin-top:1px}
   .bbcal-imp{color:var(--isa-rust);font-weight:700}
@@ -859,6 +991,15 @@ function homeCalendar() {
     .bbcal-today-btn{padding:9px 12px}
   }
 </style>
+<div class="bbcal-filters" id="bbcal-filters">
+  <label><input type="checkbox" data-kind="report" checked> Reports</label>
+  <label><input type="checkbox" data-kind="deadline" checked> Deadlines</label>
+  <label><input type="checkbox" data-kind="tracked" checked> 📌 Tracked</label>
+  <label><input type="checkbox" data-kind="hearing" checked> Hearings</label>
+  <label><input type="checkbox" data-kind="policy" checked> Policy</label>
+  <label title="Hides the weekly routine releases (export sales, crop progress, CFTC)"><input type="checkbox" id="bbcal-nolow"> Hide routine weeklies</label>
+  ${nHidden ? `<form method="post" action="/calendar/hide" style="margin-left:auto"><input type="hidden" name="clear" value="1"><button class="ghost tiny" title="Restore every event you've dropped">↺ restore ${nHidden} hidden</button></form>` : ""}
+</div>
 <div class="bbcal-layout">
   <div id="bbcal"></div>
   <details class="bbcal-roll" id="bbcal-roll" open>
@@ -870,9 +1011,35 @@ function homeCalendar() {
 <script>
 (function(){
   var el=document.getElementById('bbcal'); if(!el) return;
-  var data; try{ data=JSON.parse(document.getElementById('bbcal-data').textContent);}catch(e){data=[];}
-  var byDate={}; data.forEach(function(e){ (byDate[e.date]=byDate[e.date]||[]).push(e); });
-  var KIND={report:{c:'#2C6FB0',l:'Report'},policy:{c:'#C77D0A',l:'Policy'},deadline:{c:'#C0392B',l:'Deadline'},hearing:{c:'#4a7c1f',l:'Hearing'}};
+  var all; try{ all=JSON.parse(document.getElementById('bbcal-data').textContent);}catch(e){all=[];}
+  var data=all, byDate={};
+  var KIND={report:{c:'#2C6FB0',l:'Report'},policy:{c:'#C77D0A',l:'Policy'},deadline:{c:'#C0392B',l:'Deadline'},hearing:{c:'#4a7c1f',l:'Hearing'},tracked:{c:'#7A4FBF',l:'📌 Tracked'}};
+  // Kind + routine-weekly filters. Client-side (every event is already in the blob) and remembered
+  // per browser, so the two-click way to a quieter calendar doesn't need a round trip.
+  var PREF='bbcalFilters';
+  function prefs(){ try{ return JSON.parse(localStorage.getItem(PREF)||'{}'); }catch(e){ return {}; } }
+  function savePrefs(p){ try{ localStorage.setItem(PREF,JSON.stringify(p)); }catch(e){} }
+  function applyFilters(){
+    var boxes=document.querySelectorAll('#bbcal-filters input[data-kind]');
+    var on={}, p=prefs();
+    Array.prototype.forEach.call(boxes,function(b){ on[b.getAttribute('data-kind')]=b.checked; });
+    var noLow=document.getElementById('bbcal-nolow').checked;
+    p.kinds=on; p.noLow=noLow; savePrefs(p);
+    data=all.filter(function(e){
+      if(on[e.kind]===false) return false;
+      if(noLow && e.impact==='low') return false;
+      return true;
+    });
+    byDate={}; data.forEach(function(e){ (byDate[e.date]=byDate[e.date]||[]).push(e); });
+  }
+  (function restore(){
+    var p=prefs();
+    if(p.kinds) Array.prototype.forEach.call(document.querySelectorAll('#bbcal-filters input[data-kind]'),function(b){
+      var k=b.getAttribute('data-kind'); if(p.kinds[k]===false) b.checked=false;
+    });
+    if(p.noLow) document.getElementById('bbcal-nolow').checked=true;
+  })();
+  applyFilters();
   var MON=['January','February','March','April','May','June','July','August','September','October','November','December'];
   var today=new Date(), todayISO=today.getFullYear()+'-'+('0'+(today.getMonth()+1)).slice(-2)+'-'+('0'+today.getDate()).slice(-2);
   var cur=new Date(today.getFullYear(),today.getMonth(),1), sel=null;
@@ -893,13 +1060,31 @@ function homeCalendar() {
     h+='<ul class="bbcal-elist">';
     evs.forEach(function(e){
       var k=KIND[e.kind]||{c:'#888',l:e.kind};
-      h+='<li><span class="bbcal-ekind" style="color:'+k.c+'">'+esc(k.l)+'</span>'
+      h+='<li><button class="bbcal-x" data-key="'+esc(e.key)+'" title="Drop this event from the calendar">&times;</button>'
+        +'<span class="bbcal-ekind" style="color:'+k.c+'">'+esc(k.l)+'</span>'
         +(date?'':'<span class="muted">'+esc(fmt(e.date))+' · </span>')
         +(e.url?'<a href="'+esc(e.url)+'" target="_blank" rel="noopener">'+esc(e.label)+'</a>':esc(e.label))
         +(e.impact==='very_high'?' <span class="bbcal-imp">★</span>':'')
         +(e.note?'<div class="bbcal-note muted">'+esc(e.note)+'</div>':'')+'</li>';
     });
     box.innerHTML=h+'</ul>';
+    // × hides one event for good (server-side, so it sticks across browsers and restarts).
+    Array.prototype.forEach.call(box.querySelectorAll('.bbcal-x'),function(b){
+      b.onclick=function(ev){
+        ev.stopPropagation();
+        var key=b.getAttribute('data-key'), li=b.closest('li');
+        li.style.opacity='.4';
+        fetch('/calendar/hide',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},
+          body:'key='+encodeURIComponent(key)+'&on=true'})
+          .then(function(r){return r.json();})
+          .then(function(j){
+            if(!j.ok) throw new Error(j.error||'failed');
+            all=all.filter(function(x){return x.key!==key;});
+            applyFilters(); render(); detail(sel);
+          })
+          .catch(function(){ li.style.opacity='1'; });
+      };
+    });
   }
   function render(){
     var y=cur.getFullYear(),m=cur.getMonth();
@@ -925,6 +1110,9 @@ function homeCalendar() {
     if(tb) tb.onclick=function(){cur=new Date(today.getFullYear(),today.getMonth(),1);sel=null;render();detail(null);};
     Array.prototype.forEach.call(el.querySelectorAll('.bbcal-has'),function(c){c.onclick=function(){sel=c.getAttribute('data-date');render();detail(sel);};});
   }
+  Array.prototype.forEach.call(document.querySelectorAll('#bbcal-filters input'),function(b){
+    b.addEventListener('change',function(){ applyFilters(); render(); detail(sel); });
+  });
   render(); detail(null);
 })();
 </script>
@@ -1551,8 +1739,46 @@ function chartSection(category, title, desc, height = 300) {
     <script class="bbchart" type="application/json" data-target="${id}">${spec}</script>`;
 }
 
+/**
+ * The sparkline on the back of a signal card: the recent trail over a faint p10–p90 "normal range"
+ * band from the series' full history, with the latest point marked. Inline SVG, no library — the
+ * card back has to be cheap enough to render for every signal on the board.
+ */
+function signalSpark(sp, direction) {
+  const pts = (sp.points || []).filter((p) => p.value != null);
+  if (pts.length < 2) return "";
+  const w = 210, h = 54, pad = 3;
+  const vals = pts.map((p) => p.value);
+  // Scale to the data AND the band, so the band is always visible even when the recent trail sits
+  // entirely outside it (which is exactly the interesting case).
+  const lo = Math.min(...vals, sp.p10 ?? Infinity), hi = Math.max(...vals, sp.p90 ?? -Infinity);
+  const span = hi - lo || 1;
+  const x = (i) => pad + (i * (w - pad * 2)) / (pts.length - 1);
+  const y = (v) => h - pad - ((v - lo) / span) * (h - pad * 2);
+  const line = pts.map((p, i) => `${x(i).toFixed(1)},${y(p.value).toFixed(1)}`).join(" ");
+  const stroke = direction === "bullish" ? "#2f7d4e" : direction === "bearish" ? "#b8481f" : "#0070C3";
+  const band =
+    sp.p10 != null && sp.p90 != null
+      ? `<rect x="0" y="${y(sp.p90).toFixed(1)}" width="${w}" height="${Math.max(1, y(sp.p10) - y(sp.p90)).toFixed(1)}" fill="rgba(0,74,141,.09)"/>`
+      : "";
+  const last = pts[pts.length - 1];
+  return `<svg class="sigspark" viewBox="0 0 ${w} ${h}" width="100%" height="${h}" role="img" aria-label="Recent trend for ${esc(sp.label)}">
+    ${band}<polyline points="${line}" fill="none" stroke="${stroke}" stroke-width="1.8" stroke-linejoin="round"/>
+    <circle cx="${x(pts.length - 1).toFixed(1)}" cy="${y(last.value).toFixed(1)}" r="2.6" fill="${stroke}"/>
+  </svg>`;
+}
+
 // The signals board — a bull/bear read at a glance, above the charts (the summary before
 // the detail). Powered by src/signals.js over the stored market data.
+//
+// Each card FLIPS: the front is the read (name · direction · headline number), the back answers the
+// question the front always provokes — "is that high or low, and which way is it going?" — with the
+// series' own recent trail over its historical normal range, its percentile, the year-over-year
+// change, the momentum fields added in 1.24.0 (so "high and still climbing" is distinguishable from
+// "high but rolling over"), and which weighted FACTOR the signal feeds. That last one matters since
+// 1.24.0: the headline tilt is a weighted average over factors, not a headcount, so a card that says
+// "one of 5 crop-stress reads, averaged" explains why five agreeing weather signals don't swing the
+// tilt five times.
 function signalsBoard() {
   let board;
   try {
@@ -1562,22 +1788,71 @@ function signalsBoard() {
   }
   if (!board.signals.length) return "";
   const arrow = { bullish: "▲", bearish: "▼", neutral: "•" };
+  const pct = (v) => (v == null ? null : `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`);
+  // Same convention as signals.js: thousands get separators, everything else 2dp — a raw
+  // 6.8584070796460175 in a card is noise, not precision.
+  const num = (v) => (v == null ? "—" : Math.abs(v) >= 1000 ? Math.round(v).toLocaleString() : String(Math.round(v * 100) / 100));
+  const ord = (n) => { const s = ["th", "st", "nd", "rd"], v = n % 100; return `${n}${s[(v - 20) % 10] || s[v] || s[0]}`; };
+  // Which factor (and weight) each signal belongs to — from the same table that computes the tilt.
+  const factorOf = new Map();
+  for (const f of board.factors || []) for (const m of f.members || []) factorOf.set(m.id, f);
+
   const cards = board.signals
-    .map(
-      (s) => `<div class="sig sig-${s.direction}">
-        <div class="sig-top"><span class="sig-name">${esc(s.name)}</span><span class="sig-dir">${arrow[s.direction]}</span></div>
-        <div class="sig-label">${esc(s.label)}</div>
-        <div class="sig-detail">${esc(s.detail)}</div>
-      </div>`
-    )
+    .map((s) => {
+      const map = SIGNAL_CHART[s.id];
+      let sp = null;
+      if (map?.series) { try { sp = store.seriesSpark(map.series, 24); } catch { sp = null; } }
+      const snap = sp ? store.marketSnapshot().find((x) => x.series === map.series) : null;
+      const f = factorOf.get(s.id);
+      const rows = [];
+      if (snap) {
+        if (snap.percentile != null) rows.push(`<div class="sb-row"><span>Now</span><strong>${esc(num(snap.latest.value))}${sp.unit ? ` ${esc(sp.unit)}` : ""} · ${esc(ord(snap.percentile))} pctile</strong></div>`);
+        if (snap.yoyPct != null) rows.push(`<div class="sb-row"><span>vs. year ago</span><strong>${esc(pct(snap.yoyPct))}</strong></div>`);
+        if (snap.slopePerSigma != null) {
+          const t = snap.slopePerSigma > 0.25 ? "rising" : snap.slopePerSigma < -0.25 ? "falling" : "flat";
+          rows.push(`<div class="sb-row"><span>Trend</span><strong>${t}${snap.changeZ != null ? ` · last move ${snap.changeZ >= 0 ? "+" : ""}${snap.changeZ.toFixed(1)}σ` : ""}</strong></div>`);
+        }
+        if (sp.p10 != null) rows.push(`<div class="sb-row"><span>Normal range</span><strong>${esc(num(sp.p10))}–${esc(num(sp.p90))}</strong></div>`);
+      }
+      const back = `<div class="sig-back">
+        <div class="sb-title">${esc(s.name)}</div>
+        ${sp ? signalSpark(sp, s.direction) : '<p class="muted sb-none">No stored series behind this one — it\'s a calendar/derived read.</p>'}
+        ${rows.join("")}
+        ${sp ? `<div class="sb-meta muted">${esc(sp.label)} · ${sp.count} points since ${esc(String(sp.firstPeriod).slice(0, 7))}${sp.p10 != null ? " · band = 10th–90th pctile of that history" : ""}</div>` : ""}
+        ${f ? `<div class="sb-meta muted">Factor: ${esc(f.label)} · weight ${f.weight}${f.members.length > 1 ? ` · averaged with ${f.members.length - 1} correlated signal${f.members.length > 2 ? "s" : ""}` : ""}</div>` : ""}
+        ${map?.category && CHARTED_CATEGORIES.has(map.category) ? `<a class="sb-link" href="/markets#chart_${esc(map.category)}">Open the full chart ↗</a>` : ""}
+      </div>`;
+      return `<div class="sig sig-${s.direction} sig-flip" tabindex="0" role="button" aria-label="${esc(s.name)} — ${s.direction}. Activate to see the trend behind it." title="Click for the trend behind this signal">
+        <div class="sig-face">
+          <div class="sig-top"><span class="sig-name">${esc(s.name)}</span><span class="sig-dir">${arrow[s.direction]}</span></div>
+          <div class="sig-label">${esc(s.label)}</div>
+          <div class="sig-detail">${esc(s.detail)}</div>
+          <span class="sig-hint" aria-hidden="true">↻</span>
+        </div>
+        ${back}
+      </div>`;
+    })
     .join("");
   return `<section class="signals">
     <div class="sig-head">
       <h2 style="margin:0">Market signals</h2>
       <span class="tilt tilt-${board.tilt}">Price tilt: ${board.tilt} · ${board.bullish}▲ / ${board.bearish}▼ / ${board.neutral}•</span>
     </div>
-    <p class="muted" style="margin:.2em 0 12px">A bull/bear read across the stored data — bullish = supportive of soybean price. Informational, not a recommendation.</p>
+    <p class="muted" style="margin:.2em 0 12px">A bull/bear read across the stored data — bullish = supportive of soybean price. <strong>Click any card</strong> to see the trend, normal range and momentum behind it. Informational, not a recommendation.</p>
     <div class="sig-grid">${cards}</div>
+    <script>
+    (function(){
+      // Click / Enter / Space flips a card. Links on the back must not re-flip the card.
+      document.querySelectorAll('.sig-flip').forEach(function(card){
+        function flip(){ card.classList.toggle('flipped'); }
+        card.addEventListener('click', function(e){ if(e.target.closest('a')) return; flip(); });
+        card.addEventListener('keydown', function(e){
+          if(e.key===' '||e.key==='Enter'){ e.preventDefault(); flip(); }
+          else if(e.key==='Escape') card.classList.remove('flipped');
+        });
+      });
+    })();
+    </script>
   </section>`;
 }
 
@@ -1686,6 +1961,18 @@ function jurisdictionLevel(sourceId, jurisdiction) {
   return "Other";
 }
 
+// The graded-relevance chip. NULL tier (anything triaged before 1.26.0) shows nothing rather than a
+// misleading default — those rows are still included by the default "top" filter.
+const TIER_META = {
+  must_read: { label: "must read", cls: "lb-must", title: "ISA would act, comment, or brief leadership on this" },
+  worth_knowing: { label: "worth knowing", cls: "lb-worth", title: "Real but not actionable this week" },
+  background: { label: "background", cls: "lb-bg", title: "Procedural or tangential — kept, but out of the daily read" },
+};
+function tierBadge(r) {
+  const m = TIER_META[r.triage_tier];
+  return m ? ` <span class="lb ${m.cls}" title="${esc(m.title)}">${m.label}</span>` : "";
+}
+
 // A lifecycle status chip: comment-period countdown for rules/dockets, meeting timing for hearings.
 function statusBadge(r) {
   const todayISO = new Date().toISOString().slice(0, 10);
@@ -1705,6 +1992,67 @@ function statusBadge(r) {
   return "";
 }
 
+/**
+ * "Did we see this?" — the answer to "there's stuff I know you're missing".
+ *
+ * Searches the WHOLE firehose (every verdict, both archives, titles + bodies), because the useful
+ * question isn't "is it in my feed" but "where did it get lost": never fetched, fetched and dropped
+ * by the local score, triaged irrelevant, graded background, or actually here all along. Each answer
+ * points at a different fix, so the panel names which one it is.
+ */
+function coveragePanel(term) {
+  const box = (inner) => `<details class="cov-box" id="t-cov"${term ? " open" : ""}>
+    <summary>🔍 Did we see this? <span class="muted" style="font-weight:400">— check coverage of something you heard about elsewhere</span></summary>
+    <p class="muted" style="margin:6px 0;font-size:.86em">Searches everything collected in the last year, including items the filters dropped and never showed you. Try a distinctive phrase — "drainage tile", "WOTUS", a docket number.</p>
+    <form method="get" action="/items" class="toolbar">
+      <input type="text" name="cov" placeholder="e.g. drainage tile" value="${esc(term ?? "")}" style="flex:1;min-width:min(280px,100%)">
+      <button class="ghost">Check</button>
+    </form>${inner}</details>`;
+  if (!term) return box("");
+  let d;
+  try {
+    d = store.diagnoseCoverage(term, { limit: 25, days: 365 });
+  } catch (err) {
+    return box(`<div class="banner err">⚠️ ${esc(err.message)}</div>`);
+  }
+  if (!d.rows.length) {
+    return box(`<p class="cov-verdict">Never collected.</p>
+      <p class="muted" style="font-size:.88em">Nothing matching “${esc(term)}” has been fetched by any source in the last year — so this is a <strong>coverage</strong> gap, not a filtering one. Either no configured source publishes it (an association newsletter that isn't in the collector inbox, or an agency missing from the Federal Register list on the <a href="/watchlist">Watchlist</a>), or it hasn't been published yet. Forwarding the email to the collector inbox is the fastest fix.</p>`);
+  }
+  const tag = (r) => {
+    if (r.archived) return { t: "set aside", c: "#607d8b" };
+    if (r.triage_verdict === "relevant") return { t: r.triage_tier === "background" ? "relevant · background" : "in your feed", c: "#1f6b2e" };
+    if (r.triage_verdict === "irrelevant") return { t: "triaged out", c: "#b8481f" };
+    return { t: "dropped before triage", c: "#8a5a00" };
+  };
+  const rows = d.rows
+    .map((r) => {
+      const g = tag(r);
+      return `<li><span class="cov-tag" style="color:${g.c}">${esc(g.t)}</span>
+        ${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc((r.title ?? r.uid).slice(0, 110))}</a>` : esc((r.title ?? r.uid).slice(0, 110))}
+        <span class="muted">· ${esc(adapters[r.source_id]?.label ?? r.source_id)} · ${esc((r.published_at ?? r.first_seen_at ?? "").slice(0, 10))}</span>
+        ${r.one_line ? `<br><span class="muted">${esc(r.one_line)}</span>` : ""}</li>`;
+    })
+    .join("");
+  const c = d.counts;
+  const verdict =
+    c.relevant > 0
+      ? `Collected and kept — ${c.relevant} item${c.relevant === 1 ? "" : "s"} passed triage.`
+      : c.irrelevant > 0
+        ? `Collected, but the AI triage marked ${c.irrelevant} item${c.irrelevant === 1 ? "" : "s"} NOT relevant.`
+        : `Collected, but dropped by the local keyword filter before triage (${c.unscored}).`;
+  const advice =
+    c.relevant > 0
+      ? `If it still felt missing, it may have been outside the date window or below the priority filter.`
+      : c.irrelevant > 0
+        ? `👎 those items to teach the triage, or add a term on the <a href="/watchlist">Watchlist</a> so they score higher.`
+        : `Nothing was wrong with the sources — the item never scored high enough. Add a distinctive term for it on the <a href="/watchlist">Watchlist</a>.`;
+  return box(`<p class="cov-verdict">${esc(verdict)}</p>
+    <p class="muted" style="font-size:.88em;margin:2px 0 4px">${advice}</p>
+    <ul class="cov-list">${rows}</ul>
+    ${d.rows.length >= 25 ? '<p class="muted" style="font-size:.82em">(first 25 matches)</p>' : ""}`);
+}
+
 function itemsBody(params, notice) {
   let watchlist = null;
   try {
@@ -1717,8 +2065,12 @@ function itemsBody(params, notice) {
     topicId: params.get("topic") ?? "",
     sourceId: params.get("source") ?? "",
     verdict: params.get("verdict") ?? "relevant",
+    // Priority tier: default "top" = must-read + worth-knowing (+ anything triaged before tiers
+    // existed). "background" items stay one click away rather than diluting the daily read.
+    tier: ["top", "must_read", "background", ""].includes(params.get("tier") ?? "") ? (params.get("tier") ?? "top") : "top",
     days: Number(params.get("days") ?? 30) || 30,
   };
+  if (params.get("tier") === null) filters.tier = "top";
   const sort = params.get("sort") === "deadline" ? "deadline" : "newest";
   const group = ["level", "topic", "source"].includes(params.get("group")) ? params.get("group") : "";
   // Items tab = the clean regulatory/legal flow only. News (collector/press) and Markets
@@ -1779,7 +2131,7 @@ function itemsBody(params, notice) {
           ${r.feedback_note ? `<br><span class="muted">📝 ${esc(r.feedback_note)}</span>` : ""}
           ${summaryPanel}</td>
         <td class="muted" data-l="Where / when">${esc(jurisdictionLevel(r.source_id, r.jurisdiction))} · ${esc((r.published_at ?? r.first_seen_at ?? "").slice(0, 10))}${statusBadge(r) ? ` ${statusBadge(r)}` : ""}</td>
-        <td class="muted" data-l="Verdict">${esc(r.triage_verdict ?? "")}</td>
+        <td class="muted" data-l="Verdict">${esc(r.triage_verdict ?? "")}${tierBadge(r)}</td>
         <td><div class="toolbar" style="margin:0">${trackBtn}${fb("up", "👍")}${fb("down", "👎")}${archiveBtn}</div></td>
       </tr>`;
   };
@@ -1829,11 +2181,21 @@ function itemsBody(params, notice) {
 ${notice ? `<div class="banner">${esc(notice)}</div>` : ""}
 ${trackedBlock}
 ${deadlinesSection(viewingDismissedDeadlines)}
+${coveragePanel(params.get("cov"))}
 <style>
   .lb{display:inline-block;font-size:.72em;font-weight:600;padding:1px 6px;border-radius:9px;margin-top:2px;white-space:nowrap}
   .lb-open{background:#e6f2e6;color:#1f6b2e}
   .lb-soon{background:#fdf0d8;color:#8a5a00}
   .lb-closed{background:#eceff1;color:#607d8b}
+  .lb-must{background:#fbe3dc;color:#a63c17}
+  .lb-worth{background:#e4edf6;color:#1d4e79}
+  .lb-bg{background:#f1f1f1;color:#777}
+  .cov-box{border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:10px 0}
+  .cov-box>summary{cursor:pointer;font-weight:600;color:var(--isa-dark);font-size:.93em}
+  .cov-verdict{font-weight:600;margin:6px 0 2px}
+  .cov-list{list-style:none;padding:0;margin:4px 0 0}
+  .cov-list li{font-size:.88em;margin:5px 0;line-height:1.4}
+  .cov-tag{font-size:.72em;font-weight:700;text-transform:uppercase;letter-spacing:.03em;margin-right:5px}
   .lrd-group{margin:18px 0 4px;padding-bottom:2px;border-bottom:2px solid var(--isa-blue-40)}
   .lrd-views{display:flex;gap:14px;flex-wrap:wrap;font-size:.9em;margin:2px 0 8px}
 </style>
@@ -1861,6 +2223,12 @@ ${deadlinesSection(viewingDismissedDeadlines)}
     <option value=""${filters.verdict === "" ? " selected" : ""}>any verdict</option>
     <option value="relevant"${filters.verdict === "relevant" ? " selected" : ""}>relevant</option>
     <option value="irrelevant"${filters.verdict === "irrelevant" ? " selected" : ""}>irrelevant</option>
+  </select>
+  <select name="tier" title="How hard the AI triage graded each item">
+    <option value="top"${filters.tier === "top" ? " selected" : ""}>priority: must-read + worth knowing</option>
+    <option value="must_read"${filters.tier === "must_read" ? " selected" : ""}>priority: must-read only</option>
+    <option value="background"${filters.tier === "background" ? " selected" : ""}>priority: background only</option>
+    <option value=""${filters.tier === "" ? " selected" : ""}>priority: everything</option>
   </select>
   <select name="days">${[7, 30, 90, 365].map((d) => `<option value="${d}"${filters.days === d ? " selected" : ""}>last ${d} days</option>`).join("")}</select>
   ${viewingClosed ? '<input type="hidden" name="closed" value="1">' : ""}
@@ -2637,6 +3005,26 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
               saveWatchlist(watchlist);
               notice = `Removed "${term}" from "${area.label}". Applies from the next run.`;
             }
+          } else if (action === "add-exclude" || action === "remove-exclude") {
+            // Exclusions are scoring-only — never added to sourceTerms, so they cost no API queries.
+            area.excludeTerms ??= [];
+            const ex = area.excludeTerms.findIndex((t) => t.toLowerCase() === term.toLowerCase());
+            if (action === "add-exclude") {
+              if (ex >= 0) notice = `"${term}" is already excluded from "${area.label}".`;
+              else if (idx >= 0) notice = `⚠️ "${term}" is one of "${area.label}"'s search terms — remove it from Terms first, or excluding it will cancel it out.`;
+              else {
+                area.excludeTerms.push(term);
+                saveWatchlist(watchlist);
+                notice = `"${area.label}" will now skip items mentioning "${term}". Applies from the next run.`;
+              }
+            } else {
+              if (ex < 0) notice = `"${term}" wasn't an exclusion on "${area.label}".`;
+              else {
+                area.excludeTerms.splice(ex, 1);
+                saveWatchlist(watchlist);
+                notice = `Removed the "${term}" exclusion from "${area.label}". Applies from the next run.`;
+              }
+            }
           } else throw new Error("Unknown action");
         } catch (err) {
           notice = `⚠️ Couldn't update the focus area: ${err.message}`;
@@ -2688,14 +3076,33 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
           if (hhmm.test(am)) { checkTime("AM edition", am); watchlist.briefEditions.am = am; }
           const pm = form.get("pm") ?? "";
           if (hhmm.test(pm)) { checkTime("PM edition", pm); watchlist.briefEditions.pm = pm; }
-          const day = form.get("weeklyDay");
-          if (day === "off") delete watchlist.briefEditions.weekly;
-          else if (["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].includes(day) && hhmm.test(form.get("weeklyTime") ?? "")) {
-            const weeklyTime = form.get("weeklyTime");
-            checkTime("Weekly memo", weeklyTime);
-            watchlist.briefEditions.weekly = `${day} ${weeklyTime}`;
+          // Day-scheduled memo editions (weekly / monthly / education / analyst) — same shape as the
+          // old weekly-only handler, now driven by the DAY_SCHEDULED table so the two can't drift.
+          for (const [edition, label] of DAY_SCHEDULED) {
+            const day = form.get(`${edition}Day`);
+            if (day == null) continue; // field absent from this submission — leave the setting alone
+            if (day === "off") { delete watchlist.briefEditions[edition]; continue; }
+            const time = form.get(`${edition}Time`) ?? "";
+            if (["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].includes(day) && hhmm.test(time)) {
+              checkTime(label, time);
+              watchlist.briefEditions[edition] = `${day} ${time}`;
+            }
           }
           watchlist.output ??= {};
+          // Per-edition recipients — this is what sends the market-education brief to its own Teams
+          // channel. Blank clears the override (back to the default BRIEF_EMAIL_TO).
+          for (const [edition] of MEMO_EDITIONS) {
+            const raw = form.get(`to_${edition}`);
+            if (raw == null) continue; // disabled (set in .env) or not submitted
+            const addr = String(raw).trim();
+            if (!addr) {
+              if (watchlist.output.editionEmail) delete watchlist.output.editionEmail[edition];
+              continue;
+            }
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(addr)) throw new Error(`"${addr}" doesn't look like an email address.`);
+            watchlist.output.editionEmail ??= {};
+            watchlist.output.editionEmail[edition] = addr;
+          }
           for (const key of ["minLocalScoreForTriage", "maxItemsToTriage", "maxItemsInBrief"]) {
             const value = Number(form.get(key));
             if (Number.isFinite(value) && value >= 0) watchlist.output[key] = value;
@@ -2704,6 +3111,52 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
           notice = "Settings saved. Schedule changes apply within a minute; thresholds from the next run.";
         } catch (err) {
           notice = `⚠️ ${err.message}`;
+        }
+        redirect(res, `/logs?notice=${encodeURIComponent(notice)}&open=settings#t-settings`);
+        return;
+      }
+
+      // Calendar: hide one event for good, or restore everything hidden. AJAX from the day panel;
+      // the restore control is a plain form so it works without JS.
+      if (req.method === "POST" && url.pathname === "/calendar/hide") {
+        const form = await readForm(req);
+        try {
+          if (form.get("clear")) {
+            store.clearCalendarHidden();
+            redirect(res, "/?notice=" + encodeURIComponent("Restored every hidden calendar event."));
+            return;
+          }
+          const key = (form.get("key") ?? "").trim();
+          if (!key) throw new Error("missing key");
+          const n = store.setCalendarHidden(key, form.get("on") !== "false");
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ ok: true, hidden: n }));
+        } catch (err) {
+          res.writeHead(400, { "content-type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: err.message }));
+        }
+        return;
+      }
+
+      // Test send — resolve one edition's recipient and mail it a two-line note, so a channel
+      // address (and the sender's acceptance by that channel) can be proven without waiting for a
+      // scheduled brief.
+      if (req.method === "POST" && url.pathname === "/watchlist/test-email") {
+        const form = await readForm(req);
+        const edition = MEMO_EDITIONS.map(([e]) => e).includes(form.get("edition")) ? form.get("edition") : "am";
+        let notice;
+        try {
+          let watchlist = null;
+          try { watchlist = loadWatchlist(); } catch { /* env-only resolution */ }
+          const to = recipientFor(edition, process.env, watchlist);
+          if (!to) throw new Error(`No recipient configured for "${edition}" — set one above, or BRIEF_EMAIL_TO in .env.`);
+          if (!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS)) {
+            throw new Error("SMTP isn't configured — set SMTP_HOST, SMTP_USER and SMTP_PASS in .env, then restart.");
+          }
+          await sendTestEmail(edition, to, process.env);
+          notice = `Test message sent to ${to} (from ${process.env.SMTP_USER}). If it doesn't arrive, the channel may be rejecting outside senders.`;
+        } catch (err) {
+          notice = `⚠️ Test send failed: ${err.message}`;
         }
         redirect(res, `/logs?notice=${encodeURIComponent(notice)}&open=settings#t-settings`);
         return;
@@ -2770,8 +3223,8 @@ function startScheduler() {
   // Seed "already ran" from the briefs table so a container restart mid-day
   // doesn't re-run an edition.
   const ran = new Set();
-  for (const b of store.listBriefs(10)) {
-    const m = path.basename(b.path).match(/^(\d{4}-\d{2}-\d{2})-(am|pm|weekly)\.md$/);
+  for (const b of store.listBriefs(20)) {
+    const m = path.basename(b.path).match(/^(\d{4}-\d{2}-\d{2})-(am|pm|weekly|monthly|education|analyst)\.md$/);
     if (m) ran.add(`${m[1]}-${m[2]}`);
   }
 
@@ -2805,15 +3258,20 @@ function startScheduler() {
         }
       }
 
-      // Weekly memo, e.g. "Fri 17:00". Guard the type: a hand-edited non-string weekly must not throw.
-      const weekly = editions.weekly;
-      if (typeof weekly === "string" && weekly.trim()) {
-        const [day, time] = weekly.split(/\s+/);
-        const key = `${dateLabel}-weekly`;
+      // Day-scheduled memo editions, e.g. "Fri 17:00" — weekly, plus the education brief and the
+      // Analyst Note. Education is the one that goes to its own Teams channel, and it had no
+      // schedule at all before (on-demand only, so it only existed if someone clicked). A scheduled
+      // Analyst also keeps the forecast ledger fed: Analyst is the only preset that files claims.
+      // Guard the type: a hand-edited non-string value must not throw.
+      for (const edition of ["weekly", "monthly", "education", "analyst"]) {
+        const spec = editions[edition];
+        if (typeof spec !== "string" || !spec.trim()) continue;
+        const [day, time] = spec.split(/\s+/);
+        const key = `${dateLabel}-${edition}`;
         if (day === weekday && time && hhmm >= time && !ran.has(key)) {
-          console.log(`\n⏰ Scheduled weekly memo (${weekly} ${timezone})`);
-          const problem = await triggerRun("weekly");
-          if (problem === RUN_BUSY_MESSAGE) console.log(`⏭️  Weekly bounced (run in progress) — retrying next tick`);
+          console.log(`\n⏰ Scheduled ${edition} memo (${spec} ${timezone})`);
+          const problem = await triggerRun(edition);
+          if (problem === RUN_BUSY_MESSAGE) console.log(`⏭️  ${edition} bounced (run in progress) — retrying next tick`);
           else { ran.add(key); if (problem) console.log(`⚠️  ${problem}`); }
         }
       }

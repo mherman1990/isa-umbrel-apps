@@ -308,6 +308,29 @@ const SIGNAL_SERIES = {
   weather_us: "open_meteo:us:precip-pctile / heat-pctile",
   weather_sa: "open_meteo:sa:precip-pctile / heat-pctile",
 };
+// The MACHINE-readable twin of SIGNAL_SERIES above: the one stored series id whose history best
+// represents each scorer, plus the Markets chart it belongs to. SIGNAL_SERIES is prose for the LLM
+// (it can name two series and annotate them); this is what the UI queries to draw the card's chart,
+// so it must be exactly one real series key. `seasonal` is deliberately absent — it's a calendar
+// tendency, not a reading of a series.
+export const SIGNAL_CHART = {
+  crop_condition: { series: "nass:us:condition", category: "soy_condition" },
+  veg_condition: { series: "vegscape:ia:vci", category: "veg_condition" },
+  soil_moisture: { series: "cropcasma:ia:rootzone-sm", category: "soil_moisture" },
+  drought: { series: "drought_monitor:ia:d1", category: "drought" },
+  export_pace: { series: "agtransport:soy-net-export-sales", category: "soy_exports" },
+  stocks_to_use: { series: "wasde:us:soy-stocks-to-use", category: "soy_balance_stu" },
+  fund_positioning: { series: "cftc:soybeans:mm-net", category: "positioning" },
+  brazil_supply: { series: "ibge_brazil:soy-production", category: "" },
+  soy_corn_ratio: { series: "nass:ia:soy-corn-ratio", category: "soy_corn_ratio" },
+  crush_utilization: { series: "nass:us:crush", category: "soy_crush" },
+  weather_us: { series: "open_meteo:us:precip-pctile", category: "" },
+  weather_sa: { series: "open_meteo:sa:precip-pctile", category: "" },
+  // Both currently OFF the board (see the note above SCORERS) — mapped so they work if reinstated.
+  feedstock_share: { series: "eia:feedstock:soybean-oil", category: "biofuel_feedstock" },
+  dollar: { series: "fred:usd-broad", category: "" },
+};
+
 const DIR_SCORE = { bullish: 1, bearish: -1, neutral: 0 };
 // Weighted net needed to call a tilt. Lower than the old ±2 count because this is a normalized
 // −1..+1 scale, not a headcount: 0.15 means the weighted evidence leans meaningfully one way.

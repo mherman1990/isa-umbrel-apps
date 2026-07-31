@@ -157,7 +157,8 @@ async function sendMarkdownEmail({ markdown, subject, to, env, html = true }) {
 
 export async function sendEmail(markdown, edition, env, watchlist) {
   const wantEmail = watchlist.output?.email === true;
-  const configured = env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS && env.BRIEF_EMAIL_TO;
+  const to = recipientFor(edition, env, watchlist); // honours a per-edition override, else BRIEF_EMAIL_TO
+  const configured = env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS && to;
   if (!wantEmail) return false;
   if (!configured) {
     console.log('📧 Email: watchlist has "email": true but SMTP settings are missing in .env — skipping');
@@ -166,10 +167,62 @@ export async function sendEmail(markdown, edition, env, watchlist) {
   await sendMarkdownEmail({
     markdown,
     subject: `ISA Policy Brief — ${new Intl.DateTimeFormat("en-CA").format(new Date())} (${edition.toUpperCase()})`,
-    to: env.BRIEF_EMAIL_TO,
+    to,
     env,
   });
   return true;
+}
+
+// Human labels for the subject line of each on-demand report.
+const EDITION_LABEL = {
+  weekly: "Weekly memo",
+  monthly: "Monthly review",
+  education: "Market-education brief",
+  analyst: "Analyst Note",
+};
+
+/**
+ * Where does a given edition's mail go? Each Teams channel has its own inbound address, so this map
+ * is what puts the market-education brief in a DIFFERENT channel from the daily policy brief.
+ * Resolution order, most specific first:
+ *   1. env  BRIEF_EMAIL_TO_EDUCATION / _WEEKLY / _MONTHLY / _ANALYST   (lives in /data/.env)
+ *   2. watchlist output.editionEmail[edition]                          (editable in Logs & Settings)
+ *   3. env  BRIEF_EMAIL_TO — the default channel, used when nothing edition-specific is set
+ * Returns "" when nothing is configured, which the callers treat as "don't send".
+ */
+export function recipientFor(edition, env = process.env, watchlist = null) {
+  // AM and PM are the same daily brief, so PM inherits AM's setting when it has none of its own.
+  const keys = edition === "pm" ? ["pm", "am"] : [edition];
+  for (const k of keys) {
+    const specific = env[`BRIEF_EMAIL_TO_${String(k).toUpperCase()}`];
+    if (specific && specific.trim()) return specific.trim();
+    const fromWatchlist = watchlist?.output?.editionEmail?.[k];
+    if (fromWatchlist && String(fromWatchlist).trim()) return String(fromWatchlist).trim();
+  }
+  return (env.BRIEF_EMAIL_TO || "").trim();
+}
+
+/**
+ * Deliver an on-demand memo (weekly / monthly / education / analyst) by email.
+ *
+ * These were previously never delivered AT ALL — runMemo saved the markdown and stopped, so the
+ * market-education brief only existed if someone opened the web UI and clicked. Returns a short
+ * status string for the run log, or false when it deliberately didn't send.
+ */
+export async function sendMemoEmail(markdown, edition, env, watchlist) {
+  if (watchlist?.output?.email === false) return false; // email switched off entirely
+  const to = recipientFor(edition, env, watchlist);
+  const configured = env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS && to;
+  if (!configured) return false;
+  const label = EDITION_LABEL[edition] || edition;
+  const date = new Intl.DateTimeFormat("en-CA").format(new Date());
+  await sendMarkdownEmail({
+    markdown,
+    subject: `The Bean Brief — ${label}, ${date}`,
+    to,
+    env,
+  });
+  return to;
 }
 
 /**
@@ -183,6 +236,21 @@ export async function sendFarmerEmail(markdown, edition, env) {
   await sendMarkdownEmail({
     markdown,
     subject: `The Bean Brief for Farmers — ${new Intl.DateTimeFormat("en-CA").format(new Date())}`,
+    to,
+    env,
+  });
+  return true;
+}
+
+/** A two-line test message, so a channel address can be proven from the Settings page. */
+export async function sendTestEmail(edition, to, env) {
+  const label = EDITION_LABEL[edition] || "Daily policy brief";
+  await sendMarkdownEmail({
+    markdown:
+      `## The Bean Brief — delivery test\n\n` +
+      `If you can read this in the channel, **${label}** delivery works.\n\n` +
+      `- Sent from: ${env.SMTP_USER}\n- Route: ${edition} → ${to}\n`,
+    subject: `The Bean Brief — delivery test (${label})`,
     to,
     env,
   });

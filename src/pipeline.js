@@ -11,7 +11,7 @@ import { collectAll } from "./collect.js";
 import { scoreItems } from "./score.js";
 import { triageItems } from "./triage.js";
 import { generateBrief } from "./brief.js";
-import { saveBrief, postToTeams, sendEmail, sendAlertEmail } from "./deliver.js";
+import { saveBrief, postToTeams, sendEmail, sendAlertEmail, sendMemoEmail } from "./deliver.js";
 import { detectChanges } from "./alerts.js";
 import { adapters, classOf, sourceIdsForClass } from "./adapters/index.js";
 import { syncRegistryFromSeed } from "./registry.js";
@@ -92,7 +92,8 @@ function deriveEngineTopics(focusAreas) {
       const terms = fa.terms ?? [];
       const queries = {};
       for (const sid of applies) queries[sid] = fa.sourceTerms?.[sid] ?? terms;
-      return { id: fa.id, label: fa.label, weight: fa.weight ?? 5, keywords: terms, queries };
+      // excludeTerms are NOT queried — they only subtract during local scoring (see score.js).
+      return { id: fa.id, label: fa.label, weight: fa.weight ?? 5, keywords: terms, queries, excludeTerms: fa.excludeTerms ?? [] };
     });
 }
 
@@ -314,8 +315,11 @@ export async function runPipeline({ edition = "am", dryRun = false, source = nul
 
   // 2. Local scoring — free, runs before Claude sees anything.
   console.log(`\n🔎 Scoring ${officialItems.length} new item${officialItems.length === 1 ? "" : "s"}…`);
-  const { kept, dropped } = scoreItems(officialItems, watchlist.topics ?? [], watchlist.output);
+  const { kept, dropped, excluded } = scoreItems(officialItems, watchlist.topics ?? [], watchlist.output);
   console.log(`   ${kept.length} pass the local filter (min score ${watchlist.output?.minLocalScoreForTriage ?? 5})`);
+  // Say what the exclusion list removed. A filter that silently swallows items is one nobody can
+  // debug later — and this is the number to watch after adding a term.
+  if (excluded) console.log(`   ${excluded} dropped by exclusion terms (watchlist output.excludeTerms / per-area excludeTerms)`);
 
   if (dryRun) {
     printScoredTable(kept, dropped);
@@ -849,10 +853,23 @@ export async function generateMemo(presetId, env) {
   return { markdown, filePath, edition: preset.edition };
 }
 
-/** Generate + save a memo preset (CLI + web + scheduler entry point). */
+/** Generate + save a memo preset, then deliver it (CLI + web + scheduler entry point). */
 export async function runMemo(presetId, env) {
-  const { filePath } = await generateMemo(presetId, env);
-  console.log(`\n✅ Saved ${path.relative(store.DATA_DIR, filePath)}\n`);
+  const { markdown, filePath, edition } = await generateMemo(presetId, env);
+  console.log(`\n✅ Saved ${path.relative(store.DATA_DIR, filePath)}`);
+  // On-demand memos used to stop at "saved" — nothing was ever delivered, which is why the
+  // market-education brief never reached a Teams channel. Each edition can now have its own
+  // recipient (its own channel address); fail-soft so a mail problem never loses the saved brief.
+  try {
+    let watchlist = null;
+    try { watchlist = loadWatchlist(); } catch { /* delivery falls back to env alone */ }
+    const to = await sendMemoEmail(markdown, edition, env, watchlist);
+    if (to) console.log(`   📧 emailed to ${to}`);
+    else console.log(`   📧 not emailed — no recipient configured for "${edition}" (Logs & Settings → where each report goes)`);
+  } catch (err) {
+    console.log(`   ⚠️ email failed: ${err.message} (the brief is still saved)`);
+  }
+  console.log("");
 }
 
 /** The Friday weekly memo — now a preset of the memo engine (kept for the scheduler + CLI). */

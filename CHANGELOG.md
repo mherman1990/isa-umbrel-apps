@@ -1,5 +1,73 @@
 # Changelog
 
+## 1.26.0 — Graded relevance, exclusion terms, per-report delivery, signal cards that show their work
+
+Two themes. **Narrowing the net**: until now the filter could only ever say *yes* — there was no way
+to express "this word means I don't care", and relevance was a single boolean, so a rule ISA would
+comment on and a notice that merely mentioned soybeans arrived in the same flat list. **Closing the
+delivery gap**: on-demand reports were never delivered anywhere, so the market-education brief only
+existed if someone opened the web UI and clicked.
+
+### Added
+- **Exclusion terms** — the missing half of the filter, which did not exist anywhere in the codebase
+  before now. `output.excludeTerms` (global) drops an item before triage however well it scored;
+  per-focus-area `excludeTerms` cancel *that area's* weight only, so a bill that hits "pesticide" in a
+  school-lunch context stops claiming crop-protection weight but can still qualify elsewhere. Managed
+  on the Watchlist page as struck-through chips; word-boundary matched like the include terms, and the
+  run log reports how many items each pass removed (a filter that swallows things silently is one
+  nobody can debug).
+- **Graded triage tiers.** Triage now returns `must_read` / `worth_knowing` / `background` alongside
+  the boolean, with a strict rubric ("if an item is only relevant because a keyword appeared in it,
+  that is background"). Laws/Rules/Decisions defaults to hiding **only** `background`, with a
+  priority dropdown for must-read-only or everything, and a chip per row. Nothing is discarded — the
+  quiet stuff is one click away. Items triaged before this release have no tier and are **kept** in
+  the default view: the regression test for that NULL case is deliberate, because writing the filter
+  the obvious way would have emptied the entire existing feed on update, silently, only on the Pi.
+- **"🔍 Did we see this?"** on Laws/Rules/Decisions — paste a phrase you heard about elsewhere and it
+  searches the *whole* firehose (every verdict, both archives, titles and bodies, a year back),
+  including items the local score dropped before triage. It then says which of the four things
+  happened — never collected / dropped before triage / triaged out / it's in your feed — because each
+  one has a different fix, and names the fix. This is the answer to "there's stuff I know you're
+  missing": it turns a hunch into a diagnosis.
+- **Per-report delivery routing.** Each report can have its own recipient, which is how the
+  market-education brief lands in its own Teams channel (channel email addresses are the delivery
+  mechanism). Set per report in Logs & Settings, or via `BRIEF_EMAIL_TO_EDUCATION`-style env vars;
+  falls back to `BRIEF_EMAIL_TO`. A routing table shows exactly where every report goes and on what
+  schedule, and there's a **test send** per report — worth using after changing the sender, since a
+  Teams channel can be set to reject outside senders.
+- **Schedules for the education brief, monthly review and Analyst Note.** Previously only am/pm and
+  the Friday weekly could be scheduled; the education brief had no cadence at all. A scheduled
+  Analyst Note also keeps the forecast ledger fed, since Analyst is the only preset that files claims.
+- **Signal cards flip.** Every card on the Markets signal board turns over to show the series behind
+  it: a sparkline of the recent trail over a faint p10–p90 normal-range band from the series' full
+  history, the latest value with its percentile, year-over-year, the 1.24.0 momentum fields (so "high
+  and still climbing" reads differently from "high but rolling over"), the weighted **factor** the
+  signal belongs to — which is what explains why five agreeing crop-stress reads don't swing the tilt
+  five times — and a link to the full chart. Click, Enter/Space, or Escape; on a phone the flipped
+  card takes the full width, which restores the detail the compact board hides.
+- **📌 Tracked rules now appear on the homepage calendar** as their own kind, so the things you've
+  explicitly flagged stand out from the generic USDA dates.
+- **Calendar events can be dropped.** × on any event in the day panel hides it for good (server-side,
+  so it sticks across browsers and restarts, with a restore-all control), plus per-kind filter chips
+  and a "hide routine weeklies" toggle remembered per browser — which is what actually de-clutters
+  the month, since the recurring export-sales/crop-progress/CFTC entries are most of the noise.
+- An optional `docTypes` allowlist for the Federal Register (e.g. `["rule","proposed-rule"]` to drop
+  the notice flood). **Ships permissive** — narrowing coverage should be a deliberate choice.
+- `test/filter-tiers.test.js` — 10 zero-dependency tests over the exclusion logic, the tier defaults
+  (including the NULL-history case), the lifecycle age-out, the coverage diagnostic, and the
+  newsletter chrome pass. One of them caught a real bug: dropping an image URL glued the alt text to
+  the following tracker (`Facebook` + `https://…` → `Facebookhttps://…`), which then failed the
+  word-boundary test and printed the tracking URL as visible text.
+
+### Fixed
+- **Rules with no comment deadline never retired.** The 1.22.0 lifecycle retirement only knew how to
+  expire a deadline or a hearing date, so a proposed rule whose deadline we failed to parse sat in the
+  active feed forever. One with no deadline and no movement for 120 days now retires into the same 🗂
+  Closed view — long enough that a live rulemaking is never hidden mid-comment-period.
+- 👍/👎 feedback reaches the triage prompt with more signal: 12 examples instead of 8, each carrying
+  its source and document type, so "Federal Register notices are never relevant" is visible as a
+  pattern rather than as three unrelated titles.
+
 ## 1.25.0 — Usability: visible controls, a working copy button, a phone-shaped UI, readable newsletters
 
 A use-it-every-day release rather than an analytical one. Every item here came from actually using

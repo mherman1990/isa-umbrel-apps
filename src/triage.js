@@ -10,17 +10,34 @@ import * as store from "./store.js";
 
 const BATCH_SIZE = 15;
 
-const SYSTEM_PROMPT = `You are triaging government documents and political items for relevance to Iowa soybean farmers and the Iowa Soybean Association's policy priorities. For each item, return strict JSON: {"uid": "...", "relevant": true|false, "topicIds": [...], "oneLine": "...", "type": "..."} — oneLine is a one-line why-it-matters for Iowa soy; type is your best guess of the item kind, one of: news|statement|bill_action|vote|event|fundraiser|rule|other. Respond ONLY with a JSON array covering every input item, no other text.`;
+// TIERS (1.26.0). Relevance used to be a single boolean, which is a blunt instrument for a feed
+// whose complaint is "too wide a net": a genuinely relevant EPA docket and a routine notice that
+// merely mentions soybeans both came back `relevant: true` and landed in one flat list. The model now
+// also grades urgency, and the Laws/Rules/Decisions page defaults to hiding only `background` — so
+// nothing is thrown away, it's just one click further from the daily read.
+const TIERS = ["must_read", "worth_knowing", "background"];
+
+const SYSTEM_PROMPT = `You are triaging government documents and political items for relevance to Iowa soybean farmers and the Iowa Soybean Association's policy priorities. For each item, return strict JSON: {"uid": "...", "relevant": true|false, "tier": "must_read|worth_knowing|background", "topicIds": [...], "oneLine": "...", "type": "..."} — oneLine is a one-line why-it-matters for Iowa soy; type is your best guess of the item kind, one of: news|statement|bill_action|vote|event|fundraiser|rule|other.
+
+Grade "tier" strictly — it decides what reaches the daily read:
+- "must_read": ISA would act, comment, or brief leadership on this. A rule/docket/bill that directly changes what Iowa soybean farmers may do, what they are paid, or what they pay; an open comment period on such a rule; a trade or biofuel decision that moves soybean demand.
+- "worth_knowing": real but not actionable this week — a related development, an early-stage or out-of-state proceeding, a study or program announcement worth being aware of.
+- "background": procedural or tangential. Meeting notices, routine reauthorizations, boilerplate, items that merely MENTION agriculture or a watchlist term without bearing on Iowa soy, and anything whose relevance you'd have to strain to explain.
+Most items are NOT must_read. If an item is only relevant because a keyword appeared in it, that is "background". Respond ONLY with a JSON array covering every input item, no other text.`;
 
 /** Human 👍/👎 corrections from the web UI become few-shot guidance for future triage. */
 function feedbackGuidance() {
-  const examples = store.getFeedbackExamples(8);
+  // 12 rather than 8: this is the only channel by which 👍/👎 changes anything, and the examples are
+  // one line each. Each line now carries the SOURCE too, so a pattern like "Federal Register notices
+  // are never relevant" is visible to the model as a pattern rather than as three unrelated titles.
+  const examples = store.getFeedbackExamples(12);
   if (examples.length === 0) return "";
   const lines = examples.map((e) => {
     const note = e.feedback_note ? ` The analyst's note: "${e.feedback_note}".` : "";
-    if (e.feedback === "down") return `- "${e.title}" — the analyst marked this NOT relevant (or to weigh down).${note} Avoid similar items.`;
-    if (e.feedback === "up") return `- "${e.title}" — the analyst marked this RELEVANT.${note} Include similar items.`;
-    return `- "${e.title}" — analyst guidance:${note || " (noted)"}`;
+    const src = e.source_id ? ` [${e.source_id}${e.doc_type ? `/${e.doc_type}` : ""}]` : "";
+    if (e.feedback === "down") return `- "${e.title}"${src} — the analyst marked this NOT relevant (or to weigh down).${note} Avoid similar items; treat these as background.`;
+    if (e.feedback === "up") return `- "${e.title}"${src} — the analyst marked this RELEVANT.${note} Include similar items.`;
+    return `- "${e.title}"${src} — analyst guidance:${note || " (noted)"}`;
   });
   return `\n\nThe analyst has corrected some of your past verdicts and left guidance. Apply this judgment:\n${lines.join("\n")}`;
 }
@@ -107,6 +124,10 @@ export async function triageItems(kept, topics, env) {
       const verdict = v
         ? {
             relevant: Boolean(v.relevant),
+            // An omitted or unrecognized tier defaults to worth_knowing rather than to a guess in
+            // either direction: must_read would over-promote, background would silently hide an item
+            // the model called relevant.
+            tier: TIERS.includes(v.tier) ? v.tier : (v.relevant ? "worth_knowing" : "background"),
             topicIds: Array.isArray(v.topicIds) ? v.topicIds : [],
             oneLine: String(v.oneLine ?? ""),
             type: v.type ? String(v.type) : (item.docType ?? null),
@@ -119,6 +140,7 @@ export async function triageItems(kept, topics, env) {
           ...item,
           oneLine: verdict.oneLine,
           topicIds: verdict.topicIds,
+          tier: verdict.tier,
           type: verdict.type,
           entityId: item.raw?.entityId ?? null,
         });

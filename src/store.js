@@ -83,6 +83,7 @@ for (const columnDef of [
   "feedback_note TEXT", // free-text note on 👍/👎, fed into the triage prompt as guidance
   "archived INTEGER DEFAULT 0", // set-aside items — out of the main LRD list, recoverable
   "deadline_archived INTEGER DEFAULT 0", // dismissed comment deadlines — separate archive from `archived`
+  "triage_tier TEXT", // must_read | worth_knowing | background — graded relevance (NULL = triaged before tiers existed)
 ]) {
   try {
     db.exec(`ALTER TABLE seen_items ADD COLUMN ${columnDef}`);
@@ -221,6 +222,37 @@ export function saveSeriesPoints(series, meta, points) {
 export function getSeries(series) {
   return db.prepare("SELECT period, value FROM market_series WHERE series = ? ORDER BY period").all(series);
 }
+/**
+ * Everything the signal-card sparkline needs, in one pass: the last `n` points to draw, plus the
+ * p10/p90 "normal range" and min/max computed over the series' FULL history (a band drawn from only
+ * the visible tail would say nothing about whether today is unusual). Returns null for an unknown or
+ * empty series so the caller can just omit the chart.
+ */
+export function seriesSpark(series, n = 24) {
+  const pts = db.prepare("SELECT period, value FROM market_series WHERE series = ? ORDER BY period").all(series);
+  if (!pts.length) return null;
+  const meta = db.prepare("SELECT label, unit, category FROM market_series_meta WHERE series = ?").get(series) || {};
+  const sorted = pts.map((p) => p.value).filter((v) => v != null).sort((a, b) => a - b);
+  const q = (f) => {
+    if (!sorted.length) return null;
+    const pos = (sorted.length - 1) * f, base = Math.floor(pos), rest = pos - base;
+    return sorted[base + 1] !== undefined ? sorted[base] + rest * (sorted[base + 1] - sorted[base]) : sorted[base];
+  };
+  return {
+    series,
+    label: meta.label ?? series,
+    unit: meta.unit ?? "",
+    category: meta.category ?? "",
+    points: pts.slice(-n),
+    count: pts.length,
+    firstPeriod: pts[0].period,
+    p10: q(0.1),
+    p90: q(0.9),
+    min: sorted[0],
+    max: sorted[sorted.length - 1],
+  };
+}
+
 export function listSeriesMeta(category = null) {
   return category
     ? db.prepare("SELECT * FROM market_series_meta WHERE category = ? ORDER BY label").all(category)
@@ -792,6 +824,30 @@ export function unseenAlertCount() {
 export function markAlertsSeen() {
   db.prepare("UPDATE alerts SET seen = 1 WHERE seen = 0").run();
 }
+// ---- homepage calendar: per-event hiding -------------------------------------------------------
+// USDA report dates and policy milestones come from data files shipped inside the image, so there's
+// no row to flag — the dismissals live here as a set of stable keys (kind:date:label). Comment
+// deadlines and hearings already have their own item-level archives and don't need this.
+const CAL_HIDDEN_KEY = "calendar_hidden";
+export function calendarHidden() {
+  try {
+    const v = JSON.parse(getState(CAL_HIDDEN_KEY) || "[]");
+    return new Set(Array.isArray(v) ? v : []);
+  } catch {
+    return new Set();
+  }
+}
+export function setCalendarHidden(key, on = true) {
+  const set = calendarHidden();
+  if (on) set.add(String(key));
+  else set.delete(String(key));
+  setState(CAL_HIDDEN_KEY, JSON.stringify([...set]));
+  return set.size;
+}
+export function clearCalendarHidden() {
+  setState(CAL_HIDDEN_KEY, "[]");
+}
+
 export function getState(k) {
   const r = db.prepare("SELECT v FROM kv_state WHERE k = ?").get(k);
   return r ? r.v : undefined;
@@ -805,12 +861,13 @@ export function setState(k, v) {
 const stmtIsSeen = db.prepare("SELECT 1 FROM seen_items WHERE uid = ?");
 const stmtMarkSeen = db.prepare(`
   INSERT INTO seen_items (uid, source_id, first_seen_at, triage_verdict, triage_topics, title, url, jurisdiction, one_line,
-                          comment_deadline, doc_type, published_at, entity_id, item_type, geo, body)
+                          comment_deadline, doc_type, published_at, entity_id, item_type, geo, body, triage_tier)
   VALUES (@uid, @sourceId, @firstSeenAt, @verdict, @topics, @title, @url, @jurisdiction, @oneLine,
-          @commentDeadline, @docType, @publishedAt, @entityId, @itemType, @geo, @body)
+          @commentDeadline, @docType, @publishedAt, @entityId, @itemType, @geo, @body, @tier)
   ON CONFLICT(uid) DO UPDATE SET
     triage_verdict = excluded.triage_verdict,
     triage_topics  = excluded.triage_topics,
+    triage_tier    = COALESCE(excluded.triage_tier, seen_items.triage_tier),
     one_line       = excluded.one_line,
     entity_id      = COALESCE(excluded.entity_id, seen_items.entity_id),
     item_type      = COALESCE(excluded.item_type, seen_items.item_type),
@@ -849,6 +906,9 @@ export function markSeen(item, verdict = null) {
     itemType: verdict?.type ?? item.raw?.itemType ?? null,
     geo: item.raw?.geo ? JSON.stringify(item.raw.geo) : null,
     body: item.summary ? String(item.summary).slice(0, 8000) : null,
+    // Graded relevance. NULL for an untriaged/failed item and for everything triaged before tiers
+    // existed — the LRD filter treats NULL as "worth knowing" so no history disappears.
+    tier: verdict?.tier ?? null,
   });
 }
 
@@ -1009,6 +1069,38 @@ export function summarizedUids() {
   return new Set(db.prepare("SELECT uid FROM item_summaries").all().map((r) => r.uid));
 }
 
+/**
+ * "Did we see this?" — search the WHOLE firehose, not the curated feed.
+ *
+ * The point is diagnostic: when Matt knows about something the brief never showed him, the question
+ * is *where* it was lost — never fetched at all, fetched and dropped by the local keyword score,
+ * triaged irrelevant, or actually present and just not noticed. Every item is recorded in seen_items
+ * regardless of outcome (locally-dropped ones land as `unscored`), so all four answers are here.
+ *
+ * Searches title AND body, across every verdict and both archives, oldest limit generous.
+ */
+export function diagnoseCoverage(term, { limit = 25, days = 365 } = {}) {
+  const q = `%${String(term).trim()}%`;
+  const since = new Date(Date.now() - days * 86400e3).toISOString();
+  const rows = db
+    .prepare(
+      `SELECT uid, source_id, title, url, first_seen_at, published_at, triage_verdict, triage_tier,
+              one_line, comment_deadline, doc_type, COALESCE(archived,0) AS archived
+         FROM seen_items
+        WHERE first_seen_at >= ?
+          AND (title LIKE ? COLLATE NOCASE OR body LIKE ? COLLATE NOCASE OR one_line LIKE ? COLLATE NOCASE)
+        ORDER BY first_seen_at DESC LIMIT ?`
+    )
+    .all(since, q, q, q, Math.min(limit, 100));
+  const counts = { relevant: 0, irrelevant: 0, unscored: 0, archived: 0 };
+  for (const r of rows) {
+    if (r.archived) counts.archived++;
+    const v = r.triage_verdict || "unscored";
+    if (v in counts) counts[v]++;
+  }
+  return { term: String(term).trim(), rows, counts, days };
+}
+
 // ---------------------------------------------------------------------------
 // Item browsing, feedback, and tracking (web UI)
 
@@ -1019,8 +1111,13 @@ export function summarizedUids() {
 // Grace period (days) after a comment period closes / a hearing date passes before the item retires
 // out of the default LRD view. Non-destructive — a "closed" lifecycle view still shows them.
 const RETIRE_GRACE_DAYS = 3;
+// A rule/docket with NO comment deadline never had anything to expire, so it used to sit in the
+// active feed forever — including the ones whose deadline we simply failed to parse. After this many
+// days with no movement it retires into the same 🗂 Closed view. Long enough that a live rulemaking
+// is never hidden mid-comment-period.
+const STALE_NO_DEADLINE_DAYS = 120;
 
-export function listItems({ q = "", topicId = "", sourceId = "", sourceIds = null, verdict = "", days = 30, limit = 200, archived = null, sort = "newest", lifecycle = "all" } = {}) {
+export function listItems({ q = "", topicId = "", sourceId = "", sourceIds = null, verdict = "", tier = "", days = 30, limit = 200, archived = null, sort = "newest", lifecycle = "all" } = {}) {
   const clauses = ["first_seen_at >= ?"];
   const params = [new Date(Date.now() - days * 86400e3).toISOString()];
   if (archived !== null) {
@@ -1032,12 +1129,20 @@ export function listItems({ q = "", topicId = "", sourceId = "", sourceIds = nul
   // grace. "active" hides those from the default feed; "closed" shows only them; "all" = no filter.
   if (lifecycle === "active" || lifecycle === "closed") {
     const graceISO = new Date(Date.now() - RETIRE_GRACE_DAYS * 86400e3).toISOString().slice(0, 10);
+    const staleISO = new Date(Date.now() - STALE_NO_DEADLINE_DAYS * 86400e3).toISOString();
     const closedExpr =
       "((comment_deadline IS NOT NULL AND substr(comment_deadline,1,10) < ?) " +
-      "OR (COALESCE(doc_type,'')='hearing' AND substr(COALESCE(published_at,'9999'),1,10) < ?))";
+      "OR (COALESCE(doc_type,'')='hearing' AND substr(COALESCE(published_at,'9999'),1,10) < ?) " +
+      // …or it has no deadline at all and hasn't been touched in months (see STALE_NO_DEADLINE_DAYS).
+      "OR (comment_deadline IS NULL AND COALESCE(doc_type,'')<>'hearing' AND first_seen_at < ?))";
     clauses.push(lifecycle === "active" ? `NOT ${closedExpr}` : closedExpr);
-    params.push(graceISO, graceISO);
+    params.push(graceISO, graceISO, staleISO);
   }
+  // Graded relevance: "top" hides only the explicit background tier (and keeps NULL, i.e. anything
+  // triaged before tiers existed, so no history vanishes when this ships).
+  if (tier === "must_read") clauses.push("triage_tier = 'must_read'");
+  else if (tier === "top") clauses.push("(triage_tier IS NULL OR triage_tier IN ('must_read','worth_knowing'))");
+  else if (tier === "background") clauses.push("triage_tier = 'background'");
   if (q) {
     clauses.push("(title LIKE ? COLLATE NOCASE OR one_line LIKE ? COLLATE NOCASE)");
     params.push(`%${q}%`, `%${q}%`);
@@ -1066,7 +1171,7 @@ export function listItems({ q = "", topicId = "", sourceId = "", sourceIds = nul
       : "first_seen_at DESC";
   return db
     .prepare(
-      `SELECT uid, source_id, title, url, jurisdiction, doc_type, triage_verdict, triage_topics,
+      `SELECT uid, source_id, title, url, jurisdiction, doc_type, triage_verdict, triage_topics, triage_tier,
               one_line, comment_deadline, published_at, first_seen_at, feedback, feedback_note, entity_id, item_type, geo, body
          FROM seen_items WHERE ${clauses.join(" AND ")}
         ORDER BY ${orderBy} LIMIT ?`
@@ -1096,7 +1201,7 @@ export function archivedCount() {
 export function getFeedbackExamples(limit = 8) {
   return db
     .prepare(
-      `SELECT title, triage_verdict, feedback, feedback_note FROM seen_items
+      `SELECT title, triage_verdict, feedback, feedback_note, source_id, doc_type FROM seen_items
         WHERE feedback IS NOT NULL
           AND ((feedback = 'down' AND triage_verdict = 'relevant') OR (feedback = 'up' AND triage_verdict = 'irrelevant') OR feedback_note IS NOT NULL)
         ORDER BY first_seen_at DESC LIMIT ?`

@@ -26,6 +26,8 @@ const DOC_TYPE_MAP = {
 export async function fetchItems({ sinceISO, topics, sourceConfig, env }) {
   const budget = sourceConfig.maxItemsPerRun ?? 40;
   const agencies = sourceConfig.agencies ?? [];
+  // e.g. ["rule","proposed-rule"] to drop the notice flood. Null/absent = every type.
+  const docTypes = Array.isArray(sourceConfig.docTypes) && sourceConfig.docTypes.length ? sourceConfig.docTypes : null;
   const since = isoDateOnly(sinceISO);
 
   // Collect (topic, query term) pairs, highest-weight topics first, so the budget
@@ -55,6 +57,11 @@ export async function fetchItems({ sinceISO, topics, sourceConfig, env }) {
     for (const doc of data.results ?? []) {
       if (byDocNumber.size >= budget) break;
       if (byDocNumber.has(doc.document_number)) continue;
+      // Optional document-type gate. Notices are the bulk of the Federal Register and most of them
+      // are procedural (meeting announcements, information collections), so `docTypes` lets the
+      // watchlist keep only rules and proposed rules. Absent = keep everything, which is the
+      // shipped default: narrowing coverage should be a deliberate choice, not a silent upgrade.
+      if (docTypes && !docTypes.includes(DOC_TYPE_MAP[doc.type] ?? "notice")) continue;
       byDocNumber.set(doc.document_number, {
         uid: `${id}:${doc.document_number}`,
         sourceId: id,
