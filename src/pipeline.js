@@ -16,7 +16,7 @@ import { detectChanges } from "./alerts.js";
 import { adapters, classOf, sourceIdsForClass } from "./adapters/index.js";
 import { syncRegistryFromSeed } from "./registry.js";
 import { EDUCATION_SYSTEM_PROMPT, seedCurriculum } from "./curriculum.js";
-import { signalsText } from "./signals.js";
+import { signalsText, computeSignals } from "./signals.js";
 import { weatherRiskText } from "./weather.js";
 import { crushText } from "./crush.js";
 import { leadLagText } from "./leadlag.js";
@@ -29,6 +29,7 @@ import { evaluateTriggers, triggersText } from "./triggers.js";
 import { mapPool } from "./util.js";
 import { enrichItems, groundNewsItems } from "./enrich.js";
 import { buildPackets } from "./packets.js";
+import { buildTheses, renderTheses } from "./thesis.js";
 import { rankNewsItems } from "./newsrank.js";
 import { eventKeyFor, groupByEvent, pickLead } from "./eventkey.js";
 
@@ -821,6 +822,10 @@ function compactItems(rows) {
     // back to the document excerpt (which for a thin item is the teaser, correctly labelled below).
     const usePacket = p && p.sufficiency !== "thin" && p.packet;
     const entry = {
+      // `uid` is what a thesis cites as `item:<uid>` (thesis.js resolveEvidence). Without it the
+      // model can only cite items by title, which cannot be validated and so cannot be grounded.
+      uid: h.uid,
+      eventKey: h.event_key ?? undefined,
       title: h.title,
       url: h.url,
       source: h.source_id,
@@ -1129,6 +1134,11 @@ Length: scannable in ~90 seconds (250–400 words). No preamble, no sign-off. St
     // it's the one worth filing in the forecast ledger. Weekly/monthly summarize the period and
     // education teaches — extracting "forecasts" from those would fill the ledger with restatements.
     extractForecasts: true,
+    // Phase 3: structure the note's claims and ground each one against real evidence ids. This is a
+    // SECOND call because schema output and the web-search tool do not combine — see thesis.js.
+    // When it succeeds it supersedes the Haiku extractor above; when it fails we fall back, so the
+    // ledger keeps filling either way.
+    buildTheses: true,
     system: (dateLabel) => `You are the senior market-and-policy analyst for the Iowa Soybean Association's demand & policy team — an INTERNAL audience (sharp, no hand-holding, wants to see around the corner). Write a forward-looking ANALYST NOTE grounded in the stored data provided (the market signal board, full-history trend stats, laws/rules/decisions + news, the release calendar, tracked items, recent briefs). You also have a WEB SEARCH tool: when the stored data leaves a gap that matters to the read — a very recent development, a number more current than the last pipeline run, or a fact worth verifying — search for it, and cite any web source inline as a markdown link so it stands apart from the internal streams. Lean on the stored data first; reach for the web only when it sharpens the analysis.
 
 Do NOT summarize the period. Do the analysis a headline can't give:
@@ -1280,19 +1290,100 @@ export async function generateMemo(presetId, env) {
     request.messages.push({ role: "assistant", content: response.content }); // echo blocks back unchanged to resume
   }
   // Web-augmented notes can span several text blocks (interleaved with search-result blocks) — join them.
-  const markdown = response.content.filter((b) => b.type === "text").map((b) => b.text).join("").trim();
+  const noteMarkdown = response.content.filter((b) => b.type === "text").map((b) => b.text).join("").trim();
+
+  // ── PHASE 3, CALL 2: structure the note's claims and ground them ────────────────────────────────
+  //
+  // Runs BEFORE saveBrief on purpose, so the rendered theses are part of the saved file and
+  // therefore part of what is delivered. A thesis block that existed only in the DB would never be
+  // read by the person the note is for.
+  //
+  // Fail-soft in both directions: `buildTheses` returns null on any error, and the note is saved
+  // and delivered exactly as before. Structuring is an enhancement to the note, never a gate on it.
+  // ⚠️ EVERY line between the model call and saveBrief is inside this try, including the cheap
+  // local lookups that assemble the universe. By this point the note has been generated and PAID
+  // FOR (an Analyst run is ~$0.79); a throw here — a signal that cannot compute on a thin DB, a
+  // market snapshot that comes back empty — would lose it before it was ever written to disk. An
+  // enhancement must never be able to destroy the deliverable it is enhancing.
+  let theses = null;
+  if (preset.buildTheses) {
+    try {
+      const snapshot = store.marketSnapshot();
+      // The universe is what the model was ACTUALLY SHOWN. Offering an id that is real but absent
+      // from the prompt would invite a citation the model cannot have read.
+      const universe = {
+        itemUids: new Set(compactHits.map((h) => h.uid).filter(Boolean)),
+        seriesIds: new Set(snapshot.map((s) => s.series)),
+        // `.signals` — computeSignals returns a BOARD ({signals, tilt, factors, …}), not an array.
+        // Calling .map on the wrapper throws, and because this whole block is fail-soft the only
+        // symptom was the analyst quietly falling back to the old extractor on every run. Caught by
+        // test/thesis-wiring.test.js, which is the argument for that file existing.
+        signalIds: new Set((computeSignals().signals ?? []).map((s) => s.id)),
+        briefPaths: new Set(store.listBriefs(40).map((b) => b.path)),
+        reportKeys: new Set(),
+      };
+      const evidenceIds = [
+        ...[...universe.itemUids].map((u) => `item:${u}`),
+        ...snapshot.map((s) => `series:${s.series}@${s.latest?.period ?? "latest"}`),
+        ...[...universe.signalIds].map((s) => `signal:${s}`),
+        ...[...universe.briefPaths].map((b) => `brief:${b}`),
+      ];
+      const built = await buildTheses(noteMarkdown, {
+        evidenceIds,
+        universe,
+        env,
+        client,
+        recordUsage: (m, kind, i, o, usage) => store.recordUsage(m, kind, i, o, usage),
+      });
+      theses = built?.theses?.length ? built.theses : null;
+    } catch (err) {
+      console.log(`⚠️  Thesis structuring skipped: ${err.message}`);
+    }
+  }
+
+  const markdown = theses ? `${noteMarkdown}\n\n${renderTheses(theses)}` : noteMarkdown;
   const filePath = saveBrief(markdown, preset.edition, timezone);
+  const briefPath = path.relative(store.DATA_DIR, filePath);
 
   // File the note's falsifiable claims so they can be scored later. Fail-soft: a memo is worth
   // saving even if extraction hiccups, and the ledger self-heals on the next run.
-  if (preset.extractForecasts) {
+  //
+  // The thesis path SUPERSEDES the Haiku extractor rather than running alongside it — two filing
+  // paths over the same note would double-file every claim under two different wordings, and the
+  // dedupe key is a hash of the claim text, so nothing downstream would catch it. When structuring
+  // produced nothing we fall back, so the ledger keeps filling exactly as it did before Phase 3.
+  if (theses) {
+    // Wrapped for the same reason the extractor branch below always was: the note is saved by now,
+    // but runMemo still has to DELIVER it. A throw here would leave a saved note that never reaches
+    // the reader — the failure mode v1.29.0's alerts fix was written to end.
     try {
-      await extractForecasts(markdown, { edition: preset.edition, briefPath: path.relative(store.DATA_DIR, filePath), env });
+      const bySeries = new Map(store.marketSnapshot().map((s) => [s.series, s]));
+      const createdAt = new Date().toISOString();
+      let stored = 0;
+      for (const t of theses) {
+        const fc = t.falsifiableClaim;
+        if (!fc?.claim) continue;
+        // Flatten the thesis schema into the ledger's common shape. horizon and confidence live on
+        // the thesis, not on the claim — and `confidence` is the POST-grounding value, so a thesis
+        // demoted for having no resolvable evidence files as low.
+        const filed = fileForecastFromClaim(
+          { ...fc, horizonDays: t.horizonDays, confidence: t.confidence },
+          { briefPath, edition: preset.edition, createdAt, bySeries }
+        );
+        if (filed) stored++;
+      }
+      if (stored) console.log(`🔮 Forecast ledger: ${stored} claim${stored === 1 ? "" : "s"} filed from ${preset.edition} theses`);
+    } catch (err) {
+      console.log(`⚠️  Thesis forecast filing skipped: ${err.message}`);
+    }
+  } else if (preset.extractForecasts) {
+    try {
+      await extractForecasts(noteMarkdown, { edition: preset.edition, briefPath, env });
     } catch (err) {
       console.log(`⚠️  Forecast extraction skipped: ${err.message}`);
     }
   }
-  return { markdown, filePath, edition: preset.edition };
+  return { markdown, filePath, edition: preset.edition, theses };
 }
 
 /** Generate + save a memo preset, then deliver it (CLI + web + scheduler entry point). */
@@ -1773,39 +1864,57 @@ export async function extractForecasts(markdown, { edition, briefPath, env = pro
   const createdAt = new Date().toISOString();
   let stored = 0;
   for (const f of list) {
-    if (!f?.claim) continue;
-    const seriesId = f.series && bySeries.has(f.series) ? f.series : null;
-    const base = seriesId ? bySeries.get(seriesId) : null;
-    const horizon = Number.isFinite(f.horizonDays) && f.horizonDays > 0 ? Math.min(f.horizonDays, 365) : 30;
-    // A stays_above/stays_below claim without a usable threshold can't be judged — record it as
-    // not_measurable rather than silently falling back to a direction the claim never asserted.
-    let comparator = f.comparator ?? null;
-    const isLevel = comparator === "stays_above" || comparator === "stays_below";
-    if (isLevel && !Number.isFinite(f.threshold)) comparator = "not_measurable";
-    if (!seriesId) comparator = "not_measurable";
-    store.upsertForecast({
-      dedupeKey: forecastKey(briefPath, f.claim),
-      briefPath,
-      edition,
-      createdAt,
-      claim: String(f.claim).slice(0, 600),
-      direction: f.direction ?? null,
-      comparator,
-      threshold: isLevel && Number.isFinite(f.threshold) ? f.threshold : null,
-      series: seriesId,
-      horizonDays: horizon,
-      resolveBy: new Date(Date.now() + horizon * 864e5).toISOString().slice(0, 10),
-      confirmingEvent: f.confirmingEvent ? String(f.confirmingEvent).slice(0, 300) : null,
-      confidence: f.confidence ?? null,
-      // Baseline is captured NOW so the resolver compares against the state of the world when the
-      // claim was made, not against whatever the series looked like at resolution time.
-      baselineValue: base ? base.latest.value : null,
-      baselinePeriod: base ? base.latest.period : null,
-    });
-    stored++;
+    if (fileForecastFromClaim(f, { briefPath, edition, createdAt, bySeries })) stored++;
   }
   if (stored) console.log(`🔮 Forecast ledger: ${stored} claim${stored === 1 ? "" : "s"} filed from ${edition}`);
   return { stored };
+}
+
+/**
+ * File ONE falsifiable claim in the ledger.
+ *
+ * Lifted out of `extractForecasts` unchanged so that the thesis path (thesis.js, Phase 3) and the
+ * legacy Haiku extractor apply the SAME guards — the level-claim threshold rule, the
+ * series-must-exist rule, and capturing the baseline at filing time — and so `resolveForecasts()`
+ * needs zero changes to score a thesis-filed row identically to an extractor-filed one. Two filing
+ * paths with two copies of these rules is how the ledger would start disagreeing with itself.
+ *
+ * `f` is the common shape: { claim, comparator, threshold, direction, series, horizonDays,
+ * confirmingEvent, confidence }. The thesis path flattens its own schema into this before calling.
+ *
+ * @returns {boolean} whether a row was written
+ */
+export function fileForecastFromClaim(f, { briefPath, edition, createdAt, bySeries }) {
+  if (!f?.claim) return false;
+  const seriesId = f.series && bySeries.has(f.series) ? f.series : null;
+  const base = seriesId ? bySeries.get(seriesId) : null;
+  const horizon = Number.isFinite(f.horizonDays) && f.horizonDays > 0 ? Math.min(f.horizonDays, 365) : 30;
+  // A stays_above/stays_below claim without a usable threshold can't be judged — record it as
+  // not_measurable rather than silently falling back to a direction the claim never asserted.
+  let comparator = f.comparator ?? null;
+  const isLevel = comparator === "stays_above" || comparator === "stays_below";
+  if (isLevel && !Number.isFinite(f.threshold)) comparator = "not_measurable";
+  if (!seriesId) comparator = "not_measurable";
+  store.upsertForecast({
+    dedupeKey: forecastKey(briefPath, f.claim),
+    briefPath,
+    edition,
+    createdAt,
+    claim: String(f.claim).slice(0, 600),
+    direction: f.direction ?? null,
+    comparator,
+    threshold: isLevel && Number.isFinite(f.threshold) ? f.threshold : null,
+    series: seriesId,
+    horizonDays: horizon,
+    resolveBy: new Date(Date.now() + horizon * 864e5).toISOString().slice(0, 10),
+    confirmingEvent: f.confirmingEvent ? String(f.confirmingEvent).slice(0, 300) : null,
+    confidence: f.confidence ?? null,
+    // Baseline is captured NOW so the resolver compares against the state of the world when the
+    // claim was made, not against whatever the series looked like at resolution time.
+    baselineValue: base ? base.latest.value : null,
+    baselinePeriod: base ? base.latest.period : null,
+  });
+  return true;
 }
 
 /**
