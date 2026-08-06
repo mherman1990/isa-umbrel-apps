@@ -1,5 +1,88 @@
 # Changelog
 
+## 1.30.0 — Evidence packets; storylines become a state transition
+
+Phase 2 of the runtime-prompt plan. Both halves attack the same thing from different ends: **a
+downstream reader should not have to re-derive what an earlier pass already established.**
+
+### Fixed — storylines were discarding their own history every run
+
+The `storylines` table comment claimed the summary and timeline "accumulate rather than resetting".
+They did not. `upsertStoryline` set `summary = excluded.summary, timeline = excluded.timeline`, so twice
+a day the previous "what changed" and the **entire** previous timeline were overwritten from whatever
+the rolling 21-day window happened to contain. Only `key` and `first_seen` survived.
+
+Two consequences: a thread could not show a delta, because nothing older existed to compare against;
+and a dated event that aged out of the 21-day window vanished permanently from the thread's own history.
+
+The input side was the other half. `generateStorylines` fed the model `listStorylines(20).map(s => s.name)`
+— a bare list of **names** — while instructing it to "continue existing threads". A delta was not
+computable from the inputs at all, so the model could only re-summarize the current window.
+
+- The prompt now carries each thread's **previous state**: summary, open questions, expected next event
+  and known timeline (~1,750 input tokens for 10 threads).
+- New schema fields: `stateChange` (new/advanced/stalled/resolved/**unchanged**), `whatIsNew`,
+  `whatIsUnchanged`, `openQuestions`, `nextExpectedEvent`, `materiality`. `unchanged` with an empty
+  `whatIsNew` is an honest, useful answer and the prompt says so.
+- `upsertStoryline` moves the outgoing summary to `prev_summary` (only when it actually changed, so a
+  quiet run cannot erase the last real one), **merges** the timeline (union → dedupe on date+event →
+  keep 8) and increments `update_count`.
+- `pruneStorylines` exempts `decision_changing` threads from the 30-day window with a hard 120-day
+  ceiling. A thread that reaches a decision correctly stops being re-reported, which under a bare age
+  rule looked identical to a thread that went quiet — so the most consequential threads were the ones
+  most likely to be deleted right after they mattered.
+- The News-tab panel leads with **What's new** plus a state chip, open questions and the next expected
+  event.
+- ⚠️ **Runs on the AM edition only.** Measured from `token_usage`, storylines is the single largest line
+  item in the tool: ~10.6k in / 2.9k out per call ≈ $0.076, on both daily editions ≈ **$4.56/mo** — for a
+  21-day window that does not change between 06:30 and 16:30. Halving it funds the packets below. The
+  on-demand button and CLI are unchanged.
+
+### Added — evidence packets (`src/packets.js`)
+
+One structured record per government **action** (keyed on `event_key`, so a notice cross-filed into four
+dockets is one packet and the PM run reuses what the AM run paid for): what happened, claims with the
+passage each rests on, actions required, dates, entities, quantities, soy mechanisms, evidence quotes,
+`unknowns`, and `not_in_document`.
+
+**The hard part is honesty, and it is enforced in code, not prompt.** A confidently-structured packet
+built from a 180-character teaser is worse than no packet — it launders a headline into something that
+reads like sourced evidence. Three layers, none of which trust the model:
+
+1. **Below 800 source characters, no model call happens at all.** 800 is measured, not chosen: on the
+   real 68-item news corpus before grounding, 12 rows had no body, 48 had 1–199 chars, 8 had 200–799 and
+   **none exceeded 800**. A free "thin" packet is stored instead, stating why. This also removes ~74% of
+   news (farmprogress.com 403s) from the paid path.
+2. **`sufficiency` is floored by code** from the measured source length — a model claiming "full" on 300
+   characters is stored as thin. Same validated-not-trusted rule as `frDocNumOf`.
+3. **Every evidence quote is verified as a verbatim substring** of the source. Failures are dropped and
+   counted, claims pointing at them are orphaned rather than left dangling, and a majority failure
+   downgrades the packet. Fabrication becomes mechanically detectable.
+
+Scoped to `must_read` only — ⚠️ **that is a cost control: ~$1.44/mo scoped, ~$5.28/mo for every relevant
+event.** Budget 8/run with the true qualifying total logged (no silent caps); a malformed or failed
+extraction writes **no row**, so the next run retries and the consumer falls back to the raw document.
+Re-extraction only when the body grows ≥2× (the `groundItemBody` heal path), never for a marginal nudge.
+
+⚠️ **Position in the pipeline is load-bearing in both directions, and a test locks it.** Packets must run
+*after* triage (eligibility is `triage_tier = 'must_read'`) and *after* enrichment and news grounding
+(packets read `seen_items.body` and never fetch). Move it earlier and every news packet is silently
+"thin".
+
+`compactItems` now sends the packet **instead of** the document excerpt when one exists, and every entry
+carries `evidenceBasis` (`packet` / `document` / `title_only`) so the Ask box, Analyst Note and memos can
+tell extracted evidence from raw text from nothing at all. Both prompts were updated to describe the new
+structure — an undescribed field is worse than no field.
+
+### Tests: 127 → 158
+
+New `test/packets.test.js` (19) and `test/storylines.test.js` (12). All offline.
+
+### Pi go-live: code-only
+
+One Update. `evidence_packets` and the six storyline columns auto-create on boot — verified against a
+pre-existing database with existing storyline rows preserved.
+
 ## 1.29.0 — The brief finally receives what three releases produced; prompt caching; two structural fixes
 
 One theme: **information that already existed was not reaching the place it mattered.** 1.26.0 graded

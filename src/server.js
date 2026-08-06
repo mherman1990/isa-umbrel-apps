@@ -348,6 +348,15 @@ function page(title, body) {
   .storyline .sl-focus { font-size: .82em; margin-top: 1px; }
   .storyline .sl-what { margin: 5px 0 4px; font-size: .92em; }
   .storyline ul.sl-tl { margin: 3px 0 0; }
+  /* The delta leads: what moved since you last looked is the question the panel answers. */
+  .storyline .sl-new { margin: 5px 0 4px; font-size: .92em; }
+  .storyline .sl-open, .storyline .sl-next { font-size: .82em; margin-top: 2px; }
+  .sl-state { font-size: .68em; font-weight: 600; letter-spacing: .02em; padding: 1px 6px; border-radius: 9px;
+              vertical-align: middle; margin-left: 4px; white-space: nowrap; background: #eef2f6; color: #4a6076; }
+  .sl-st-advanced { background: #e6f4ea; color: #1e6b34; }
+  .sl-st-new      { background: #fff4d6; color: #8a6100; }
+  .sl-st-resolved { background: #e8eaf6; color: #3949ab; }
+  .sl-st-stalled  { background: #fdecea; color: #a33a2c; }
   ul.whatchanged .wc-when { font-size: .8em; color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 5px; white-space: nowrap; }
   .report-cal { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 18px; padding: 8px 14px;
     border: 1px solid var(--isa-gold); background: var(--isa-gold-40); border-radius: 8px; font-size: .85em; }
@@ -915,10 +924,25 @@ function storylinesSection() {
         .slice(0, 4)
         .map((e) => `<li><span class="wc-when">${esc(e.date || "")}</span> ${e.url ? `<a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.event)}</a>` : esc(e.event)}</li>`)
         .join("");
+      // The DELTA leads. A thread that did not move says so plainly rather than restating itself —
+      // "what changed since you last looked" is the question this panel exists to answer.
+      const STATE_LABEL = { new: "🆕 new thread", advanced: "▲ moved", stalled: "⏸ stalled", resolved: "✔ resolved", unchanged: "· no change" };
+      // `sl-st-` prefix, NOT `sl-${state}`: a state of "new" would generate `sl-new`, colliding with the
+      // .sl-new paragraph class used for the delta text below.
+      const chip = s.state ? `<span class="sl-state sl-st-${esc(s.state)}">${esc(STATE_LABEL[s.state] ?? s.state)}</span>` : "";
+      const next = s.nextExpected?.what
+        ? `<div class="muted sl-next">👀 Next: ${esc(s.nextExpected.what)}${s.nextExpected.when ? ` — ${esc(s.nextExpected.when)}` : ""}</div>`
+        : "";
+      const open = (s.openQuestions ?? []).length
+        ? `<div class="muted sl-open">Open: ${esc((s.openQuestions ?? []).slice(0, 3).join(" · "))}</div>`
+        : "";
       return `<div class="storyline">
-        <div class="sl-name">${esc(s.name)}</div>
+        <div class="sl-name">${esc(s.name)} ${chip}</div>
         ${s.focus ? `<div class="muted sl-focus">${esc(s.focus)}</div>` : ""}
+        ${s.what_is_new ? `<p class="sl-new"><strong>What's new:</strong> ${esc(s.what_is_new)}</p>` : ""}
         ${s.summary ? `<p class="sl-what">${esc(s.summary)}</p>` : ""}
+        ${open}
+        ${next}
         ${tl ? `<ul class="whatchanged sl-tl">${tl}</ul>` : ""}
       </div>`;
     })

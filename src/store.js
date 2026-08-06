@@ -611,6 +611,140 @@ db.exec(`
   );
 `);
 
+// Storyline DELTA columns (1.30.0). The comment above claimed the summary and timeline "accumulate
+// rather than resetting" — they did not. `upsertStoryline` overwrote both wholesale on every run, so
+// only `key` and `first_seen` actually persisted, and the panel re-stated the whole thread every time
+// instead of showing what moved. These columns are what make a thread carry memory.
+for (const columnDef of [
+  "state TEXT", // new | advanced | stalled | resolved | unchanged
+  "what_is_new TEXT", // the DELTA since the previous state — the point of the whole feature
+  "prev_summary TEXT", // the previous "what changed", moved here instead of being discarded
+  "open_questions TEXT", // JSON string[] — what is still unresolved
+  "next_expected TEXT", // JSON {what, when, why} — the event that would move this thread
+  "materiality TEXT", // decision_changing | monitor | context
+  "update_count INTEGER DEFAULT 0",
+]) {
+  try {
+    db.exec(`ALTER TABLE storylines ADD COLUMN ${columnDef}`);
+  } catch {
+    /* column already exists */
+  }
+}
+
+// --- evidence packets ------------------------------------------------------------------------
+// One structured packet per government ACTION (see eventkey.js), not per row. A Federal Register notice
+// cross-filed into four EPA dockets is ONE packet, so the extraction is paid for once and the PM run
+// reuses what the AM run produced.
+//
+// `sufficiency` and `source_chars` are stored alongside the JSON so a consumer can tell a packet built
+// from a 9,000-character rule from one built from a feed teaser WITHOUT re-measuring — that distinction
+// is the whole point (see packets.js). `model` is NULL for a free "thin" packet built with no model call.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS evidence_packets (
+    event_key    TEXT PRIMARY KEY,
+    lead_uid     TEXT,
+    source_uid   TEXT,              -- which row's body it was extracted from
+    packet       TEXT NOT NULL,     -- JSON (see PACKET_SCHEMA)
+    sufficiency  TEXT,              -- full | partial | thin  (floored by code, not trusted)
+    source_chars INTEGER,
+    model        TEXT,              -- NULL = free thin packet, no model call
+    created_at   TEXT NOT NULL,
+    refreshed_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_packets_suff ON evidence_packets(sufficiency);
+`);
+
+/**
+ * Actions eligible for an evidence packet: `must_read`, one row per event_key.
+ *
+ * ⚠️ SCOPED TO must_read ON PURPOSE — this is a cost control, not a preference. Every relevant official
+ * event (~17/day) would cost ~$5.28/mo; must_read only is ~$1.44/mo. Widening this widens the bill.
+ *
+ * Picks the row with the LONGEST body per event so extraction runs against the best available text —
+ * the same "prefer the copy that actually has the document" principle as pickLead.
+ */
+export function packetCandidates(limit = 60) {
+  return db
+    .prepare(
+      `SELECT uid, event_key, title, url, source_id, jurisdiction, doc_type, comment_deadline, body
+         FROM seen_items s
+        WHERE triage_tier = 'must_read'
+          AND triage_verdict = 'relevant'
+          AND event_key IS NOT NULL
+          AND COALESCE(archived, 0) = 0
+          AND LENGTH(COALESCE(body, '')) = (
+                SELECT MAX(LENGTH(COALESCE(body, '')))
+                  FROM seen_items t WHERE t.event_key = s.event_key
+              )
+        GROUP BY event_key
+        ORDER BY first_seen_at DESC
+        LIMIT ?`
+    )
+    .all(limit);
+}
+
+/** One packet by event key, with its JSON parsed, or null. */
+export function getPacket(eventKey) {
+  const r = db.prepare("SELECT * FROM evidence_packets WHERE event_key = ?").get(eventKey);
+  if (!r) return null;
+  let packet = null;
+  try {
+    packet = JSON.parse(r.packet);
+  } catch {
+    return null; // unreadable JSON is the same as no packet — the next run rewrites it
+  }
+  return { ...r, packet };
+}
+
+/** Packets for many event keys at once, as a Map — one query for a whole prompt's worth of items. */
+export function packetsFor(eventKeys = []) {
+  const keys = [...new Set(eventKeys.filter(Boolean))];
+  const out = new Map();
+  if (!keys.length) return out;
+  const placeholders = keys.map(() => "?").join(",");
+  for (const r of db.prepare(`SELECT * FROM evidence_packets WHERE event_key IN (${placeholders})`).all(...keys)) {
+    try {
+      out.set(r.event_key, { ...r, packet: JSON.parse(r.packet) });
+    } catch {
+      /* skip unreadable */
+    }
+  }
+  return out;
+}
+
+export function upsertPacket({ eventKey, leadUid, sourceUid, packet, sufficiency, sourceChars, model }) {
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO evidence_packets (event_key, lead_uid, source_uid, packet, sufficiency, source_chars, model, created_at, refreshed_at)
+       VALUES (@event_key, @lead_uid, @source_uid, @packet, @sufficiency, @source_chars, @model, @now, @now)
+     ON CONFLICT(event_key) DO UPDATE SET
+       lead_uid = excluded.lead_uid, source_uid = excluded.source_uid, packet = excluded.packet,
+       sufficiency = excluded.sufficiency, source_chars = excluded.source_chars, model = excluded.model,
+       refreshed_at = excluded.refreshed_at`
+  ).run({
+    event_key: eventKey,
+    lead_uid: leadUid ?? null,
+    source_uid: sourceUid ?? null,
+    packet: JSON.stringify(packet ?? {}),
+    sufficiency: sufficiency ?? null,
+    source_chars: sourceChars ?? 0,
+    model: model ?? null,
+    now,
+  });
+  return eventKey;
+}
+
+/** Counts by sufficiency — for the data-gap diagnostician and for answering "is grounding working?". */
+export function packetStats() {
+  const rows = db.prepare("SELECT sufficiency, COUNT(*) n FROM evidence_packets GROUP BY sufficiency").all();
+  const out = { full: 0, partial: 0, thin: 0, total: 0 };
+  for (const r of rows) {
+    out[r.sufficiency ?? "thin"] = r.n;
+    out.total += r.n;
+  }
+  return out;
+}
+
 // --- forecast ledger -------------------------------------------------------------------------
 // The feedback loop the tool was missing entirely. The Analyst prompt already demands a falsifiable
 // read — "the setup, the RISK to that read, and the DATA OR REPORT THAT WOULD CONFIRM OR KILL IT" —
@@ -827,21 +961,97 @@ export function forecastScorecard() {
     byConfidence,
   };
 }
+/** How many dated timeline entries a thread keeps. Raised from the model's 5-per-response cap because
+ *  the timeline now MERGES across runs — 5 would silently discard the older half of a long thread. */
+const STORYLINE_TIMELINE_MAX = 8;
+
+/**
+ * Insert or update one storyline thread, PRESERVING what the previous version said.
+ *
+ * ⚠️ WHAT THIS USED TO DO, AND WHY IT WAS WRONG. The old upsert set
+ * `summary = excluded.summary, timeline = excluded.timeline` — so on every run (twice daily) the
+ * previous "what changed" and the entire previous timeline were DISCARDED and rewritten from whatever
+ * the rolling 21-day window happened to contain. Only `key` and `first_seen` actually survived. The
+ * table's own comment claimed these "accumulate rather than resetting"; they did not.
+ *
+ * Two consequences. A thread could not show a DELTA, because nothing older than the current summary
+ * existed to compare against. And a dated event that fell out of the 21-day window vanished from the
+ * timeline permanently, even though it was the thread's own history.
+ *
+ * Now: the outgoing summary moves to `prev_summary` (only when it actually changed, so a quiet run
+ * cannot erase the last real one), the timeline is unioned and de-duplicated rather than replaced, and
+ * `update_count` records how many times the thread has been revised.
+ */
 export function upsertStoryline(s) {
   const now = new Date().toISOString();
+  const existing = db.prepare("SELECT summary, timeline, update_count FROM storylines WHERE key = ?").get(s.key);
+
+  // Merge the timeline instead of replacing it. Dedupe on date + normalized event text so the same
+  // event re-reported in a later run does not appear twice.
+  let merged = Array.isArray(s.timeline) ? [...s.timeline] : [];
+  if (existing) {
+    let old = [];
+    try {
+      old = JSON.parse(existing.timeline || "[]");
+    } catch {
+      old = [];
+    }
+    const seen = new Set();
+    const keyOf = (e) => `${String(e?.date || "").slice(0, 10)}|${String(e?.event || "").toLowerCase().replace(/\s+/g, " ").trim()}`;
+    merged = [...merged, ...(Array.isArray(old) ? old : [])].filter((e) => {
+      if (!e || !e.event) return false;
+      const k = keyOf(e);
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+    // Most recent first; undated entries sort last rather than to the top.
+    merged.sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+    merged = merged.slice(0, STORYLINE_TIMELINE_MAX);
+  }
+
+  // Only move the summary aside when it genuinely changed — otherwise a run that restates the same
+  // thing would overwrite the last MEANINGFULLY different summary with a copy of the current one.
+  const newSummary = s.summary ?? null;
+  const prevSummary =
+    existing && existing.summary && existing.summary !== newSummary
+      ? existing.summary
+      : (existing ? db.prepare("SELECT prev_summary FROM storylines WHERE key = ?").get(s.key)?.prev_summary ?? null : null);
+
   db.prepare(
-    `INSERT INTO storylines (key, name, focus, summary, timeline, item_count, first_seen, updated_at)
-       VALUES (@key, @name, @focus, @summary, @timeline, @item_count, @now, @now)
+    `INSERT INTO storylines (key, name, focus, summary, what_is_new, prev_summary, timeline, item_count,
+                             state, open_questions, next_expected, materiality, update_count,
+                             first_seen, updated_at)
+       VALUES (@key, @name, @focus, @summary, @what_is_new, @prev_summary, @timeline, @item_count,
+               @state, @open_questions, @next_expected, @materiality, 1,
+               @now, @now)
      ON CONFLICT(key) DO UPDATE SET
-       name = excluded.name, focus = excluded.focus, summary = excluded.summary,
-       timeline = excluded.timeline, item_count = excluded.item_count, updated_at = excluded.updated_at`
+       name           = excluded.name,
+       focus          = excluded.focus,
+       summary        = excluded.summary,
+       what_is_new    = excluded.what_is_new,
+       prev_summary   = excluded.prev_summary,
+       timeline       = excluded.timeline,
+       item_count     = excluded.item_count,
+       state          = excluded.state,
+       open_questions = excluded.open_questions,
+       next_expected  = excluded.next_expected,
+       materiality    = excluded.materiality,
+       update_count   = COALESCE(storylines.update_count, 0) + 1,
+       updated_at     = excluded.updated_at`
   ).run({
     key: s.key,
     name: s.name,
     focus: s.focus ?? null,
-    summary: s.summary ?? null,
-    timeline: JSON.stringify(s.timeline ?? []),
-    item_count: s.itemCount ?? (Array.isArray(s.timeline) ? s.timeline.length : 0),
+    summary: newSummary,
+    what_is_new: s.whatIsNew || null,
+    prev_summary: prevSummary,
+    timeline: JSON.stringify(merged),
+    item_count: merged.length,
+    state: s.state ?? null,
+    open_questions: JSON.stringify(s.openQuestions ?? []),
+    next_expected: s.nextExpected ? JSON.stringify(s.nextExpected) : null,
+    materiality: s.materiality ?? null,
     now,
   });
   return s.key;
@@ -851,19 +1061,41 @@ export function listStorylines(limit = 12) {
     .prepare("SELECT * FROM storylines ORDER BY updated_at DESC, item_count DESC LIMIT ?")
     .all(limit)
     .map((r) => {
-      let timeline = [];
-      try {
-        timeline = JSON.parse(r.timeline || "[]");
-      } catch {
-        /* leave empty */
-      }
-      return { ...r, timeline };
+      const parse = (v, dflt) => {
+        try {
+          return JSON.parse(v || "null") ?? dflt;
+        } catch {
+          return dflt;
+        }
+      };
+      return {
+        ...r,
+        timeline: parse(r.timeline, []),
+        openQuestions: parse(r.open_questions, []),
+        nextExpected: parse(r.next_expected, null),
+      };
     });
 }
-/** Drop threads not refreshed in `maxAgeDays` — a storyline that stopped developing ages off. */
-export function pruneStorylines(maxAgeDays = 30) {
+/**
+ * Drop threads not refreshed in `maxAgeDays` — a storyline that stopped developing ages off.
+ *
+ * ⚠️ `decision_changing` threads are EXEMPT from the normal window, with a hard ceiling. A thread that
+ * reaches a decision correctly stops being re-reported (`state: "resolved"`), which under a bare
+ * age rule looks identical to a thread that went quiet — so the most consequential threads were the
+ * ones most likely to be deleted right after they mattered. The ceiling stops that exemption from
+ * accumulating threads forever.
+ */
+export function pruneStorylines(maxAgeDays = 30, hardCeilingDays = 120) {
   const cutoff = new Date(Date.now() - maxAgeDays * 86400e3).toISOString();
-  db.prepare("DELETE FROM storylines WHERE updated_at < ?").run(cutoff);
+  const ceiling = new Date(Date.now() - hardCeilingDays * 86400e3).toISOString();
+  const info = db
+    .prepare(
+      `DELETE FROM storylines
+        WHERE (updated_at < @cutoff AND COALESCE(materiality, '') <> 'decision_changing')
+           OR updated_at < @ceiling`
+    )
+    .run({ cutoff, ceiling });
+  return info.changes;
 }
 export function recordAlert(category, title, detail) {
   db.prepare("INSERT INTO alerts (created_at, category, title, detail, seen) VALUES (?, ?, ?, ?, 0)").run(

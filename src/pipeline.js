@@ -28,6 +28,7 @@ import { evaluateTriggers, triggersText } from "./triggers.js";
 // and reserved for the future farmer-facing tool. Bean Brief's internal outputs run un-muzzled.
 import { mapPool } from "./util.js";
 import { enrichItems, groundNewsItems } from "./enrich.js";
+import { buildPackets } from "./packets.js";
 import { rankNewsItems } from "./newsrank.js";
 import { eventKeyFor, groupByEvent, pickLead } from "./eventkey.js";
 
@@ -456,10 +457,18 @@ export async function runPipeline({ edition = "am", dryRun = false, source = nul
     } catch (err) {
       console.log(`⚠️  Market cards skipped: ${err.message}`);
     }
-    try {
-      await generateStorylines(env);
-    } catch (err) {
-      console.log(`⚠️  Storylines skipped: ${err.message}`);
+    // ⚠️ AM EDITION ONLY, AND THIS IS WHAT PAYS FOR THE EVIDENCE PACKETS BELOW. Measured from
+    // `token_usage`: storylines is the single largest line item in the whole tool — ~10.6k in / 2.9k
+    // out per call on Sonnet 5 ≈ $0.076, and it was running on BOTH daily editions ≈ $4.56/mo. A
+    // 21-day clustering window does not meaningfully change between 06:30 and 16:30, so the PM call
+    // was re-deriving the same threads for the same money. Halving it funds packets outright.
+    // The homepage "Update storylines" button and the `storylines` CLI still run on demand.
+    if (edition !== "pm") {
+      try {
+        await generateStorylines(env);
+      } catch (err) {
+        console.log(`⚠️  Storylines skipped: ${err.message}`);
+      }
     }
     // Judge any forecasts whose horizon has elapsed. Pure arithmetic over stored series — no model
     // call, no cost — so it rides the heartbeat rather than needing its own schedule.
@@ -569,6 +578,21 @@ export async function runFullPipeline({ watchlist, env, edition, kept, items, sk
     }
   }
   if (inherited) console.log(`   ↳ ${inherited} duplicate filing${inherited === 1 ? "" : "s"} inherited their action's verdict`);
+
+  // 3a-bis. EVIDENCE PACKETS for the must_read actions (see packets.js).
+  //
+  // ⚠️ POSITION IS LOAD-BEARING, IN BOTH DIRECTIONS, AND A TEST LOCKS IT.
+  //   - It must come AFTER triage, because eligibility is `triage_tier = 'must_read'` — run it earlier
+  //     and there are no tiers yet, so nothing qualifies and the feature silently does nothing.
+  //   - It must come AFTER enrichment (:362) and news grounding (:382), because packets read
+  //     `seen_items.body` and never fetch. Run it before those and every news packet is built from a
+  //     ~180-character feed teaser, i.e. correctly but uselessly marked "thin".
+  // Fail-soft: a packet is an optimisation of context, never a precondition for the brief.
+  try {
+    await buildPackets({ env });
+  } catch (err) {
+    console.log(`⚠️  Evidence packets skipped: ${err.message}`);
+  }
 
   // 3b. Flag movement on tracked items (pinned in the web UI) — these always
   // make the brief and get their own 📌 section.
@@ -785,11 +809,18 @@ function trackedBlock() {
  *    meaning.
  */
 function compactItems(rows) {
-  return groupByEvent(rows).map(({ members }) => {
+  const groups = groupByEvent(rows);
+  // One query for the whole prompt's worth of items rather than one per row.
+  const packets = store.packetsFor(groups.map(({ members }) => pickLead(members).event_key));
+  return groups.map(({ members }) => {
     const h = pickLead(members);
     const doc = String(h.body ?? "").trim();
     const others = members.filter((m) => m.uid !== h.uid);
-    return {
+    const p = packets.get(h.event_key);
+    // A THIN packet carries no more information than the title, so it is not worth prompt space — fall
+    // back to the document excerpt (which for a thin item is the teaser, correctly labelled below).
+    const usePacket = p && p.sufficiency !== "thin" && p.packet;
+    const entry = {
       title: h.title,
       url: h.url,
       source: h.source_id,
@@ -799,13 +830,34 @@ function compactItems(rows) {
       priority: h.triage_tier ?? undefined,
       seen: (h.first_seen_at || "").slice(0, 10),
       deadline: h.comment_deadline ? String(h.comment_deadline).slice(0, 10) : undefined,
-      // The document's own words, explicitly labelled as such so the model can tell sourced text
-      // from the triager's interpretation in `why`.
-      document: doc ? doc.slice(0, CONTEXT_BODY_CHARS) + (doc.length > CONTEXT_BODY_CHARS ? " […]" : "") : undefined,
+      // What this entry's substance actually rests on, so a consumer never has to guess whether it is
+      // reading extracted evidence, raw document text, or nothing at all.
+      evidenceBasis: usePacket ? "packet" : doc.length >= 200 ? "document" : "title_only",
       // Same action, other filings. Named this way on purpose: "alsoFiledAs" reads as one thing in
       // several places, where a bare array of titles would read as several things.
       alsoFiledAs: others.length ? others.slice(0, 6).map((m) => `${m.source_id}: ${m.url || m.uid}`) : undefined,
     };
+    if (usePacket) {
+      // The packet REPLACES the document excerpt — sending both would pay twice for the same text.
+      const pk = p.packet;
+      entry.packet = {
+        sufficiency: p.sufficiency,
+        whatHappened: pk.what_happened,
+        claims: pk.claims,
+        actionsRequired: pk.actions_required,
+        dates: pk.dates,
+        quantities: pk.quantities,
+        soyMechanisms: pk.soy_mechanisms,
+        evidence: pk.evidence, // every quote here was verified as a verbatim substring of the source
+        unknowns: pk.unknowns,
+        notInDocument: pk.not_in_document,
+      };
+    } else if (doc) {
+      // The document's own words, explicitly labelled as such so the model can tell sourced text
+      // from the triager's interpretation in `why`.
+      entry.document = doc.slice(0, CONTEXT_BODY_CHARS) + (doc.length > CONTEXT_BODY_CHARS ? " […]" : "");
+    }
+    return entry;
   });
 }
 
@@ -875,7 +927,7 @@ export async function answerQuery(question, env, source = "ui") {
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   const model = env.BRIEF_MODEL || "claude-sonnet-5";
   const system =
-    "You are the senior market-and-policy analyst for an Iowa Soybean Association professional whose remit is BOTH policy and demand/markets. This is an INTERNAL analysis tool for staff — give a sharp, direct answer, not a hedged briefing. Draw on the stored monitoring data provided below, which spans three streams: (1) LAWS/RULES/DECISIONS + NEWS items, (2) MARKET DATA (soybean price, crush, stocks, biofuel feedstock share, basis, fund positioning, exports, barge freight, crop condition, weather), and (3) recent BRIEFS, plus tracked items and comment deadlines. The market data carries trend context per series — change vs. prior, year-over-year, the historical range with the latest value's percentile, and a seasonal read (vs. the same month across years). USE that context to explain trends and whether a value is seasonally normal or unusual, not just the latest number. Synthesize across streams — connect policy/trade developments to the market MECHANISM and the numbers, go second-order, and where the data supports it give a directional read: the most likely interpretation, the risk to it, and the report or data that would confirm or kill it. Distinguish FACT from your INTERPRETATION, and be honest about confidence rather than hedging into mush. Each item may carry a \"document\" field holding the source document's OWN words and a \"why\" field holding a prior one-line note about it — treat \"document\" as sourced fact and \"why\" as someone else's summary, and prefer the document when they differ. An item with \"alsoFiledAs\" is ONE action filed in several places, not several corroborating items — never treat repetition as evidence. If the substance of an item is not in its document text, say the substance was not retrieved rather than inferring it from the title. Cite item titles as markdown links when a URL is available; when you cite a market figure, name the series and its period (e.g. \"U.S. crush 210M bu, Apr 2026\"). Plain, professional English. You also have a WEB SEARCH tool — lean on the stored monitoring data first, but use the web to fill what it doesn't cover: the latest futures/cash prices, breaking news, or a figure or date worth verifying — anything more current than the last pipeline run. Reach for it when it makes the answer materially better or more current, not reflexively. Cite any web source inline as a markdown link so staff can tell web-sourced facts from the internal streams. Don't invent numbers — pull them.";
+    "You are the senior market-and-policy analyst for an Iowa Soybean Association professional whose remit is BOTH policy and demand/markets. This is an INTERNAL analysis tool for staff — give a sharp, direct answer, not a hedged briefing. Draw on the stored monitoring data provided below, which spans three streams: (1) LAWS/RULES/DECISIONS + NEWS items, (2) MARKET DATA (soybean price, crush, stocks, biofuel feedstock share, basis, fund positioning, exports, barge freight, crop condition, weather), and (3) recent BRIEFS, plus tracked items and comment deadlines. The market data carries trend context per series — change vs. prior, year-over-year, the historical range with the latest value's percentile, and a seasonal read (vs. the same month across years). USE that context to explain trends and whether a value is seasonally normal or unusual, not just the latest number. Synthesize across streams — connect policy/trade developments to the market MECHANISM and the numbers, go second-order, and where the data supports it give a directional read: the most likely interpretation, the risk to it, and the report or data that would confirm or kill it. Distinguish FACT from your INTERPRETATION, and be honest about confidence rather than hedging into mush. Each item states what its substance rests on in \"evidenceBasis\": \"packet\" means a structured extraction of the source document is attached in \"packet\"; \"document\" means the source's own text is in \"document\"; \"title_only\" means the substance was NOT retrieved and you must say so rather than inferring it from the title. A \"why\" field is a prior one-line note ABOUT the item — someone else's summary, not source text — so prefer the packet or document when they differ. Inside a packet, every string in \"evidence\" has been mechanically verified as a verbatim quote from the source, so those are safe to quote directly; \"claims\" are labelled fact / projection / assertion_by_party and an assertion_by_party is a named party's position, NOT an established fact; \"unknowns\" and \"notInDocument\" tell you what the source does not support, and you should respect them rather than filling the gap. An item with \"alsoFiledAs\" is ONE action filed in several places, not several corroborating items — never treat repetition as evidence. Cite item titles as markdown links when a URL is available; when you cite a market figure, name the series and its period (e.g. \"U.S. crush 210M bu, Apr 2026\"). Plain, professional English. You also have a WEB SEARCH tool — lean on the stored monitoring data first, but use the web to fill what it doesn't cover: the latest futures/cash prices, breaking news, or a figure or date worth verifying — anything more current than the last pipeline run. Reach for it when it makes the answer materially better or more current, not reflexively. Cite any web source inline as a markdown link so staff can tell web-sourced facts from the internal streams. Don't invent numbers — pull them.";
   // ⚠️ BLOCK ORDER IS LOAD-BEARING — IT IS WHAT MAKES PROMPT CACHING POSSIBLE (1.29.0).
   //
   // Caching is a PREFIX match, rendered `tools` → `system` → `messages`, and any byte change
@@ -907,7 +959,7 @@ export async function answerQuery(question, env, source = "ui") {
     `=== UPCOMING COMMENT DEADLINES ===\n${deadlines.length ? deadlines.map((d) => `- ${d.comment_deadline}: ${d.title}${d.url ? ` ${d.url}` : ""}`).join("\n") : "(none)"}\n\n` +
     `=== RECENT BRIEFS ===\n${briefTexts.join("\n\n") || "(none)"}`;
   const questionContext =
-    `=== LAWS/RULES/DECISIONS + NEWS items (JSON — one entry per government ACTION; "document" is the source's own text, "why" is a prior note, "alsoFiledAs" means the same action filed elsewhere) ===\n${JSON.stringify(compactHits, null, 1)}\n\n` +
+    `=== LAWS/RULES/DECISIONS + NEWS items (JSON — one entry per government ACTION. "evidenceBasis" says what each rests on: "packet" = a verified structured extraction in "packet"; "document" = the source's own text; "title_only" = the substance was NOT retrieved. "why" is a prior one-line note, not source text. "alsoFiledAs" means the same action filed elsewhere — one action, not several.) ===\n${JSON.stringify(compactHits, null, 1)}\n\n` +
     `Question: ${question}`;
   const messages = [
     {
@@ -1193,7 +1245,7 @@ export async function generateMemo(presetId, env) {
     `Stored monitoring data for the last ${preset.scopeDays} days — write the memo per your instructions.\n\n` +
     `=== MARKET DATA (latest value, change vs prior, recent trail) ===\n${marketBlock || "(no market data stored yet)"}\n\n` +
     (marketIntelText() ? `=== MARKET INTEL FROM NEWSLETTERS (distilled from the collector inbox, cited) ===\n${marketIntelText()}\n\n` : "") +
-    `=== LAWS/RULES/DECISIONS + NEWS items (JSON — one entry per government ACTION; "document" is the source's own text, "why" is a prior note, "alsoFiledAs" means the same action filed elsewhere) ===\n${JSON.stringify(compactHits, null, 1)}\n\n` +
+    `=== LAWS/RULES/DECISIONS + NEWS items (JSON — one entry per government ACTION. "evidenceBasis" says what each rests on: "packet" = a verified structured extraction in "packet"; "document" = the source's own text; "title_only" = the substance was NOT retrieved. "why" is a prior one-line note, not source text. "alsoFiledAs" means the same action filed elsewhere — one action, not several.) ===\n${JSON.stringify(compactHits, null, 1)}\n\n` +
     `=== TRACKED ITEMS (pinned) ===\n${trackedBlock()}\n\n` +
     `=== UPCOMING COMMENT DEADLINES ===\n${deadlines.length ? deadlines.map((d) => `- ${d.comment_deadline}: ${d.title}${d.url ? ` ${d.url}` : ""}`).join("\n") : "(none)"}\n\n` +
     `=== DAILY BRIEFS IN WINDOW ===\n${briefTexts.join("\n\n") || "(none)"}` +
@@ -1496,14 +1548,39 @@ export async function generateStorylines(env = process.env) {
   const lines = items.map((it, i) =>
     `[${i + 1}] ${(it.first_seen_at || "").slice(0, 10)} · ${it.title}${it.one_line ? ` — ${it.one_line}` : ""}${it.url ? ` (${it.url})` : ""}`
   );
-  const existing = store.listStorylines(20).map((s) => s.name);
+  // ⚠️ THE PRIOR STATE IS THE FIX (1.30.0). This used to be `listStorylines(20).map(s => s.name)` — a
+  // bare list of NAMES. The model was told to "continue existing threads" while being given no idea
+  // what any of them previously said, so it could only re-summarize the current 21-day window from
+  // scratch. That is why the panel restated whole threads instead of showing what moved: a delta was
+  // literally not computable from the inputs.
+  //
+  // Now each thread arrives with its previous summary, open questions and expected next event, so
+  // "what is new" is a comparison the model can actually make. ~700 chars x 10 threads ≈ 1,750 input
+  // tokens, which is the cheapest part of this call.
+  const priorThreads = store.listStorylines(10);
+  const priorBlock = priorThreads.length
+    ? priorThreads
+        .map((s) => {
+          const tl = (s.timeline ?? []).slice(0, 3).map((e) => `      · ${e.date} ${e.event}`).join("\n");
+          return (
+            `- ${s.name} [${s.key}] · last updated ${(s.updated_at || "").slice(0, 10)}` +
+            `${s.materiality ? ` · materiality ${s.materiality}` : ""}${s.state ? ` · previous state ${s.state}` : ""}\n` +
+            `    previous summary: ${s.summary || "(none)"}\n` +
+            `${(s.openQuestions ?? []).length ? `    still open: ${(s.openQuestions ?? []).join("; ")}\n` : ""}` +
+            `${s.nextExpected?.what ? `    was expecting next: ${s.nextExpected.what}${s.nextExpected.when ? ` (${s.nextExpected.when})` : ""}\n` : ""}` +
+            `${tl ? `    known timeline:\n${tl}\n` : ""}`
+          );
+        })
+        .join("\n")
+    : "(no threads yet — everything you produce is new)";
 
   const system =
-    `You maintain the "storylines" for the Iowa Soybean Association's policy & market monitor — the handful of ongoing THREADS the news is really about (e.g. "45Z Clean Fuel Production Credit", "EU Deforestation Regulation (EUDR)", "Summit Carbon CO2 Pipeline", "Renewable diesel & soybean-oil demand", "China soybean trade"). Cluster the monitoring items below into 3–7 active storylines. For each, write what recently changed and why it matters to Iowa soybeans, plus a short dated timeline.\n\n` +
-    `CONTINUE existing threads by their EXACT name where items fit one (list provided) — do not rename or fork a thread that already exists. Only include storylines with genuine recent activity in these items; ignore one-off noise that belongs to no thread.\n\n` +
-    `Timeline most-recent-first, max 5 entries, dates from the item dates. Keys are stable kebab slugs so a thread keeps its key across updates. Use an empty string for a timeline url when the item has none.`;
+    `You maintain the "storylines" for the Iowa Soybean Association's policy & market monitor — the handful of ongoing THREADS the news is really about (e.g. "45Z Clean Fuel Production Credit", "EU Deforestation Regulation (EUDR)", "Summit Carbon CO2 Pipeline", "Renewable diesel & soybean-oil demand", "China soybean trade"). Cluster the monitoring items below into 3–7 active storylines.\n\n` +
+    `YOUR JOB IS THE TRANSITION, NOT A RE-SUMMARY. For each thread you are given its PREVIOUS state — the summary it last carried, what was still open, and what event it was waiting for. Write what MOVED since then: "whatIsNew" must contain only what a reader who already knew that previous state would not know, and must be an empty string when nothing moved. Say "unchanged" in stateChange honestly rather than manufacturing movement — a thread that genuinely did not move is useful information.\n\n` +
+    `CONTINUE existing threads by their EXACT name and key where items fit one — do not rename or fork a thread that already exists. Only include storylines with genuine recent activity in these items, PLUS any existing thread whose state changed; ignore one-off noise that belongs to no thread.\n\n` +
+    `Timeline most-recent-first, max 5 NEW entries — the thread's older dated events are already stored and will be merged, so do not repeat entries already shown to you under "known timeline". Dates come from the item dates. Keys are stable kebab slugs. Use an empty string for a timeline url when the item has none.`;
   const user =
-    `EXISTING STORYLINE NAMES (continue these where they fit):\n${existing.length ? existing.map((n) => `- ${n}`).join("\n") : "(none yet)"}\n\n` +
+    `EXISTING THREADS AND THEIR PREVIOUS STATE (continue these by exact name/key; compare against these to find the delta):\n${priorBlock}\n\n` +
     `MONITORING ITEMS (last 21 days):\n${lines.join("\n")}`;
 
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
@@ -1538,6 +1615,7 @@ export async function generateStorylines(env = process.env) {
   }
   const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
   let saved = 0;
+  let moved = 0; // threads whose state actually changed — the number worth reporting
   for (const s of arr) {
     if (!s || !s.name) continue;
     const key = slug(s.key || s.name);
@@ -1552,20 +1630,40 @@ export async function generateStorylines(env = process.env) {
             url: typeof e.url === "string" && /^https?:/.test(e.url) ? e.url : "",
           }))
       : [];
+    const clampStr = (v, n) => (v ? String(v).slice(0, n) : null);
+    // ⚠️ The delta gets its OWN column — it is not folded into `summary`. An earlier pass prefixed the
+    // summary with a markdown "**What's new:**", which the homepage panel renders through `esc()` and
+    // would have displayed as literal asterisks. Storage should not encode one consumer's formatting.
+    // An empty `whatIsNew` is the honest "nothing moved" case and must stay empty.
     store.upsertStoryline({
       key,
       name: String(s.name).slice(0, 120),
-      focus: s.focus ? String(s.focus).slice(0, 200) : null,
-      summary: s.whatChanged ? String(s.whatChanged).slice(0, 800) : null,
+      focus: clampStr(s.focus, 200),
+      summary: clampStr(s.whatChanged, 800),
+      whatIsNew: clampStr(s.whatIsNew, 600),
       timeline,
       itemCount: timeline.length,
+      state: ["new", "advanced", "stalled", "resolved", "unchanged"].includes(s.stateChange) ? s.stateChange : null,
+      openQuestions: Array.isArray(s.openQuestions) ? s.openQuestions.filter(Boolean).slice(0, 6).map((q) => String(q).slice(0, 240)) : [],
+      nextExpected: s.nextExpectedEvent?.what
+        ? {
+            what: String(s.nextExpectedEvent.what).slice(0, 240),
+            when: String(s.nextExpectedEvent.when || "").slice(0, 40),
+            why: String(s.nextExpectedEvent.why || "").slice(0, 240),
+          }
+        : null,
+      materiality: ["decision_changing", "monitor", "context"].includes(s.materiality) ? s.materiality : null,
     });
     saved++;
+    if (s.stateChange && s.stateChange !== "unchanged") moved++;
   }
-  store.pruneStorylines(30);
-  store.setState("storylines_meta", JSON.stringify({ generatedAt: new Date().toISOString(), count: saved }));
-  console.log(`🧵 Storylines: ${saved} active thread${saved === 1 ? "" : "s"} updated`);
-  return { count: saved };
+  const pruned = store.pruneStorylines(30);
+  store.setState("storylines_meta", JSON.stringify({ generatedAt: new Date().toISOString(), count: saved, moved }));
+  console.log(
+    `🧵 Storylines: ${saved} active thread${saved === 1 ? "" : "s"} — ${moved} moved, ${saved - moved} unchanged` +
+      (pruned ? ` (${pruned} aged off)` : "")
+  );
+  return { count: saved, moved };
 }
 
 // --- forecast ledger: extract → store → resolve → feed back ---------------------------------
@@ -1575,10 +1673,14 @@ export async function generateStorylines(env = process.env) {
 // scored record back into later prompts. Without this the system had no memory of its own claims and
 // no way to answer "has this thing been right?".
 //
-// Extraction uses STRUCTURED OUTPUTS (output_config.format + a json_schema) rather than asking for
-// JSON in the prompt and parsing it. That matters here: generateStorylines does the latter and has to
-// slice between the first "[" and last "]" inside a try/catch that silently yields zero threads on a
-// malformed response. Schema-constrained decoding removes that whole failure mode.
+// Extraction uses STRUCTURED OUTPUTS (`output_config.format` + a json_schema) rather than asking for
+// JSON in the prompt and parsing it out of prose, which removes the whole class of silent
+// malformed-response failures.
+//
+// The three schema-constrained call sites are this one (FORECAST_SCHEMA), generateStorylines
+// (STORYLINE_SCHEMA) and extractExpectations (EXPECTATION_SCHEMA). The two remaining prose-parsers are
+// triage.js and newsrank.js, which hand-roll a fence-strip plus a bracket-slice fallback — if you are
+// adding a new JSON-producing call, copy the pattern here rather than those.
 const FORECAST_SCHEMA = {
   type: "object",
   properties: {
@@ -2044,6 +2146,43 @@ const STORYLINE_SCHEMA = {
           name: { type: "string", description: "Thread name. Match an existing name EXACTLY when continuing that thread." },
           focus: { type: "string", description: "One line: what this thread is about." },
           whatChanged: { type: "string", description: "2-3 sentences: what developed recently and why it matters to Iowa soybeans." },
+          // --- the delta fields (1.30.0): what makes this a state TRANSITION rather than a re-summary
+          stateChange: {
+            type: "string",
+            enum: ["new", "advanced", "stalled", "resolved", "unchanged"],
+            description:
+              "How this thread moved since its previous state, which is given to you. Use 'unchanged' honestly when nothing moved — that is useful information, not a failure.",
+          },
+          whatIsNew: {
+            type: "string",
+            description:
+              "ONLY the delta since the previous state shown to you — what a reader who already knew that state would not know. Empty string when nothing changed. Do NOT restate the thread.",
+          },
+          whatIsUnchanged: {
+            type: "string",
+            description: "Which parts of the previous read still hold. Empty string if this is a brand-new thread.",
+          },
+          openQuestions: {
+            type: "array",
+            items: { type: "string" },
+            description: "What is still unresolved on this thread. Empty array if nothing.",
+          },
+          nextExpectedEvent: {
+            type: "object",
+            properties: {
+              what: { type: "string", description: "The report, hearing, decision or filing that would move this thread. Empty string if unknown." },
+              when: { type: "string", description: "A date (YYYY-MM-DD) or a rough window like 'Q4 2026'. Empty string if unknown." },
+              why: { type: "string", description: "One line: why that event matters to this thread. Empty string if unknown." },
+            },
+            required: ["what", "when", "why"],
+            additionalProperties: false,
+          },
+          materiality: {
+            type: "string",
+            enum: ["decision_changing", "monitor", "context"],
+            description:
+              "decision_changing = ISA would act or brief leadership on this; monitor = worth watching; context = background only.",
+          },
           timeline: {
             type: "array",
             items: {
@@ -2058,7 +2197,19 @@ const STORYLINE_SCHEMA = {
             },
           },
         },
-        required: ["key", "name", "focus", "whatChanged", "timeline"],
+        required: [
+          "key",
+          "name",
+          "focus",
+          "whatChanged",
+          "stateChange",
+          "whatIsNew",
+          "whatIsUnchanged",
+          "openQuestions",
+          "nextExpectedEvent",
+          "materiality",
+          "timeline",
+        ],
         additionalProperties: false,
       },
     },

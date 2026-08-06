@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-polibrief
 category: automation
 name: The Bean Brief
-version: "1.29.0"
+version: "1.30.0"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
@@ -28,7 +28,31 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  THE DAILY BRIEF IS REBUILT. For the last three updates The Bean Brief got much better at reading
+  STORYLINES NOW SHOW WHAT CHANGED, NOT THE WHOLE THREAD AGAIN. The Storylines panel on the News tab
+  was rewriting each thread from scratch every run, so you had to re-read a summary you had already
+  read to spot the one new sentence in it. Worse, it was doing that from only the last three weeks of
+  items — so a dated event that fell outside that window disappeared from the thread's timeline for
+  good, even though it was that thread's own history. Each thread now keeps its history and leads with
+  "What's new" — the part you have not seen — plus a status (moved, stalled, resolved, no change), what
+  is still unresolved, and the next event expected to move it. Threads that reach a decision are no
+  longer deleted a month later just because they went quiet.
+  ALSO — EVIDENCE PACKETS. For the highest-priority items, The Bean Brief now reads the source document
+  once and files a structured record of it: what happened, the specific claims with the exact sentence
+  each one rests on, the dates and deadlines, the figures, and — importantly — what the document does
+  NOT say. Everything downstream (the Ask box, the Analyst Note, the memos) then works from that record
+  instead of re-reading the same document, and can quote it with confidence because every quote is
+  checked word-for-word against the source before it is stored.
+  The honesty of that record is enforced by the app, not left to the AI. If a story is only a headline
+  and a teaser — which is most of the news feed, because Farm Progress blocks automated reading — no AI
+  call is made at all and the record says plainly that the substance was never retrieved. If the AI
+  claims more confidence than the amount of text supports, the app overrides it. If a quote is not
+  actually in the source, it is dropped and the record is downgraded. A confident-sounding summary of a
+  document nobody read is worse than no summary, so it cannot happen quietly.
+  This costs about a dollar a month, paid for by no longer regenerating the storylines twice a day when
+  once is enough.
+  Update only — no new keys, no settings to change.
+  ---
+  PREVIOUS RELEASE (1.29.0) — THE DAILY BRIEF IS REBUILT. For the last three updates The Bean Brief got much better at reading
   documents properly — grading how relevant each one is, fetching the actual text of federal rules,
   recognising when one government action has been filed in four different places. None of that was
   reaching the brief itself. The twice-daily email was still being written from headlines and a
