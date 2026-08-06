@@ -25,10 +25,16 @@
 //      dropped and counted; if more than half fail, sufficiency is downgraded. This makes a fabricated
 //      packet mechanically detectable rather than a matter of trust.
 //
-// COST. Packets are scoped to `must_read` actions only, and keyed on `event_key` so one notice
-// cross-filed into four dockets is ONE packet and the PM run reuses what the AM run paid for.
-// ⚠️ At must_read only this is ~$1.44/mo. Unscoped — a packet for every relevant official event, ~17/day
-// — it is ~$5.28/mo. The scoping rule is load-bearing, not polish.
+// COST. Keyed on `event_key`, so one notice cross-filed into four dockets is ONE packet and the PM
+// run reuses what the AM run paid for. That keying is the real cost control and it is load-bearing.
+//
+// ⚠️ SCOPE WIDENED DELIBERATELY, 2026-08-06. This was `must_read` only, at ~$1.44/mo against ~$5.28
+// for every relevant event. That was a defensible cost trade and it bought the wrong thing: a packet
+// is what turns an item from "a headline plus a cheap model's sentence about it" into verified,
+// quotable evidence, and it feeds the brief, the Ask box and the analyst at once. Scoping it tightly
+// also scoped how much of the entire system reasons from sourced text. Now must_read AND
+// worth_knowing; `background` stays out, since that tier may never become a development anyway.
+// The 800-char floor below still removes most of the cheap candidates for free.
 //
 // ORDERING. Packets read `seen_items.body`; they never fetch. So they must run AFTER enrichment and news
 // grounding have populated that column — run them earlier and every news packet silently becomes thin.
@@ -47,8 +53,10 @@ const PARTIAL_SOURCE_CHARS = 2000;
 /** Document text sent to the extractor. Wider than the brief's 900 — extraction wants the whole
  *  operative text, and this is the cheap model. */
 const EXTRACT_DOC_CHARS = 6000;
-/** Packets per run. Small on purpose: the budget exists so a backlog cannot produce a surprise bill. */
-export const PACKET_BUDGET = 8;
+/** Packets per run. The budget exists so a backlog cannot produce a surprise bill, but at 8 it was
+ *  also silently capping a normal day's work once the scope widened past must_read — the true
+ *  qualifying count is logged when it bites, so check the log before assuming this is enough. */
+export const PACKET_BUDGET = 20;
 const POOL = 3;
 /** Re-extract only when the body has materially grown — catches `groundItemBody` healing a 180-char
  *  teaser into a 5,000-char article. Without this a thread would be re-extracted for no new information. */

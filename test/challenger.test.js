@@ -205,7 +205,7 @@ async function runChallenge(body) {
 test("challenger: the request carries no tools and runs at medium effort", async () => {
   const { requestBody } = await runChallenge(JSON.stringify({ challenges: [challenge()], note_level_concern: "" }));
   assert.equal(requestBody.tools, undefined, "schema + web search does not work — see thesis.js");
-  assert.equal(requestBody.output_config.effort, "medium");
+  assert.equal(requestBody.output_config.effort, "high", "medium is below the floor for intelligence-sensitive work");
   assert.equal(requestBody.model, "claude-opus-4-8");
 });
 

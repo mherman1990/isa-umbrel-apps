@@ -1133,14 +1133,22 @@ Length: scannable in ~90 seconds (250–400 words). No preamble, no sign-off. St
     edition: "analyst",
     scopeDays: 14,
     // The deep "around the corner" report runs on Opus 4.8 + adaptive thinking.
-    // Thinking counts against max_tokens on Opus, so the ceiling sits well above
-    // the ~2–3k-token note itself to leave room (still non-streaming-safe at 12k).
-    // effort "high" is the recommended default. Override the model via ANALYST_MODEL.
-    maxTokens: 12000,
+    //
+    // ⚠️ THE OLD CEILING WAS CHOSEN TO AVOID STREAMING, NOT TO FIT THE ANALYSIS. It was 12,000 with
+    // the note "still non-streaming-safe at 12k" — but thinking counts against max_tokens on Opus,
+    // so the single deepest reasoning task in this system was splitting 12k between its reasoning
+    // and its output. That is a quality ceiling nobody chose on the merits.
+    //
+    // `xhigh` is the recommended setting for hard analytical work, and it REQUIRES real headroom:
+    // at xhigh with a tight max_tokens the model truncates mid-thought, which is worse than running
+    // at lower effort. 64,000 is a CEILING, not a target — a note is ~2–3k tokens and typical
+    // thinking is a few thousand more; the budget exists so a genuinely hard read is never cut off.
+    // Above ~16k, non-streaming requests risk an SDK HTTP timeout, which is why generateMemo streams.
+    maxTokens: 64000,
     model: "claude-opus-4-8",
     modelEnv: "ANALYST_MODEL",
     thinking: { type: "adaptive" },
-    effort: "high",
+    effort: "xhigh",
     injectSignals: true,
     web: true,
     // The Analyst Note is the one preset whose whole job is forward-looking falsifiable claims, so
@@ -1301,10 +1309,18 @@ export async function generateMemo(presetId, env) {
   if (preset.web && env.WEB_SEARCH !== "off") request.tools = [{ type: "web_search_20260209", name: "web_search", max_uses: 6 }];
   let response;
   for (let turn = 0; turn < 4; turn++) {
-    response = await client.messages.create(request);
+    // STREAMED, not because anyone watches the stream, but because a non-streaming request with a
+    // large max_tokens can exceed the SDK's HTTP timeout and fail after minutes of paid work. The
+    // Analyst runs at 64k with web search; `.finalMessage()` gives back the identical Message
+    // object, so the pause_turn resume loop below is unchanged.
+    response = await client.messages.stream(request).finalMessage();
     store.recordUsage(model, "memo", response.usage.input_tokens, response.usage.output_tokens, response.usage);
     if (response.stop_reason !== "pause_turn") break;
     request.messages.push({ role: "assistant", content: response.content }); // echo blocks back unchanged to resume
+  }
+  // A truncated note is otherwise indistinguishable from a short one — it just stops.
+  if (response.stop_reason === "max_tokens") {
+    console.log(`⚠️  ${preset.label} hit max_tokens (${preset.maxTokens}) and was truncated — raise the preset ceiling.`);
   }
   // Web-augmented notes can span several text blocks (interleaved with search-result blocks) — join them.
   const noteMarkdown = response.content.filter((b) => b.type === "text").map((b) => b.text).join("").trim();

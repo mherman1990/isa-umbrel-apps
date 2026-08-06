@@ -27,6 +27,7 @@ process.env.WEB_SEARCH = "off"; // keep the analyst call tool-free in tests
 
 const { generateMemo } = await import("../src/pipeline.js");
 const store = await import("../src/store.js");
+const { modelResponse } = await import("./fixtures/sse.js");
 
 const NOTE = `## The Bean Brief — Analyst Note
 
@@ -93,18 +94,9 @@ async function runAnalyst(bodies) {
     const text = bodies[Math.min(i, bodies.length - 1)];
     i += 1;
     if (text instanceof Error) throw text;
-    return new Response(
-      JSON.stringify({
-        id: `msg_${i}`,
-        type: "message",
-        role: "assistant",
-        model: body.model,
-        content: [{ type: "text", text }],
-        usage: { input_tokens: 100, output_tokens: 50 },
-        stop_reason: "end_turn",
-      }),
-      { status: 200, headers: { "content-type": "application/json", "request-id": "req_test" } }
-    );
+    // The note call is STREAMED and the two that follow it are not, so the stub picks its wire
+    // format from the request rather than assuming one.
+    return modelResponse(body, text);
   };
   console.log = (...a) => logs.push(a.join(" "));
   try {
@@ -126,7 +118,7 @@ test("wiring: the analyst note is THREE calls — prose, structuring, adversaria
   assert.equal(structuring.tools, undefined, "the schema call must carry no tools");
   assert.ok(challenge.output_config?.format?.type === "json_schema");
   assert.equal(challenge.tools, undefined, "the Challenger judges what it was given; it does not search");
-  assert.equal(challenge.output_config.effort, "medium", "cheapen the effort, not the model");
+  assert.equal(challenge.output_config.effort, "high", "cheapen the CONTEXT, not the reasoning — a reviewer that thinks less than the writer waves things through");
 });
 
 test("wiring: the Challenger tracks the ANALYST's model, not the cheap one", async () => {

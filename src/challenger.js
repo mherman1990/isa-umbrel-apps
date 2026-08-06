@@ -148,9 +148,14 @@ export async function challengeTheses(theses, { context = "", env = process.env,
   try {
     resp = await anthropic.messages.create({
       model,
-      max_tokens: 6000,
+      max_tokens: 12000,
       thinking: { type: "adaptive" },
-      output_config: { effort: "medium", format: { type: "json_schema", schema: CHALLENGE_SCHEMA } },
+      // `high`, not `medium`. The plan said "cheapen the context and effort, not the model", and the
+      // context half of that still holds — no web search, a small prompt. But medium sits BELOW the
+      // recommended floor for intelligence-sensitive work, and a reviewer that reasons less than the
+      // writer it is reviewing will wave things through. The cheap failure mode of a Challenger is
+      // agreeing, and it is invisible: a note full of approvals looks exactly like a good note.
+      output_config: { effort: "high", format: { type: "json_schema", schema: CHALLENGE_SCHEMA } },
       // No tools. Same measured reason as thesis.js: a schema-constrained request that also runs a
       // web search fails. The Challenger judges what it was given; it does not go looking.
       system: SYSTEM,

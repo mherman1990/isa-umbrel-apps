@@ -25,11 +25,16 @@
 // more robust shape regardless: the note is worth saving even when structuring fails.
 //
 // ⚠️ COST CONSEQUENCE, STATED OUT LOUD. Because this is a second call rather than a free rider on
-// the analyst call, Phase 3 no longer *deletes* the Haiku extraction — it *replaces* it with a
-// stronger model. The plan's "+$1.06/mo" assumed the deletion. Hence THESIS_MODEL defaults to the
-// brief model (Sonnet 5), not the analyst's Opus: this call reads an already-written note and
-// structures what it already says, which is nearer to structured extraction than de-novo analysis.
-// Set THESIS_MODEL=claude-opus-4-8 to buy the upgrade deliberately.
+// the analyst call, Phase 3 no longer *deletes* the Haiku extraction — it *replaces* it. The plan's
+// "+$1.06/mo" assumed the deletion.
+//
+// This defaulted to the brief model (Sonnet 5) on cost grounds and now defaults to the ANALYST's
+// model. The cost reasoning was sound and the conclusion was still wrong: deciding which of a
+// note's assertions are falsifiable, which evidence actually supports each one, and what would
+// invalidate it is judgement, not transcription. A weaker model here produces well-formed theses
+// that quietly mis-attribute evidence — and because every downstream guard is mechanical (ids
+// resolve or they don't), a plausible-but-wrong attribution passes every check we have.
+// Override with THESIS_MODEL to trade back down deliberately.
 
 import Anthropic from "@anthropic-ai/sdk";
 
@@ -330,7 +335,7 @@ export async function buildTheses(markdown, { evidenceIds, universe, env = proce
   if (!markdown || markdown.length < 200) return null;
 
   const anthropic = client ?? new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
-  const model = env.THESIS_MODEL || env.BRIEF_MODEL || "claude-sonnet-5";
+  const model = env.THESIS_MODEL || env.ANALYST_MODEL || "claude-opus-4-8";
 
   const system =
     "You convert an analyst note into STRUCTURED THESES so they can be grounded, challenged and scored later. " +
@@ -349,9 +354,12 @@ export async function buildTheses(markdown, { evidenceIds, universe, env = proce
   try {
     resp = await anthropic.messages.create({
       model,
-      max_tokens: 8000,
-      thinking: { type: "disabled" },
-      output_config: { format: { type: "json_schema", schema: THESIS_SCHEMA } },
+      max_tokens: 16000,
+      // Thinking ON, at high effort. This was `disabled` when the call ran on Sonnet as a
+      // near-transcription step; on the analyst's model it is doing the judgement described above,
+      // and deciding what invalidates a claim is exactly the work thinking is for.
+      thinking: { type: "adaptive" },
+      output_config: { effort: "high", format: { type: "json_schema", schema: THESIS_SCHEMA } },
       system,
       messages: [
         {

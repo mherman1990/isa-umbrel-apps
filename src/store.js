@@ -668,7 +668,14 @@ export function packetCandidates(limit = 60) {
     .prepare(
       `SELECT uid, event_key, title, url, source_id, jurisdiction, doc_type, comment_deadline, body
          FROM seen_items s
-        WHERE triage_tier = 'must_read'
+        -- must_read AND worth_knowing. This was must_read-only as a cost control (~$1.44/mo vs
+        -- ~$5.28); widening it is a deliberate quality decision, not drift. A packet is what turns
+        -- an item from a headline plus a cheap model's sentence about it into verified, quotable
+        -- evidence, and it feeds the brief, the Ask box and the analyst alike -- so restricting it
+        -- also restricted how much of the whole system reasons from sourced text. The background
+        -- tier stays out: it may never become a development anyway. (No backticks in here: this is
+        -- inside a JS template literal and one would end the string.)
+        WHERE triage_tier IN ('must_read', 'worth_knowing')
           AND triage_verdict = 'relevant'
           AND event_key IS NOT NULL
           AND COALESCE(archived, 0) = 0

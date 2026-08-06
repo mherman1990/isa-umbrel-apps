@@ -25,6 +25,7 @@ process.env.WEB_SEARCH = "off";
 
 const { generateMemo } = await import("../src/pipeline.js");
 const store = await import("../src/store.js");
+const { modelResponse } = await import("./fixtures/sse.js");
 
 const NOTE = "## Analyst Note\n\nCrush margins are running at a record and have not compressed.\n".repeat(6);
 
@@ -81,18 +82,9 @@ async function runAnalyst(bodies) {
     const body = JSON.parse(init.body);
     const text = bodies[Math.min(i, bodies.length - 1)];
     i += 1;
-    return new Response(
-      JSON.stringify({
-        id: `msg_${i}`,
-        type: "message",
-        role: "assistant",
-        model: body.model,
-        content: [{ type: "text", text }],
-        usage: { input_tokens: 100, output_tokens: 50 },
-        stop_reason: "end_turn",
-      }),
-      { status: 200, headers: { "content-type": "application/json", "request-id": "req_test" } }
-    );
+    // The note call is STREAMED and the two that follow it are not — the stub picks its wire format
+    // from the request rather than assuming one.
+    return modelResponse(body, text);
   };
   console.log = () => {};
   try {

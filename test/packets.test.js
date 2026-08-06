@@ -221,14 +221,20 @@ test("packets: a majority of fabricated quotes downgrades the packet, and never 
 
 // ---------- scoping, reuse, ordering, fail-soft ----------
 
-test("packets: only must_read actions qualify — a grounded worth_knowing action gets no call", async () => {
-  seed("p-wk", { tier: "worth_knowing", title: "Worth knowing but not must-read" });
+test("packets: worth_knowing qualifies too — but background never does", async () => {
+  // ⚠️ THIS TEST USED TO ASSERT THE OPPOSITE, and the change is deliberate rather than drift.
+  // Scoping to must_read only was a cost control (~$1.44/mo vs ~$5.28). It bought the wrong thing: a
+  // packet is what turns an item into verified, quotable evidence, and it feeds the brief, the Ask
+  // box and the analyst at once — so a tight scope also scoped how much of the system reasons from
+  // sourced text at all. The boundary that remains is `background`, which by its own rule may never
+  // become a development, so paying to extract evidence for it would buy nothing.
+  seed("p-wk", { tier: "worth_knowing", title: "Worth knowing and now extracted" });
+  seed("p-bg", { tier: "background", title: "Background noise never extracted" });
   const client = stubClient();
   await buildPackets({ env: process.env, client, log: () => {} });
-  assert.ok(
-    !client.calls.some((c) => JSON.stringify(c).includes("Worth knowing but not must-read")),
-    "widening this widens the bill: must_read only is ~$1.44/mo, all relevant events ~$5.28/mo"
-  );
+  const sent = JSON.stringify(client.calls);
+  assert.ok(sent.includes("Worth knowing and now extracted"), "worth_knowing must reach the extractor");
+  assert.ok(!sent.includes("Background noise never extracted"), "background must not — it can never be a development");
 });
 
 test("packets: computed once per event_key — a second pass makes no new calls", async () => {
