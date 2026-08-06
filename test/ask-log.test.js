@@ -53,9 +53,10 @@ function seedItem(uid, title) {
 }
 
 /** Stub the model with a given answer text and optional server_tool_use blocks. */
-function withModel(text, { searchBlocks = 0 } = {}) {
+function withModel(text, { searchBlocks = 0, stopReason = "end_turn", capture = null } = {}) {
   const original = globalThis.fetch;
-  globalThis.fetch = async () => {
+  globalThis.fetch = async (_url, init) => {
+    if (capture) capture.body = JSON.parse(init.body);
     const content = [];
     for (let i = 0; i < searchBlocks; i++) content.push({ type: "server_tool_use", id: `stu_${i}`, name: "web_search", input: {} });
     content.push({ type: "text", text });
@@ -67,13 +68,14 @@ function withModel(text, { searchBlocks = 0 } = {}) {
         model: "claude-sonnet-5",
         content,
         usage: { input_tokens: 500, output_tokens: 80 },
-        stop_reason: "end_turn",
+        stop_reason: stopReason,
       }),
       { status: 200, headers: { "content-type": "application/json", "request-id": "req_test" } }
     );
   };
   return () => { globalThis.fetch = original; };
 }
+
 
 test("asklog: an ask with no stored data at all is logged as unanswered, with no model call", async () => {
   // The early-return path — an ask that never reaches the model is the strongest evidence of a gap,
@@ -219,4 +221,37 @@ test("tracked: the prompt block is capped AND states the true total", async () =
 
 test("tracked: trackedKeySet stays unlimited — it is movement detection, not a prompt block", () => {
   assert.equal(store.trackedKeySet().size, 40, "capping this would silently stop flagging older pins");
+});
+
+// ── Ask-box budget + truncation (Phase 3) ─────────────────────────────────────────────────────────
+// Placed at the END of this file on purpose: these seed stored items, and the first test above
+// asserts the no-stored-data early return, which only holds while the database is still empty.
+
+test("ask: a truncated answer SAYS it was truncated", async () => {
+  // Before this, hitting the ceiling just stopped mid-sentence and looked exactly like a complete
+  // answer — indistinguishable from "the stored data doesn't support more", which is the one thing
+  // this tool's credibility rests on being able to tell apart.
+  seedItem("fr-trunc", "Dicamba registration notice");
+  const restore = withModel("The answer begins and then", { stopReason: "max_tokens" });
+  try {
+    const { answer } = await answerQuery("what does the dicamba notice say?", process.env, "ui");
+    assert.match(answer, /cut off at the length limit/);
+  } finally {
+    restore();
+  }
+});
+
+test("ask: the request has room for thinking AND an answer, at medium effort", async () => {
+  // 4,500 had to cover Sonnet 5 adaptive thinking plus a web-cited answer in one budget. Raising the
+  // ceiling without dropping effort from the default `high` would have been a pure cost increase.
+  seedItem("fr-budget", "Dicamba registration notice two");
+  const capture = {};
+  const restore = withModel("A complete answer.", { capture });
+  try {
+    await answerQuery("what does the second dicamba notice say?", process.env, "ui");
+    assert.equal(capture.body.max_tokens, 8000);
+    assert.equal(capture.body.output_config.effort, "medium");
+  } finally {
+    restore();
+  }
 });

@@ -985,7 +985,12 @@ export async function answerQuery(question, env, source = "ui") {
   for (let turn = 0; turn < 4; turn++) {
     response = await client.messages.create({
       model,
-      max_tokens: 4500, // headroom for Sonnet 5 adaptive thinking + a web-augmented, cited answer
+      // 4,500 had to cover Sonnet 5's adaptive thinking AND a web-cited answer in the same budget —
+      // a live truncation risk, and a silent one (see the stop_reason check below). 8,000 gives the
+      // answer room; `effort: medium` is what keeps that from becoming a cost increase, since the
+      // default is high and thinking is the larger half of the spend here.
+      max_tokens: 8000,
+      output_config: { effort: "medium" },
       system,
       tools: env.WEB_SEARCH === "off" ? undefined : [{ type: "web_search_20260209", name: "web_search", max_uses: 5 }], // WEB_SEARCH=off → stored-data-only
       messages,
@@ -996,7 +1001,14 @@ export async function answerQuery(question, env, source = "ui") {
     messages.push({ role: "assistant", content: response.content }); // echo blocks back unchanged to resume
   }
   // Web-augmented answers can span several text blocks (interleaved with search-result blocks) — join them.
-  const answer = response.content.filter((b) => b.type === "text").map((b) => b.text).join("").trim() || "(no answer)";
+  let answer = response.content.filter((b) => b.type === "text").map((b) => b.text).join("").trim() || "(no answer)";
+  // A truncated answer is otherwise INDISTINGUISHABLE from a complete one: it just stops, mid
+  // sentence, looking like the model had nothing more to say. Saying so is the difference between
+  // "the data doesn't support more" and "you didn't get the rest of the answer".
+  if (response.stop_reason === "max_tokens") {
+    console.log("⚠️  Ask: answer hit max_tokens and was truncated");
+    answer += "\n\n_⚠️ This answer was cut off at the length limit — ask a narrower question for the rest._";
+  }
 
   // Log the ask. One write, after the answer is assembled, covering BOTH entry points (the homepage
   // box via answerQueryOnce and the `query` CLI) because both funnel through here.
