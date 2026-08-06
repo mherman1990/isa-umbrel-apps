@@ -307,6 +307,10 @@ export function renderTheses(theses) {
     }
     if (t.supportingEvidence.length) out.push(`**Evidence:** ${t.supportingEvidence.join(", ")}`);
     if (t.counterevidence.length) out.push(`**Against:** ${t.counterevidence.join(", ")}`);
+    // The Challenger's caveat renders HERE, beside the claim it qualifies — not only in the
+    // "Where this read is weak" footer. A caveat the reader meets after the confident version has
+    // already landed is a caveat that arrived too late.
+    if (t.caveat) out.push(`_⚠️ ${t.caveat}_`);
     // Shown, not hidden — every correctness fix in this repo is "state the caveat inline, because it
     // gets compressed away otherwise".
     if (t.needsReview) out.push(`_⚠️ Flagged for review: ${t.reviewNotes.join("; ")}._`);

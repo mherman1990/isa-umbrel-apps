@@ -59,6 +59,24 @@ const THESIS_JSON = {
   ],
 };
 
+const CHALLENGE_JSON = {
+  note_level_concern: "",
+  challenges: [
+    {
+      thesis_index: 0,
+      verdict: "approve",
+      reason: "Grounded and correctly hedged.",
+      caveat: "",
+      relationship: "independent",
+      evidence_precedes_outcome: "yes",
+      seasonal_risk: "none",
+      duplicate_sources: "none",
+      series_measures_claim: "not_applicable",
+      history_sufficient: "yes",
+    },
+  ],
+};
+
 /**
  * Run the analyst preset with a scripted sequence of model responses.
  * @param {string[]} bodies  one JSON body per API call, in order
@@ -98,14 +116,33 @@ async function runAnalyst(bodies) {
   }
 }
 
-test("wiring: the analyst note is TWO calls — prose first, then schema with no tools", async () => {
-  const { calls } = await runAnalyst([NOTE, JSON.stringify(THESIS_JSON)]);
-  assert.equal(calls.length, 2, "one call cannot do both — see thesis.js for the measurement");
+test("wiring: the analyst note is THREE calls — prose, structuring, adversarial pass", async () => {
+  const { calls } = await runAnalyst([NOTE, JSON.stringify(THESIS_JSON), JSON.stringify(CHALLENGE_JSON)]);
+  assert.equal(calls.length, 3, "one call cannot do prose AND schema — see thesis.js for the measurement");
 
-  const [note, structuring] = calls;
+  const [note, structuring, challenge] = calls;
   assert.equal(note.output_config?.format, undefined, "the prose call must not be schema-constrained");
   assert.ok(structuring.output_config?.format?.type === "json_schema");
   assert.equal(structuring.tools, undefined, "the schema call must carry no tools");
+  assert.ok(challenge.output_config?.format?.type === "json_schema");
+  assert.equal(challenge.tools, undefined, "the Challenger judges what it was given; it does not search");
+  assert.equal(challenge.output_config.effort, "medium", "cheapen the effort, not the model");
+});
+
+test("wiring: the Challenger tracks the ANALYST's model, not the cheap one", async () => {
+  // A reviewer weaker than the writer cannot out-argue it. The saving comes from effort, context
+  // size and no web search — never from downgrading the judge.
+  const { calls } = await runAnalyst([NOTE, JSON.stringify(THESIS_JSON), JSON.stringify(CHALLENGE_JSON)]);
+  assert.equal(calls[2].model, "claude-opus-4-8");
+  assert.ok(!calls[2].model.includes("haiku"));
+});
+
+test("wiring: a Challenger failure still saves the note AND its theses", async () => {
+  // The note and the theses both already exist and are paid for. Losing them because the review
+  // failed would be strictly worse than never having run a review.
+  const { result } = await runAnalyst([NOTE, JSON.stringify(THESIS_JSON), "not json"]);
+  assert.match(result.markdown, /## Theses/, "theses still render unchallenged");
+  assert.ok(!result.markdown.includes("Where this read is weak"));
 });
 
 test("wiring: the rendered theses are saved INTO the note file, not just returned", async () => {
@@ -136,8 +173,8 @@ test("wiring: a THROWN structuring error still saves the note", async () => {
 test("wiring: when theses succeed the Haiku extractor does NOT also run", async () => {
   // Two filing paths over one note would double-file every claim under two wordings, and the
   // dedupe key is a hash of the claim text, so nothing downstream would catch the duplication.
-  const { calls } = await runAnalyst([NOTE, JSON.stringify(THESIS_JSON)]);
-  assert.equal(calls.length, 2, "a third call here is the Haiku extractor running as well");
+  const { calls } = await runAnalyst([NOTE, JSON.stringify(THESIS_JSON), JSON.stringify(CHALLENGE_JSON)]);
+  assert.equal(calls.length, 3, "a fourth call here is the Haiku extractor running as well");
   assert.ok(!calls.some((c) => c.model?.includes("haiku")), "the extractor is superseded, not stacked");
 });
 

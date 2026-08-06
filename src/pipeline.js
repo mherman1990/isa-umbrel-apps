@@ -30,6 +30,7 @@ import { mapPool } from "./util.js";
 import { enrichItems, groundNewsItems } from "./enrich.js";
 import { buildPackets } from "./packets.js";
 import { buildTheses, renderTheses } from "./thesis.js";
+import { challengeTheses, applyChallenges, renderWeakness } from "./challenger.js";
 import { rankNewsItems } from "./newsrank.js";
 import { eventKeyFor, groupByEvent, pickLead } from "./eventkey.js";
 
@@ -1139,6 +1140,10 @@ Length: scannable in ~90 seconds (250–400 words). No preamble, no sign-off. St
     // When it succeeds it supersedes the Haiku extractor above; when it fails we fall back, so the
     // ledger keeps filling either way.
     buildTheses: true,
+    // Phase 3b: one batched adversarial pass over those theses before the reader sees them. Batched
+    // because the valuable checks are INTER-thesis (two theses resting on one datapoint) and a
+    // per-thesis call cannot see them.
+    challengeTheses: true,
     system: (dateLabel) => `You are the senior market-and-policy analyst for the Iowa Soybean Association's demand & policy team — an INTERNAL audience (sharp, no hand-holding, wants to see around the corner). Write a forward-looking ANALYST NOTE grounded in the stored data provided (the market signal board, full-history trend stats, laws/rules/decisions + news, the release calendar, tracked items, recent briefs). You also have a WEB SEARCH tool: when the stored data leaves a gap that matters to the read — a very recent development, a number more current than the last pipeline run, or a fact worth verifying — search for it, and cite any web source inline as a markdown link so it stands apart from the internal streams. Lean on the stored data first; reach for the web only when it sharpens the analysis.
 
 Do NOT summarize the period. Do the analysis a headline can't give:
@@ -1341,9 +1346,82 @@ export async function generateMemo(presetId, env) {
     }
   }
 
-  const markdown = theses ? `${noteMarkdown}\n\n${renderTheses(theses)}` : noteMarkdown;
+  // ── PHASE 3b: one adversarial pass before the reader sees any of it ─────────────────────────────
+  //
+  // Also inside a try, and for the same reason: by this point the note exists and has been paid for.
+  // A Challenger failure must cost us the review, never the note. When it fails, `applied` stays
+  // null, the theses render unchallenged, and each is persisted with a NULL verdict — so the
+  // database can always distinguish "approved" from "never reviewed".
+  let applied = null;
+  let noteLevelConcern = "";
+  let challengerModel = null;
+  if (theses && preset.challengeTheses) {
+    try {
+      const context =
+        `=== MEASURED LEAD-LAG (no significant lead is the CORRECT result of a corrected scan, not a gap) ===\n${leadLagText()}\n\n` +
+        `=== MARKET SERIES HISTORY DEPTH (for history_sufficient) ===\n` +
+        store
+          .marketSnapshot()
+          .map((s) => `${s.series}: ${s.history?.n ?? "?"} observations, range ${s.history?.min ?? "?"}–${s.history?.max ?? "?"}`)
+          .join("\n");
+      const challenged = await challengeTheses(theses, {
+        context,
+        env,
+        client,
+        recordUsage: (m, kind, i, o, usage) => store.recordUsage(m, kind, i, o, usage),
+      });
+      if (challenged) {
+        applied = applyChallenges(theses, challenged.challenges);
+        noteLevelConcern = challenged.noteLevelConcern;
+        challengerModel = challenged.model;
+        const counts = {};
+        for (const t of applied.all) counts[t.verdict ?? "unreviewed"] = (counts[t.verdict ?? "unreviewed"] ?? 0) + 1;
+        console.log(`   ⚔️  Challenger: ${Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(", ")}`);
+      }
+    } catch (err) {
+      console.log(`⚠️  Thesis challenge skipped: ${err.message}`);
+    }
+  }
+
+  // Rejected theses are removed from what the reader sees but survive in `applied.rejected` so they
+  // can be persisted with their reason — a rejected read that is merely deleted comes back next week
+  // looking new.
+  const shownTheses = applied ? applied.kept : theses;
+  const thesisBlock = shownTheses?.length ? `\n\n${renderTheses(shownTheses)}` : "";
+  const weaknessBlock = applied ? renderWeakness(applied, noteLevelConcern) : "";
+  const markdown = noteMarkdown + thesisBlock + (weaknessBlock ? `\n\n${weaknessBlock}` : "");
   const filePath = saveBrief(markdown, preset.edition, timezone);
   const briefPath = path.relative(store.DATA_DIR, filePath);
+
+  // Persist AFTER saving, because `thesis_key` is `<brief_path>#<index>` and the path is not known
+  // until the file exists. Position-based rather than a hash of the model's wording: `dedupe_key` on
+  // forecasts hashes the claim TEXT, so a re-run that paraphrases yields a different key and a
+  // duplicate row. Position within a note is stable under paraphrase.
+  if (theses) {
+    try {
+      const createdAt = new Date().toISOString();
+      const rows = applied ? applied.all : theses.map((t) => ({ ...t, verdict: null, rejected: false, checks: null }));
+      rows.forEach((t, i) => {
+        const thesisKey = `${briefPath}#${i}`;
+        store.upsertThesis({ ...t, thesisKey, briefPath, edition: preset.edition, createdAt });
+        if (t.verdict) {
+          store.recordChallenge({
+            thesisKey,
+            briefPath,
+            createdAt,
+            verdict: t.verdict,
+            reason: t.challengeReason,
+            caveat: t.caveat,
+            model: challengerModel,
+            ...(t.checks ?? {}),
+          });
+        }
+        t.thesisKey = thesisKey; // carried into the ledger below
+      });
+    } catch (err) {
+      console.log(`⚠️  Thesis persistence skipped: ${err.message}`);
+    }
+  }
 
   // File the note's falsifiable claims so they can be scored later. Fail-soft: a memo is worth
   // saving even if extraction hiccups, and the ledger self-heals on the next run.
@@ -1360,15 +1438,20 @@ export async function generateMemo(presetId, env) {
       const bySeries = new Map(store.marketSnapshot().map((s) => [s.series, s]));
       const createdAt = new Date().toISOString();
       let stored = 0;
-      for (const t of theses) {
+      // Only KEPT theses are filed. A rejected read is not a prediction the system made, so it must
+      // not enter the track record that later prompts are shown. The honest cost of that choice:
+      // rejection accuracy is unmeasurable — we never find out whether a rejected thesis would have
+      // been right. The measurement the plan actually wanted (do challenged-DOWN claims hit less
+      // often than approved ones?) compares approve vs lower_confidence, and both are kept.
+      for (const t of shownTheses ?? []) {
         const fc = t.falsifiableClaim;
         if (!fc?.claim) continue;
         // Flatten the thesis schema into the ledger's common shape. horizon and confidence live on
-        // the thesis, not on the claim — and `confidence` is the POST-grounding value, so a thesis
-        // demoted for having no resolvable evidence files as low.
+        // the thesis, not on the claim — and `confidence` is the POST-grounding, POST-challenge
+        // value, so a thesis demoted at either step files at the confidence we actually hold.
         const filed = fileForecastFromClaim(
           { ...fc, horizonDays: t.horizonDays, confidence: t.confidence },
-          { briefPath, edition: preset.edition, createdAt, bySeries }
+          { briefPath, edition: preset.edition, createdAt, bySeries, thesisKey: t.thesisKey ?? null, challengeVerdict: t.verdict ?? null }
         );
         if (filed) stored++;
       }
@@ -1884,7 +1967,7 @@ export async function extractForecasts(markdown, { edition, briefPath, env = pro
  *
  * @returns {boolean} whether a row was written
  */
-export function fileForecastFromClaim(f, { briefPath, edition, createdAt, bySeries }) {
+export function fileForecastFromClaim(f, { briefPath, edition, createdAt, bySeries, thesisKey = null, challengeVerdict = null }) {
   if (!f?.claim) return false;
   const seriesId = f.series && bySeries.has(f.series) ? f.series : null;
   const base = seriesId ? bySeries.get(seriesId) : null;
@@ -1913,6 +1996,10 @@ export function fileForecastFromClaim(f, { briefPath, edition, createdAt, bySeri
     // claim was made, not against whatever the series looked like at resolution time.
     baselineValue: base ? base.latest.value : null,
     baselinePeriod: base ? base.latest.period : null,
+    // Null on the legacy extractor path. `challengeVerdict` is what later answers whether the
+    // Challenger earns its money — see store.challengeScorecard().
+    thesisKey,
+    challengeVerdict,
   });
   return true;
 }
@@ -2354,6 +2441,28 @@ export async function runAudit() {
   }
 
   console.log(`\nBriefs saved: ${briefCount}`);
+
+  // Does the Challenger earn its money? The plan set a kill criterion — an approve rate near 100%
+  // after ~20 notes means cut it — and a criterion nobody can see is a criterion nobody applies. So
+  // it prints here, next to the spend it is being weighed against, rather than living in a table
+  // somebody would have to know to query.
+  const cs = store.challengeScorecard();
+  if (cs.totalChallenged > 0) {
+    console.log(`\nThesis Challenger: ${cs.totalChallenged} verdict${cs.totalChallenged === 1 ? "" : "s"}`);
+    console.log(`   ${Object.entries(cs.verdictCounts).map(([v, n]) => `${n} ${v}`).join(", ")}`);
+    console.log(`   approve rate ${(cs.approveRate * 100).toFixed(0)}%`);
+    const judged = Object.entries(cs.byVerdict).filter(([, v]) => v.judged > 0);
+    if (judged.length) {
+      console.log("   hit rate by verdict (the measurement that says whether it is worth it):");
+      for (const [v, s] of judged) console.log(`      ${v.padEnd(18)} ${s.hit}/${s.judged} = ${(s.hitRate * 100).toFixed(0)}%`);
+    } else {
+      console.log("   (no challenged claim has resolved yet — hit rate by verdict needs time)");
+    }
+    if (cs.totalChallenged >= 20 && cs.approveRate >= 0.95) {
+      console.log("   ⚠️  Approve rate ≥95% over 20+ verdicts — this is the stated CUT criterion.");
+      console.log("      The Challenger is agreeing with everything; consider removing it (src/challenger.js).");
+    }
+  }
 
   console.log("\nAnthropic usage this month:");
   if (monthUsage.length === 0) console.log("   (no Anthropic calls yet)");

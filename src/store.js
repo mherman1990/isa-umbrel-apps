@@ -794,13 +794,70 @@ db.exec(`
 `);
 // Additive migration for DBs created before comparator/threshold existed (same pattern as the rest
 // of the schema: adding an existing column throws, which means it's already there).
-for (const col of ["comparator TEXT", "threshold REAL"]) {
+for (const col of ["comparator TEXT", "threshold REAL", "thesis_key TEXT", "challenge_verdict TEXT"]) {
   try {
     db.exec(`ALTER TABLE forecasts ADD COLUMN ${col};`);
   } catch {
     /* already migrated */
   }
 }
+
+// --- theses & challenges (Phase 3) -------------------------------------------------------------
+// A thesis is one structured, evidence-grounded claim lifted out of an Analyst Note. Persisting them
+// is not bookkeeping: `challenge_verdict` on the forecast row is what eventually answers "do
+// challenged-down claims hit less often than approved ones?" — i.e. whether the Challenger is worth
+// its money. Without these tables that question can never be asked, only argued about.
+//
+// `thesis_key` is `<brief_path>#<index>`, NOT a hash of the model's wording. That distinction is
+// deliberate: `forecasts.dedupe_key` hashes the claim TEXT, so a re-run that paraphrases produces a
+// different key and a duplicate row. Position within a note is stable under paraphrase.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS theses (
+    thesis_key       TEXT PRIMARY KEY,
+    brief_path       TEXT,
+    edition          TEXT,
+    created_at       TEXT NOT NULL,
+    thesis           TEXT NOT NULL,
+    narrative        TEXT,
+    horizon_days     INTEGER,
+    mechanism_chain  TEXT,              -- JSON array
+    supporting_evidence TEXT,           -- JSON array of RESOLVED evidence ids only
+    counterevidence  TEXT,              -- JSON array
+    alternative_explanations TEXT,      -- JSON array
+    -- Both are kept. confidence_stated is what the model claimed; confidence_final is what survived
+    -- grounding and the Challenger. Storing only the final value would erase the very signal that
+    -- tells you whether the model is systematically overconfident.
+    confidence_stated TEXT,
+    confidence_final TEXT,
+    confirm          TEXT,
+    invalidate       TEXT,
+    dropped_evidence TEXT,              -- JSON array of ids that did NOT resolve
+    needs_review     INTEGER DEFAULT 0,
+    review_notes     TEXT,
+    rejected         INTEGER DEFAULT 0  -- rejected by the Challenger: kept here, removed from the note
+  );
+  CREATE INDEX IF NOT EXISTS idx_theses_brief ON theses(brief_path);
+
+  CREATE TABLE IF NOT EXISTS thesis_challenges (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    thesis_key       TEXT NOT NULL,
+    brief_path       TEXT,
+    created_at       TEXT NOT NULL,
+    verdict          TEXT,              -- approve | lower_confidence | add_caveat | human_review | reject
+    reason           TEXT,
+    caveat           TEXT,
+    -- The six structured checks. Each is a named failure this repo has actually shipped, which is
+    -- why they are columns rather than prose: they can be counted.
+    relationship             TEXT,
+    evidence_precedes_outcome TEXT,
+    seasonal_risk            TEXT,
+    duplicate_sources        TEXT,
+    series_measures_claim    TEXT,
+    history_sufficient       TEXT,
+    model            TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_challenges_thesis ON thesis_challenges(thesis_key);
+`);
 
 // --- report expectations & surprise ----------------------------------------------------------
 // Markets move on SURPRISE versus expectation, not on levels. The tool stored WASDE/NASS actuals but
@@ -889,15 +946,16 @@ export function upsertForecast(f) {
   db.prepare(
     `INSERT INTO forecasts (dedupe_key, brief_path, edition, created_at, claim, direction, comparator,
         threshold, series, horizon_days, resolve_by, confirming_event, confidence, baseline_value,
-        baseline_period, outcome)
+        baseline_period, thesis_key, challenge_verdict, outcome)
      VALUES (@dedupe_key, @brief_path, @edition, @created_at, @claim, @direction, @comparator,
         @threshold, @series, @horizon_days, @resolve_by, @confirming_event, @confidence,
-        @baseline_value, @baseline_period, 'pending')
+        @baseline_value, @baseline_period, @thesis_key, @challenge_verdict, 'pending')
      ON CONFLICT(dedupe_key) DO UPDATE SET
         claim=excluded.claim, direction=excluded.direction, comparator=excluded.comparator,
         threshold=excluded.threshold, series=excluded.series,
         horizon_days=excluded.horizon_days, resolve_by=excluded.resolve_by,
-        confirming_event=excluded.confirming_event, confidence=excluded.confidence`
+        confirming_event=excluded.confirming_event, confidence=excluded.confidence,
+        thesis_key=excluded.thesis_key, challenge_verdict=excluded.challenge_verdict`
   ).run({
     dedupe_key: f.dedupeKey,
     brief_path: f.briefPath ?? null,
@@ -914,6 +972,10 @@ export function upsertForecast(f) {
     confidence: f.confidence ?? null,
     baseline_value: f.baselineValue ?? null,
     baseline_period: f.baselinePeriod ?? null,
+    // Null for extractor-filed rows, set for thesis-filed ones. `challenge_verdict` is what later
+    // answers whether the Challenger earns its money — see challengeScorecard().
+    thesis_key: f.thesisKey ?? null,
+    challenge_verdict: f.challengeVerdict ?? null,
   });
 }
 
@@ -961,6 +1023,132 @@ export function forecastScorecard() {
     byConfidence,
   };
 }
+
+// --- theses & challenges -----------------------------------------------------------------------
+
+const J = (v) => JSON.stringify(Array.isArray(v) ? v : []);
+
+/** Insert or replace one thesis. Keyed on the stable `<brief_path>#<index>`, so re-running the
+ *  structuring step over the same note updates in place instead of accumulating near-duplicates. */
+export function upsertThesis(t) {
+  db.prepare(
+    `INSERT INTO theses (thesis_key, brief_path, edition, created_at, thesis, narrative, horizon_days,
+       mechanism_chain, supporting_evidence, counterevidence, alternative_explanations,
+       confidence_stated, confidence_final, confirm, invalidate, dropped_evidence, needs_review,
+       review_notes, rejected)
+     VALUES (@thesis_key, @brief_path, @edition, @created_at, @thesis, @narrative, @horizon_days,
+       @mechanism_chain, @supporting_evidence, @counterevidence, @alternative_explanations,
+       @confidence_stated, @confidence_final, @confirm, @invalidate, @dropped_evidence, @needs_review,
+       @review_notes, @rejected)
+     ON CONFLICT(thesis_key) DO UPDATE SET
+       thesis = excluded.thesis, narrative = excluded.narrative, horizon_days = excluded.horizon_days,
+       mechanism_chain = excluded.mechanism_chain, supporting_evidence = excluded.supporting_evidence,
+       counterevidence = excluded.counterevidence,
+       alternative_explanations = excluded.alternative_explanations,
+       confidence_stated = excluded.confidence_stated, confidence_final = excluded.confidence_final,
+       confirm = excluded.confirm, invalidate = excluded.invalidate,
+       dropped_evidence = excluded.dropped_evidence, needs_review = excluded.needs_review,
+       review_notes = excluded.review_notes, rejected = excluded.rejected`
+  ).run({
+    thesis_key: t.thesisKey,
+    brief_path: t.briefPath ?? null,
+    edition: t.edition ?? null,
+    created_at: t.createdAt ?? new Date().toISOString(),
+    thesis: String(t.thesis ?? "").slice(0, 600),
+    narrative: t.narrative ?? null,
+    horizon_days: t.horizonDays ?? null,
+    mechanism_chain: J(t.mechanismChain),
+    supporting_evidence: J(t.supportingEvidence),
+    counterevidence: J(t.counterevidence),
+    alternative_explanations: J(t.alternativeExplanations),
+    confidence_stated: t.confidenceStated ?? null,
+    confidence_final: t.confidence ?? null,
+    confirm: t.confirm ?? null,
+    invalidate: t.invalidate ?? null,
+    dropped_evidence: J((t.droppedEvidence ?? []).map((d) => d.id ?? d)),
+    needs_review: t.needsReview ? 1 : 0,
+    review_notes: (t.reviewNotes ?? []).join("; ") || null,
+    rejected: t.rejected ? 1 : 0,
+  });
+  return t.thesisKey;
+}
+
+/** Record one Challenger verdict. Append-only: a rejected thesis is REMOVED from the note but its
+ *  reason is kept here, so the same read cannot quietly reappear next week as if it were new. */
+export function recordChallenge(c) {
+  db.prepare(
+    `INSERT INTO thesis_challenges (thesis_key, brief_path, created_at, verdict, reason, caveat,
+       relationship, evidence_precedes_outcome, seasonal_risk, duplicate_sources,
+       series_measures_claim, history_sufficient, model)
+     VALUES (@thesis_key, @brief_path, @created_at, @verdict, @reason, @caveat,
+       @relationship, @evidence_precedes_outcome, @seasonal_risk, @duplicate_sources,
+       @series_measures_claim, @history_sufficient, @model)`
+  ).run({
+    thesis_key: c.thesisKey,
+    brief_path: c.briefPath ?? null,
+    created_at: c.createdAt ?? new Date().toISOString(),
+    verdict: c.verdict ?? null,
+    reason: c.reason ?? null,
+    caveat: c.caveat ?? null,
+    relationship: c.relationship ?? null,
+    evidence_precedes_outcome: c.evidencePrecedesOutcome ?? null,
+    seasonal_risk: c.seasonalRisk ?? null,
+    duplicate_sources: c.duplicateSources ?? null,
+    series_measures_claim: c.seriesMeasuresClaim ?? null,
+    history_sufficient: c.historySufficient ?? null,
+    model: c.model ?? null,
+  });
+}
+
+export function listTheses({ briefPath = null, limit = 50 } = {}) {
+  return briefPath
+    ? db.prepare("SELECT * FROM theses WHERE brief_path = ? ORDER BY thesis_key").all(briefPath)
+    : db.prepare("SELECT * FROM theses ORDER BY created_at DESC LIMIT ?").all(limit);
+}
+
+export function listChallenges({ thesisKey = null, limit = 100 } = {}) {
+  return thesisKey
+    ? db.prepare("SELECT * FROM thesis_challenges WHERE thesis_key = ? ORDER BY created_at DESC").all(thesisKey)
+    : db.prepare("SELECT * FROM thesis_challenges ORDER BY created_at DESC LIMIT ?").all(limit);
+}
+
+/**
+ * Does the Challenger earn its money?
+ *
+ * This is THE measurement the plan asked for, and the reason `forecasts.challenge_verdict` exists:
+ * hit rate split by what the Challenger said. If approved and challenged-down claims hit at the same
+ * rate, the Challenger is adding cost and latency for nothing and should be cut. Also reports the
+ * approve rate, because ~100% approval after ~20 notes is the stated kill criterion.
+ */
+export function challengeScorecard() {
+  const rows = db
+    .prepare(
+      `SELECT challenge_verdict AS verdict, outcome, COUNT(*) n
+         FROM forecasts WHERE challenge_verdict IS NOT NULL GROUP BY challenge_verdict, outcome`
+    )
+    .all();
+  const byVerdict = {};
+  for (const r of rows) {
+    const v = (byVerdict[r.verdict] ??= { hit: 0, miss: 0, other: 0 });
+    if (r.outcome === "hit" || r.outcome === "miss") v[r.outcome] += r.n;
+    else v.other += r.n;
+  }
+  for (const v of Object.values(byVerdict)) {
+    const judged = v.hit + v.miss;
+    v.judged = judged;
+    v.hitRate = judged ? v.hit / judged : null;
+  }
+  const verdicts = db.prepare("SELECT verdict, COUNT(*) n FROM thesis_challenges GROUP BY verdict").all();
+  const totalChallenged = verdicts.reduce((n, r) => n + r.n, 0);
+  const approved = verdicts.find((r) => r.verdict === "approve")?.n ?? 0;
+  return {
+    byVerdict,
+    totalChallenged,
+    approveRate: totalChallenged ? approved / totalChallenged : null,
+    verdictCounts: Object.fromEntries(verdicts.map((r) => [r.verdict, r.n])),
+  };
+}
+
 /** How many dated timeline entries a thread keeps. Raised from the model's 5-per-response cap because
  *  the timeline now MERGES across runs — 5 would silently discard the older half of a long thread. */
 const STORYLINE_TIMELINE_MAX = 8;
