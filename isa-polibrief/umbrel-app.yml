@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-polibrief
 category: automation
 name: The Bean Brief
-version: "1.30.0"
+version: "1.31.0"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
@@ -28,7 +28,48 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  STORYLINES NOW SHOW WHAT CHANGED, NOT THE WHOLE THREAD AGAIN. The Storylines panel on the News tab
+  THE ANALYST NOTE NOW HAS TO SHOW ITS WORK, AND IS ARGUED WITH BEFORE YOU READ IT. Until now the
+  Analyst Note made claims and nothing checked whether it could point at anything. Each claim it
+  makes is now written down as a numbered piece of evidence — a specific stored item, a specific
+  market series, a specific signal — and the app checks every one of those references against what
+  is actually in the database. References the AI invents are deleted before you see the note, and a
+  claim left with no surviving evidence is automatically marked down to low confidence and flagged,
+  rather than being presented as confident. It is not deleted, because a good read with sloppy
+  citations is still worth reading; it just cannot pretend to be better supported than it is.
+  A second pass then argues against the note. It checks six specific things, and each one is a
+  mistake this app has actually made in the past: is it counting the same government action twice
+  because it was filed in several places, is the number being used to settle a prediction actually
+  measuring the thing predicted or just something related to it, is a "record for the month" claim
+  resting on far too few years of history, could an ordinary seasonal pattern explain the whole
+  thing, does the evidence even come before the effect it is meant to explain, and are two of the
+  note's claims secretly the same claim. Anything it flags is shown to you inline and again in a new
+  "Where this read is weak" section. A claim it rejects outright is struck through with the reason
+  given, not silently removed — so a bad read cannot quietly come back next week looking new.
+  Crucially, that reviewer can only ever LOWER confidence, never raise it. That is enforced by the
+  app rather than trusted to the AI, because a reviewer that could talk itself up would just be an
+  amplifier, and you would never notice: a more confident note reads better.
+  All of this is recorded, so in a few weeks you will be able to see whether the reviewer is
+  actually earning its keep — whether claims it marked down really do come true less often than the
+  ones it approved. If it turns out to approve nearly everything, the audit report will now say so
+  and tell you to switch it off. It is deliberately measurable rather than taken on faith.
+  ALSO — THE DAILY BRIEF NOW USES THE EVIDENCE RECORDS IT WAS ALREADY PAYING FOR. Last release added
+  verified records of source documents, and the Ask box and Analyst Note started using them, but the
+  twice-daily brief — the thing you actually read — was still working from raw text. It now prefers
+  the verified record, and the "Evidence" section quotes wording that has been checked word-for-word
+  against the source instead of being retyped by the AI. Those records are also now made for
+  worth-knowing items, not only the highest-priority ones, so more of the brief rests on checked
+  source text.
+  ALSO — the Analyst Note gets substantially more room to think. Its budget had been set to keep
+  requests simple rather than to fit the analysis, which meant the deepest piece of work in the app
+  was the most cramped. And if the Ask box ever runs out of room mid-answer it now says so, instead
+  of stopping mid-sentence in a way that looked exactly like a complete answer.
+  ⚠️ RUNNING COSTS GO UP in this release, on purpose. The note thinks harder, a stronger model does
+  the reasoning behind each claim, the reviewer is a real second opinion rather than a cheap one,
+  and evidence records now cover more items. Expect roughly $30–40 a month depending on how often
+  you run the Analyst Note, against about $22 before. Run "audit" after a week for the real figure.
+  Update only — no new keys, no settings to change.
+  ---
+  PREVIOUS RELEASE (1.30.0) — STORYLINES NOW SHOW WHAT CHANGED, NOT THE WHOLE THREAD AGAIN. The Storylines panel on the News tab
   was rewriting each thread from scratch every run, so you had to re-read a summary you had already
   read to spot the one new sentence in it. Worse, it was doing that from only the last three weeks of
   items — so a dated event that fell outside that window disappeared from the thread's timeline for
