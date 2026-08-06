@@ -23,6 +23,14 @@
 // The fix is entirely in what the writer is *given* and *asked for* — same single model call, same
 // markdown output. Everything the projection needs was already in memory: `.tier` from triage,
 // `.summary` (the enriched document) from enrich, `.eventFilings` from the event grouping.
+//
+// THEN THE SAME THING NEARLY HAPPENED AGAIN. v1.30.0 added evidence packets — structured extractions
+// whose every quote is verified in code as a verbatim substring of the source — and wired them into
+// `compactItems`, so the Ask box and the Analyst Note got them while the twice-daily brief did not.
+// It is the identical shape of gap: new grounding lands upstream, and the one output Matt actually
+// reads keeps reasoning from the weaker evidence. The brief now prefers a packet over raw document
+// text, ranks packet-backed items above raw-text ones at equal tier, and reports the packet count in
+// its log line — because the failure mode is silent, not loud.
 
 import Anthropic from "@anthropic-ai/sdk";
 import * as store from "./store.js";
@@ -53,9 +61,10 @@ function briefSystemPrompt({ statesTracked, actionWindowDays }) {
 You are given a JSON list of pre-screened government ACTIONS (not documents — see eventFilings). Each carries:
 - **title, url, source, date, jurisdiction, docType** — identity. States tracked: ${statesTracked}.
 - **priority** — the relevance grade from triage. "must_read" means ISA would act, comment, or brief leadership; then "worth_knowing"; then "background".
+- **packet** — a STRUCTURED EXTRACTION of the action taken from its own text and checked in code: every quote in **packet.evidence** was verified as a verbatim substring of the source. This is the strongest evidence available, and when present it REPLACES document.
 - **document** — the action's OWN TEXT (an official abstract or article excerpt). This is sourced fact.
 - **oneLine** — one sentence a cheap model wrote ABOUT the title. This is someone else's summary, NOT source text.
-- **evidenceBasis** — "document" when real text was retrieved, "title_only" when it was NOT.
+- **evidenceBasis** — "packet" (a verified structured extraction), "document" (the source's own text was retrieved), or "title_only" when the substance was NOT retrieved.
 - **eventFilings** — how many separate places this ONE action was filed.
 - **commentDeadline** and **daysToDeadline** — the day count is already computed for you.
 - **tracked** — the analyst pinned this item and is following it.
@@ -78,7 +87,7 @@ One line each. Early-stage, out-of-state or second-order items that are not deci
 Every comment period and dated obligation in the data, soonest first, each with its days remaining (use daysToDeadline; do not compute dates yourself). Omit this section if there are none.
 
 ### 📎 Evidence
-For each development in "What changed", the sourced basis for it: a short verbatim phrase from that item's document, attributed to the item. Where an item's evidenceBasis is "title_only", say plainly that the substance was not retrieved. Omit this section if no development has a document.
+For each development in "What changed", the sourced basis for it, attributed to the item. Where the item has a **packet**, quote from packet.evidence — those quotes are already verified verbatim, so reproduce one exactly and never paraphrase it. Otherwise use a short verbatim phrase from its document. Where an item's evidenceBasis is "title_only", say plainly that the substance was not retrieved. Omit this section if no development has a packet or a document.
 
 ### 👀 What to watch
 The next expected event for each open thread — the report, hearing, decision or filing that would resolve it, and roughly when. Omit this section if the data supports nothing.
@@ -91,7 +100,8 @@ Hard rules:
 - An item whose **evidenceBasis is "title_only"** may appear ONLY under "Could matter later", "Deadlines & required actions" or "What to watch", and its line must say the substance was not retrieved. It may NEVER be a "What changed" development — you would be describing a document nobody read.
 - An item with **eventFilings greater than 1** is ONE action filed in several places. State how many filings; never present it as several corroborating items. Repetition is not evidence.
 - An item with **priority "background"** may never be a "What changed" development.
-- Treat **document** as sourced fact and **oneLine** as someone else's summary. Where they differ, follow the document and prefer its wording.
+- Treat **packet** and **document** as sourced fact and **oneLine** as someone else's summary. Where they differ, follow the sourced text and prefer its wording.
+- A packet's **unknowns** and **notInDocument** are what the source did NOT establish. Never fill those gaps from oneLine or from your own knowledge — say plainly that the source does not address it.
 - Do NOT enumerate every input item. Items you don't write about remain available to the reader on the Laws, Rules & Decisions page. A short brief that surfaces the right five actions is the goal.`;
 }
 
@@ -127,14 +137,20 @@ function tierRank(item) {
   return TIER_ORDER[item.tier ?? item.triage_tier] ?? TIER_ORDER.worth_knowing;
 }
 
-/** 0 for a real abstract, 1 for a short one, 2 for title-only. Lower sorts first, so at equal tier
- *  a grounded item outranks an ungrounded one — which is v1.27.0/v1.28.0's whole thesis finally
- *  reaching the brief. Phase 2 adds a packet tier above `document`. */
-function evidenceRank(item) {
+/** Lower sorts first, so at equal tier a better-grounded item outranks a worse-grounded one — which
+ *  is v1.27.0/v1.28.0's whole thesis finally reaching the brief. The packet tier is the slot the
+ *  v1.30.0 comment left open here, and it belongs ABOVE `document`: every quote in a packet was
+ *  verified in code as a verbatim substring of the source, where a document excerpt is raw text the
+ *  writer still has to quote from itself.
+ *
+ *  `packet` is a parameter rather than a field read off the item because packets live in the DB,
+ *  keyed by event_key — the in-memory item has no idea whether one exists. */
+function evidenceRank(item, packet = null) {
+  if (packet) return 0;
   const n = documentText(item).length;
-  if (n >= 800) return 0;
-  if (n >= 200) return 1;
-  return 2;
+  if (n >= 800) return 1;
+  if (n >= 200) return 2;
+  return 3;
 }
 
 export async function generateBrief({ relevantItems, watchlist, edition, env, stats }) {
@@ -162,11 +178,31 @@ export async function generateBrief({ relevantItems, watchlist, edition, env, st
     return days !== null && days >= 0 && days <= ACTION_WINDOW_DAYS ? 0 : 1;
   };
 
+  // EVIDENCE PACKETS (v1.30.0 built them; until now nothing that Matt reads twice a day consumed
+  // them). One query for the whole brief rather than one per item, mirroring `compactItems`.
+  //
+  // Fetched BEFORE the sort, not inside the payload loop, because `evidenceRank` needs to know which
+  // items are packet-backed in order to rank them — deferring the lookup until after the budget was
+  // applied would let a packet-backed item lose its payload slot to a raw-text one.
+  //
+  // ⚠️ Ordering upstream is load-bearing and already locked by test/packets.test.js:
+  // `buildPackets` (pipeline.js:592) runs after grounding and BEFORE this (pipeline.js:667). If a
+  // future edit moves the brief above it, this map is simply empty and the brief silently regresses
+  // to raw document text — no error, exactly the failure mode v1.29.0 was written to end.
+  const packetRows = store.packetsFor(relevantItems.map((i) => i.raw?.eventKey));
+  // A THIN packet carries no more than the title, so it is not worth prompt space — the raw document
+  // excerpt is better. Same rule and same wording as `compactItems`, deliberately: two consumers
+  // disagreeing about what "has a packet" means is how the two drift apart.
+  const packetFor = (item) => {
+    const p = packetRows.get(item.raw?.eventKey);
+    return p && p.sufficiency !== "thin" && p.packet ? p : null;
+  };
+
   const sorted = [...relevantItems].sort(
     (a, b) =>
       tierRank(a) - tierRank(b) ||
       actionableRank(a) - actionableRank(b) ||
-      evidenceRank(a) - evidenceRank(b) ||
+      evidenceRank(a, packetFor(a)) - evidenceRank(b, packetFor(b)) ||
       (b.eventFilings ?? 1) - (a.eventFilings ?? 1) ||
       (b.localScore ?? 0) - (a.localScore ?? 0)
   );
@@ -188,6 +224,7 @@ export async function generateBrief({ relevantItems, watchlist, edition, env, st
 
   const project = (item, { withDocument }) => {
     const doc = documentText(item);
+    const packet = packetFor(item);
     const days = daysToDeadlineOf(item);
     const entry = {
       uid: item.uid,
@@ -203,11 +240,31 @@ export async function generateBrief({ relevantItems, watchlist, edition, env, st
       // The three fields three releases of upstream work produced and the writer never saw.
       priority: item.tier ?? item.triage_tier ?? null,
       eventFilings: item.eventFilings ?? 1,
-      evidenceBasis: evidenceBasisOf(item),
+      // Describes what the item's substance RESTS ON, not what this projection chose to send — a
+      // roster item keeps its real basis and is marked `metadataOnly` separately. Those two answer
+      // different questions and collapsing them would make a roster item look ungrounded.
+      evidenceBasis: packet ? "packet" : evidenceBasisOf(item),
     };
     if (days !== null) entry.daysToDeadline = days;
     if (Array.isArray(item.topicIds) && item.topicIds.length) entry.topicIds = item.topicIds;
-    if (withDocument && doc) {
+    if (withDocument && packet) {
+      // The packet REPLACES the document excerpt — sending both would pay twice for the same text.
+      // Same field shape as `compactItems` so the Ask box, the analyst and the brief all describe a
+      // packet identically; a second shape here would be a second thing to keep in sync.
+      const pk = packet.packet;
+      entry.packet = {
+        sufficiency: packet.sufficiency,
+        whatHappened: pk.what_happened,
+        claims: pk.claims,
+        actionsRequired: pk.actions_required,
+        dates: pk.dates,
+        quantities: pk.quantities,
+        soyMechanisms: pk.soy_mechanisms,
+        evidence: pk.evidence, // every quote verified in code as a verbatim substring of the source
+        unknowns: pk.unknowns,
+        notInDocument: pk.not_in_document,
+      };
+    } else if (withDocument && doc) {
       entry.document = doc.slice(0, BRIEF_DOC_CHARS) + (doc.length > BRIEF_DOC_CHARS ? " […]" : "");
     } else if (!withDocument) {
       entry.metadataOnly = true;
@@ -221,10 +278,15 @@ export async function generateBrief({ relevantItems, watchlist, edition, env, st
   ];
 
   // House rule: no silent caps. If anything was withheld, say so and say how much.
+  //
+  // The packet count is here because the packet path's failure mode is SILENT: if the map comes back
+  // empty (ordering moved, event keys drifted, packets never built) the brief still renders, just
+  // from raw text again. A number in the Logs pane is the only way to see that from the Pi.
   const notSent = relevantItems.length - items.length;
+  const packetBacked = items.filter((i) => i.packet).length;
   console.log(
     `   📝 Brief: ${relevantItems.length} relevant action${relevantItems.length === 1 ? "" : "s"} → ` +
-      `${payload.length} with evidence, ${roster.length} metadata-only` +
+      `${payload.length} with evidence (${packetBacked} packet-backed), ${roster.length} metadata-only` +
       (notSent > 0 ? `, ${notSent} not sent (see Laws, Rules & Decisions)` : "")
   );
 

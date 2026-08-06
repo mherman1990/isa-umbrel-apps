@@ -27,6 +27,8 @@ process.env.ANTHROPIC_API_KEY = "test-key-not-used";
 process.env.BRIEF_MODEL = "claude-sonnet-5";
 
 const { generateBrief, __testing } = await import("../src/brief.js");
+// Imported AFTER POLIBRIEF_DATA_DIR is set, so the packet rows land in the temp DB above.
+const store = await import("../src/store.js");
 
 const WATCHLIST = {
   sources: { legiscan: { states: ["IA", "IL"] } },
@@ -273,4 +275,113 @@ test("brief: no farmer path remains", async () => {
   // And passing the old parameter cannot resurrect it.
   const { requestBody } = await runBrief([action()]);
   assert.ok(!/NONPARTISAN policy update/i.test(requestBody.system));
+});
+
+// ── EVIDENCE PACKETS REACH THE BRIEF ──────────────────────────────────────────────────────────────
+//
+// v1.30.0 built packets and wired them into `compactItems`, so the Ask box and the Analyst Note read
+// verified extractions while the twice-daily brief still read raw text — the SAME shape of gap this
+// file was created to catch, one release later. These tests assert on the payload, not on prose.
+
+/** Insert a packet keyed on `eventKey`. Defaults describe a real, quotable extraction. */
+function seedPacket(eventKey, over = {}) {
+  store.upsertPacket({
+    eventKey,
+    leadUid: over.leadUid ?? "lead-uid",
+    sourceUid: over.sourceUid ?? "src-uid",
+    sufficiency: over.sufficiency ?? "full",
+    sourceChars: over.sourceChars ?? 2400,
+    model: "claude-haiku-4-5",
+    packet: {
+      sufficiency: over.sufficiency ?? "full",
+      what_happened: "EPA set the 2027 RFS volumes.",
+      claims: [{ text: "Biomass-based diesel rises", kind: "fact", attributed_to: "", evidence_index: 0 }],
+      actions_required: [{ who: "Refiners", what: "Comment on the docket", by_when: "2026-09-01" }],
+      dates: [{ date: "2026-09-01", what: "Comments close", kind: "comment_close" }],
+      quantities: [],
+      soy_mechanisms: ["Soybean oil demand for biodiesel"],
+      evidence: [{ quote: "the Agency is finalizing the 2027 volumes", locator: "p. 3" }],
+      unknowns: ["Whether the SRE backlog is addressed"],
+      not_in_document: ["Any change to the 45Z credit"],
+      ...(over.packet ?? {}),
+    },
+  });
+}
+
+test("brief: a packet REPLACES the document excerpt — the same text is never paid for twice", async () => {
+  seedPacket("evt-replace");
+  const { items } = await runBrief([
+    action({ uid: "packed", summary: "z".repeat(1200), raw: { eventKey: "evt-replace" } }),
+  ]);
+  assert.equal(items[0].evidenceBasis, "packet");
+  assert.ok(items[0].packet, "the packet must be sent");
+  assert.equal(items[0].document, undefined, "sending both would bill twice for the same source text");
+  // The verified quote is the point of the whole exercise — it must survive into the payload.
+  assert.equal(items[0].packet.evidence[0].quote, "the Agency is finalizing the 2027 volumes");
+});
+
+test("brief: a packet-backed item outranks a fully-grounded raw-document one at equal tier", async () => {
+  seedPacket("evt-rank");
+  const { items } = await runBrief([
+    action({ uid: "rawdoc", summary: "y".repeat(4000), raw: {} }),
+    action({ uid: "packed", summary: "y".repeat(900), raw: { eventKey: "evt-rank" } }),
+  ]);
+  // Same tier, same deadline, same eventFilings — evidence strength is the only discriminator, and a
+  // verified extraction beats a longer pile of raw text.
+  assert.equal(items[0].uid, "packed");
+  assert.equal(items[1].uid, "rawdoc");
+});
+
+test("brief: a THIN packet is ignored — a packet restating the title is worse than the document", async () => {
+  // The honesty floor in packets.js stores "thin" when the source was too short to support more.
+  // Spending prompt space on it would dress a teaser up as verified evidence.
+  seedPacket("evt-thin", { sufficiency: "thin", sourceChars: 180 });
+  const { items } = await runBrief([
+    action({ uid: "thinly", summary: "q".repeat(1200), raw: { eventKey: "evt-thin" } }),
+  ]);
+  assert.equal(items[0].packet, undefined, "a thin packet must not be sent");
+  assert.equal(items[0].evidenceBasis, "document");
+  assert.ok(items[0].document, "it falls back to the document excerpt");
+});
+
+test("brief: a roster item keeps its real evidenceBasis but carries no packet payload", async () => {
+  // evidenceBasis says what the item RESTS ON; metadataOnly says what was SENT. Collapsing the two
+  // would make every roster item look ungrounded and disqualify it under the title_only rule.
+  seedPacket("evt-roster");
+  const many = Array.from({ length: 12 }, (_, i) => action({ uid: `f${i}`, localScore: 100 - i }));
+  const { items } = await runBrief([
+    ...many,
+    action({ uid: "rostered", localScore: 0, tier: "background", raw: { eventKey: "evt-roster" } }),
+  ]);
+  const rostered = items.find((i) => i.uid === "rostered");
+  assert.equal(rostered.metadataOnly, true);
+  assert.equal(rostered.packet, undefined, "the roster must not carry packet payloads — that is the cost control");
+  assert.equal(rostered.evidenceBasis, "packet", "but its basis is still honestly reported");
+});
+
+test("brief: an item with no eventKey simply has no packet — the lookup never throws", async () => {
+  const { items } = await runBrief([action({ uid: "keyless", raw: {} }), action({ uid: "noraw", raw: undefined })]);
+  assert.equal(items.length, 2);
+  assert.ok(items.every((i) => i.packet === undefined));
+});
+
+test("brief: the prompt gives the packet a contract — the field is never sent unexplained", async () => {
+  seedPacket("evt-prompt");
+  const { requestBody } = await runBrief([action({ raw: { eventKey: "evt-prompt" } })]);
+  const sys = requestBody.system.replace(/\*/g, "");
+  assert.match(sys, /packet/i, "the writer must be told what a packet is");
+  assert.match(sys, /verbatim substring/i, "and why its quotes can be trusted");
+  assert.match(sys, /evidenceBasis.*packet/is, "the three-valued basis must be described");
+  assert.match(sys, /unknowns/i, "and told not to fill the gaps the source left open");
+});
+
+test("brief: the packet count is logged — the packet path fails silently otherwise", async () => {
+  seedPacket("evt-log");
+  const { logs } = await runBrief([
+    action({ uid: "packed", raw: { eventKey: "evt-log" } }),
+    action({ uid: "plain", raw: {} }),
+  ]);
+  const line = logs.find((l) => l.includes("📝 Brief:"));
+  assert.ok(line, "the brief must report what it sent");
+  assert.match(line, /1 packet-backed/, "an empty packet map must be visible from the Pi's Logs pane");
 });
