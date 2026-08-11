@@ -32,8 +32,29 @@
 // text, ranks packet-backed items above raw-text ones at equal tier, and reports the packet count in
 // its log line — because the failure mode is silent, not loud.
 
+// ⚠️ THE BRIEF IS NOW BUILT FROM CHECKED CARD RECORDS, NOT FREEHAND PROSE.
+// (Unreleased at the time of writing — package.json is NOT bumped. Pick the version at release time
+// from `git tag`, not from this comment: the repo is shared with Farm OS and main runs ahead.)
+//
+// Everything above stays true; this is the next step in the same argument. The writer was given good
+// evidence (packets, documents, tiers) and then asked for markdown, which meant nothing downstream
+// could check what it said. A missing procedural posture, a mechanism ending in "market sentiment",
+// a final-rule claim resting on a trade-press article — all of them rendered exactly as convincingly
+// as a correct card. `policycards.js` now produces structured six-slot records that are linted in
+// code and attacked by a reviewer before `policyrender.js` turns the survivors into the markdown
+// that ships. Delivery is untouched.
+//
+// ⚠️ THE PROSE PATH BELOW IS RETAINED AS AN ANNOUNCED FALLBACK, AND THAT IS A DELIBERATE TRADE.
+// This runs unattended twice a day on a Pi. If the card stage throws — an API shape change, a schema
+// rejection, a bad response — an empty brief would be a straight regression from what Matt gets
+// today. So a failure falls back to the prose brief AND SAYS SO IN THE BRIEF ITSELF. It is not a
+// silent fallback: a silent one would hide that the card path had stopped working, which is the
+// exact failure mode this file's header was written about.
+
 import Anthropic from "@anthropic-ai/sdk";
 import * as store from "./store.js";
+import { buildPolicyCards } from "./policycards.js";
+import { renderPolicyBrief } from "./policyrender.js";
 
 // Per-item document budget for the brief. Deliberately smaller than the Ask box's 1,200
 // (CONTEXT_BODY_CHARS in pipeline.js): the brief needs enough of the operative paragraph to write
@@ -153,8 +174,78 @@ function evidenceRank(item, packet = null) {
   return 3;
 }
 
-export async function generateBrief({ relevantItems, watchlist, edition, env, stats }) {
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+/**
+ * The daily brief.
+ *
+ * Card path first; the prose path is the announced fallback (see the header note). The stats footer
+ * is appended here either way, so its numbers stay exact regardless of which path produced the body.
+ */
+export async function generateBrief({ relevantItems, watchlist, edition, env, stats, runId = null, missingLayers = [], missingSeriesPrefixes = [], costCeilingUsd = null, client = null }) {
+  const timezone = watchlist.briefEditions?.timezone ?? "America/Chicago";
+  const dateLabel = new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(new Date());
+
+  let body = null;
+  let cardStats = null;
+  let fallbackReason = null;
+
+  try {
+    const { cards, stats: cs } = await buildPolicyCards({
+      relevantItems,
+      edition,
+      dateLabel,
+      env,
+      missingLayers,
+      missingSeriesPrefixes,
+      runId,
+      costCeilingUsd,
+      client,
+    });
+    cardStats = cs;
+    // Zero cards is a VALID outcome, not a failure — it means nothing cleared the evidence bar, and
+    // the rendered brief says exactly that. Only an exception or a null draft falls back to prose,
+    // because those mean the path is broken rather than the day being quiet.
+    if (cs.drafted > 0 || cs.out > 0) {
+      body = renderPolicyBrief({
+        cards,
+        dateLabel,
+        edition,
+        missingLayers,
+        reviewNote: cs.aborted,
+      });
+    } else {
+      fallbackReason = "the card stage produced no drafts";
+    }
+  } catch (err) {
+    fallbackReason = `the card stage failed (${err.message})`;
+    console.log(`⚠️  Policy cards failed — falling back to the prose brief: ${err.message}`);
+  }
+
+  if (body === null) {
+    body = await generateProseBody({ relevantItems, watchlist, edition, env, dateLabel, client });
+    body += `\n\n> ⚠️ This brief was written by the fallback prose writer, not the card pipeline — ${fallbackReason}. Slot checks and the adversarial review did NOT run on it.\n`;
+  }
+
+  // Footer appended programmatically so its numbers are always exact.
+  const generatedAt = new Date().toLocaleString("en-US", { timeZone: timezone });
+  const skippedText = stats.skippedSources.length ? stats.skippedSources.map((s) => s.label).join(", ") : "none";
+  const cardLine = cardStats
+    ? ` | cards ${cardStats.drafted} drafted → ${cardStats.lintedOut} failed the contract → ${cardStats.reviewRejected} rejected in review → ${cardStats.out} published`
+    : "";
+  const footer =
+    `\n\n---\n*Scanned: ${stats.fetchedCount} items across ${stats.sourceCount} sources | ` +
+    `${relevantItems.length} relevant after triage${cardLine} |\n` +
+    `Skipped sources: ${skippedText} | Generated ${generatedAt} (${timezone})*\n`;
+
+  return body + footer;
+}
+
+/**
+ * The original single-call prose writer, unchanged in behaviour and now reached only as a fallback.
+ * Kept intact rather than deleted: it is the safety net that stops a bug in the card path costing a
+ * day's briefs, and it is the thing to compare against when tuning the card prompts.
+ */
+async function generateProseBody({ relevantItems, watchlist, edition, env, dateLabel, client = null }) {
+  client = client ?? new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   const model = env.BRIEF_MODEL || "claude-sonnet-5";
   const statesTracked = (watchlist.sources?.legiscan?.states ?? []).join(", ") || "state";
 
@@ -162,9 +253,6 @@ export async function generateBrief({ relevantItems, watchlist, edition, env, st
   // gets the new behaviour on a code-only Update.
   const payloadBudget = watchlist.output?.briefPayloadItems ?? DEFAULT_PAYLOAD_ITEMS;
   const rosterBudget = watchlist.output?.maxItemsInBrief ?? DEFAULT_ROSTER_ITEMS;
-
-  const timezone = watchlist.briefEditions?.timezone ?? "America/Chicago";
-  const dateLabel = new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(new Date());
 
   // Ordering, in priority order. `localScore` is LAST — see the header note on why the keyword
   // count cannot be the sort key.
@@ -316,15 +404,8 @@ export async function generateBrief({ relevantItems, watchlist, edition, env, st
     body = response.content.find((b) => b.type === "text")?.text?.trim() ?? "";
   }
 
-  // Footer appended programmatically so its numbers are always exact.
-  const generatedAt = new Date().toLocaleString("en-US", { timeZone: timezone });
-  const skippedText = stats.skippedSources.length ? stats.skippedSources.map((s) => s.label).join(", ") : "none";
-  const footer =
-    `\n\n---\n*Scanned: ${stats.fetchedCount} items across ${stats.sourceCount} sources | ` +
-    `${relevantItems.length} relevant after triage |\n` +
-    `Skipped sources: ${skippedText} | Generated ${generatedAt} (${timezone})*\n`;
-
-  return body + footer;
+  // The footer is appended by `generateBrief`, which owns it for both paths.
+  return body;
 }
 
 // Exported for tests only: these encode measured thresholds (the 200-char title-only line, the

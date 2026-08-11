@@ -108,8 +108,9 @@ program
   .description("Refresh market timeseries (Markets charts) from adapters with fetchSeries")
   .action(async () => {
     const { refreshMarketSeries, runAlertsCheck } = await import("./pipeline.js");
-    const n = await refreshMarketSeries(process.env);
-    console.log(`📈 Refreshed ${n} market series.`);
+    const { seriesCount, failed } = await refreshMarketSeries(process.env);
+    console.log(`📈 Refreshed ${seriesCount} market series.`);
+    if (failed.length) console.log(`⚠️  ${failed.length} adapter(s) failed: ${failed.map((f) => f.label).join(", ")}`);
     await runAlertsCheck(process.env);
   });
 

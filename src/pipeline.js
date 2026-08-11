@@ -30,6 +30,7 @@ import { mapPool } from "./util.js";
 import { enrichItems, groundNewsItems } from "./enrich.js";
 import { buildPackets } from "./packets.js";
 import { buildTheses, renderTheses } from "./thesis.js";
+import { PRICES, CACHE_WRITE_MULTIPLIER, CACHE_READ_MULTIPLIER } from "./pricing.js";
 import { challengeTheses, applyChallenges, renderWeakness } from "./challenger.js";
 import { rankNewsItems } from "./newsrank.js";
 import { eventKeyFor, groupByEvent, pickLead } from "./eventkey.js";
@@ -185,6 +186,11 @@ export async function refreshMarketSeries(env = process.env) {
 
   // Refresh adapters concurrently (bounded). Fail-soft per adapter; the saveSeriesPoints() writes
   // are synchronous (better-sqlite3) so they serialize safely even though the fetches overlap.
+  // ⚠️ FAILURES ARE NOW RETURNED, NOT ONLY LOGGED. They used to vanish into a console line, which
+  // was fine while nothing downstream cared; the daily brief now has to NAME the evidence layers it
+  // could not reach, and a brief that quietly omits a layer looks identical to one where that layer
+  // had nothing to say.
+  const failed = [];
   const counts = await mapPool(seriesAdapters, SERIES_CONCURRENCY, async (adapter) => {
     try {
       // Pass the adapter's watchlist entry through, same as collect does for fetchItems — it lets a
@@ -200,6 +206,7 @@ export async function refreshMarketSeries(env = process.env) {
       return n;
     } catch (err) {
       console.log(`⚠️  ${adapter.label} series refresh failed: ${err.message}`);
+      failed.push({ id: adapter.id, label: adapter.label, message: err.message });
       return 0;
     }
   });
@@ -210,7 +217,7 @@ export async function refreshMarketSeries(env = process.env) {
   } catch {
     /* freshness check is best-effort */
   }
-  return seriesCount;
+  return { seriesCount, failed };
 }
 
 /**
@@ -303,10 +310,21 @@ export async function runAlertsCheck(env = process.env, output = null) {
   return changes;
 }
 
-export async function runPipeline({ edition = "am", dryRun = false, source = null, env = process.env }) {
+export async function runPipeline({ edition = "am", dryRun = false, source = null, env = process.env, runId = null }) {
   const watchlist = loadWatchlist();
+  // Market layers that failed this run — named in the brief, so a missing layer is never silent.
+  // Declared out here because it is set inside the `!dryRun` block and read at the very end.
+  let failedMarketLayers = [];
 
   console.log(`\n🌱 The Bean Brief ${dryRun ? "(dry run — no Anthropic calls)" : `— ${edition} edition`}\n`);
+
+  // Attribute every model call below to this run (ambient — see store.setCurrentRunId). The caller
+  // owns the row's lifecycle; a CLI run with no row passes null and everything still works, it just
+  // is not attributed to anything.
+  if (runId) {
+    store.setCurrentRunId(runId);
+    store.setRunStage(runId, "collecting");
+  }
 
   // Keep the entity registry current so entity-driven adapters (rss/email-intake)
   // have their channels even on a bare CLI/cron run (the server also syncs on startup).
@@ -442,7 +460,8 @@ export async function runPipeline({ edition = "am", dryRun = false, source = nul
   // 1c. Refresh market timeseries (Markets charts) from any adapter exposing fetchSeries,
   //     then detect material changes → the "what changed" alert feed (event-driven).
   if (!dryRun) {
-    await refreshMarketSeries(env);
+    const refresh = await refreshMarketSeries(env);
+    failedMarketLayers = refresh.failed;
     await runAlertsCheck(env, watchlist.output);
     try {
       await generateNewsDigest(env);
@@ -516,28 +535,25 @@ export async function runPipeline({ edition = "am", dryRun = false, source = nul
     return { dryRun: true, kept, skippedSources };
   }
 
-  return runFullPipeline({ watchlist, env, edition, kept, items: officialItems, skippedSources, fetchedCount, pendingWatermarks });
+  return runFullPipeline({
+    watchlist,
+    env,
+    edition,
+    kept,
+    items: officialItems,
+    skippedSources,
+    fetchedCount,
+    pendingWatermarks,
+    runId,
+    failedMarketLayers,
+  });
 }
 
-// Rough list prices per 1M tokens, for the audit cost estimate only.
-// Update if Anthropic pricing changes — this affects nothing but the printout.
-const PRICES = {
-  "claude-haiku-4-5": { input: 1.0, output: 5.0 },
-  "claude-sonnet-4-6": { input: 3.0, output: 15.0 },
-  "claude-sonnet-5": { input: 3.0, output: 15.0 },
-  "claude-opus-4-8": { input: 5.0, output: 25.0 },
-  // Opus 5 is priced identically to Opus 4.8, so ANALYST_MODEL can move between them as a one-line
-  // .env change with no cost difference. Listed explicitly because an unlisted model falls back to
-  // the Sonnet default below, which would under-report Opus spend by 40%.
-  "claude-opus-5": { input: 5.0, output: 25.0 },
-};
+// PRICES and the cache multipliers moved to ./pricing.js — the daily brief's cost ceiling needs the
+// same table mid-run, and a second copy here would drift the next time Anthropic changes a price.
+// Re-exported below so `audit`'s arithmetic is untouched.
 
-// Prompt-cache billing multipliers, applied to the model's INPUT rate. A 5-minute-TTL write costs
-// 1.25x and a read 0.1x, so a cached prefix pays for itself on the second request that hits it.
-const CACHE_WRITE_MULTIPLIER = 1.25;
-const CACHE_READ_MULTIPLIER = 0.1;
-
-export async function runFullPipeline({ watchlist, env, edition, kept, items, skippedSources, fetchedCount, pendingWatermarks = [] }) {
+export async function runFullPipeline({ watchlist, env, edition, kept, items, skippedSources, fetchedCount, pendingWatermarks = [], runId = null, failedMarketLayers = [] }) {
   if (!env.ANTHROPIC_API_KEY) {
     throw new Error("ANTHROPIC_API_KEY is not set in .env — get one at console.anthropic.com (or use --dry-run to test without it)");
   }
@@ -663,10 +679,32 @@ export async function runFullPipeline({ watchlist, env, edition, kept, items, sk
   if (relevant.length === 0) {
     console.log("\n📝 Nothing relevant this scan — no policy brief saved (quiet day). Markets/news/alerts refresh still ran.");
     console.log(`\n✅ ${edition.toUpperCase()} refresh complete — no brief today.\n`);
+    store.updateBriefRun(runId, { sources_ok: Object.keys(adapters).length - skippedSources.length, sources_failed: skippedSources.length });
     return;
   }
+
+  // The evidence layers this brief could NOT reach. Both halves matter: a collection source that was
+  // skipped (no key, fetch error) and a market adapter whose refresh failed. Named in the brief.
+  const missingLayers = [
+    ...skippedSources.map((s) => s.label),
+    ...failedMarketLayers.map((f) => `${f.label} (market data)`),
+  ];
+
   console.log(`\n📝 Generating brief (${env.BRIEF_MODEL || "claude-sonnet-5"})…`);
-  const markdown = await generateBrief({ relevantItems: relevant, watchlist, edition, env, stats });
+  store.setRunStage(runId, "drafting cards");
+  const markdown = await generateBrief({
+    relevantItems: relevant,
+    watchlist,
+    edition,
+    env,
+    stats,
+    runId,
+    missingLayers,
+    // A per-run dollar ceiling with a hard abort. Configurable in watchlist.json; absent = no
+    // ceiling, which is the shipped default so a code-only Update never starts killing runs.
+    costCeilingUsd: watchlist.output?.briefCostCeilingUsd ?? null,
+  });
+  store.setRunStage(runId, "delivering");
 
   // 5. Deliver.
   const timezone = watchlist.briefEditions?.timezone ?? "America/Chicago";
@@ -690,6 +728,22 @@ export async function runFullPipeline({ watchlist, env, edition, kept, items, sk
   // replaced by the on-demand "farmer" memo preset (generateMemo) — same audience, but
   // generated when asked over a chosen window, so the scheduled run never pays for it.
 
+  // Counters for the run log. Card counts come from the rows the card stage filed, rather than being
+  // threaded back out of generateBrief — the table is the record, so reading it is also a check that
+  // the rows were actually written.
+  if (runId) {
+    const filed = store.cardsForRun(runId);
+    store.updateBriefRun(runId, {
+      sources_ok: Object.keys(adapters).length - skippedSources.length,
+      sources_failed: skippedSources.length,
+      missing_layers: missingLayers,
+      cards_drafted: filed.length,
+      cards_linted_out: filed.filter((c) => c.status === "rejected" && c.lint_failures.length).length,
+      cards_rejected: filed.filter((c) => c.status === "rejected" && !c.lint_failures.length).length,
+      cards_out: filed.filter((c) => c.status === "kept").length,
+    });
+  }
+
   console.log(`\n✅ Saved ${deliveredTo.join(" · posted to ")}\n`);
 }
 
@@ -705,6 +759,15 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 const PERCENTILE_CAVEATS = {
   "nass:us:crush": "this is a percentile of crush VOLUME, which ratchets upward with the ~1.06M bu/day of capacity added since 2023 — it is NOT evidence of strong demand. Use the Crush Utilization signal, which divides by installed capacity, and ignore this rank.",
   "eia:feedstock:soybean-oil": "volume percentile on a feedstock base that has grown with renewable-diesel capacity — high ranks are largely structural, not a demand surprise.",
+  // ⚠️ CUMULATIVE-WITHIN-MARKETING-YEAR SERIES. These climb from ~0 each September/October and reset
+  // at rollover, so a level percentile mostly measures HOW FAR INTO THE MARKETING YEAR WE ARE, not
+  // whether demand is strong. In August a commitments series sits near its all-time high every single
+  // year; in October it sits near its low. Read the weekly-flow series (`fas:*:net-sales`,
+  // `fas:*:exports`) for that, and read these against the same week of prior years.
+  "fas:soybeans:commitments": "cumulative marketing-year-to-date total — it resets each September, so a high percentile in summer means the year is nearly over, NOT that demand is unusually strong. Compare with the same week of prior years instead.",
+  "fas:soymeal:commitments": "cumulative marketing-year-to-date total, resetting each October — see the note on fas:soybeans:commitments.",
+  "fas:soyoil:commitments": "cumulative marketing-year-to-date total, resetting each October — see the note on fas:soybeans:commitments.",
+  "fas:soybeans:china:commitments": "cumulative marketing-year-to-date total for China, resetting each September. Late in a marketing year this ratchets to a seasonal high while weekly business is finished; check fas:soybeans:china:next-my-commitments for the new-crop book before reading it as strength or weakness.",
 };
 
 /**

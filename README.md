@@ -74,19 +74,84 @@ and the free local filter runs *before* any AI sees anything.
   through api.data.gov — a Data.gov key is the same thing).
 - **LegiScan**: free (30,000 queries/month). Register at
   [legiscan.com/legiscan](https://legiscan.com/legiscan) → API tab.
+- **USDA FAS Export Sales** (weekly export sales + China detail): free, instant. Register at
+  [apps.fas.usda.gov/opendataweb/home](https://apps.fas.usda.gov/opendataweb/home) and put it in
+  `FAS_API_KEY`. ⚠️ If you ever debug this by hand: the API's docs say to send an `API_KEY` header,
+  which returns *"No api_key was supplied"* — the header it actually accepts is `X-Api-Key`. The
+  adapter already does the right thing; this note is here so nobody "fixes" it to match the docs.
 - **Federal Register and EUR-Lex**: no keys needed.
 - **Teams (optional)**: in your Teams channel → ⋯ → Workflows/Connectors → create an
   *Incoming Webhook*, and paste its URL into `TEAMS_WEBHOOK_URL` in `.env`.
 
 ## Reading a Brief
 
-Each brief has: **🔴 Top developments** (the 3–5 things to know), sections per source
-(federal rules, federal bills, state bills, EU regulation, Iowa admin rules — empty
-sections are omitted), **⏰ Deadlines** (comment periods, soonest first), and a stats
-footer showing what was scanned and whether any source was skipped that run.
+The daily policy brief is built from **policy cards**. Each card is one government action —
+a rule, a bill, a court decision, a trade measure — and every card answers the same six
+questions, in the same order, every time:
 
-Every item is one line: what it is, why it matters to Iowa soy, and a link to the
-primary source.
+| | |
+|---|---|
+| **What changed** | The action, and who took it |
+| **Posture** | Where it sits procedurally, and the date on the clock |
+| **Mechanism** | The causal path from that action to a specific number |
+| **So what** | What it means for an Iowa corn/soybean operation |
+| **Watch next** | The named next event, with a date |
+| **Evidence** | The sources it rests on, each labelled by how authoritative it is |
+
+**The most important thing on a card is the band at the top.** Cards are grouped into
+sections by how real the action is, and the band repeats it:
+
+- **✅ In force** — final, and in effect now.
+- **⚖️ In force but under challenge** — binding today, but in litigation. It may not survive.
+- **📝 Proposed — NOT final** — published, not in effect. It may change a lot, or never happen.
+- **🔭 Signalled, not yet an action** — someone said something. Nothing has been published,
+  and there is no deadline.
+
+A card in the "Proposed" section is **not a decision**. That distinction is the single most
+important thing the brief does, which is why proposed items sit in their own section rather
+than being mixed in with a small label.
+
+Evidence is labelled by source type — *primary source* (the government's own record) down
+through *agency release*, *trade press*, *general press*, *aggregator*. If a trade group
+published it, it says **interested party**, because a trade group's description of a rule is
+that group's characterisation, not the rule. A card can only say something is **enacted** if
+a primary source establishes it; the tool refuses to publish that claim on trade-press
+reporting alone.
+
+Two more things you may see:
+- ***Weak link:*** — the step in the reasoning the tool is least sure about. It is deliberate.
+  A card that names its own weak step is more trustworthy than one that sounds certain.
+- ***Certainty lowered from "…" in review*** — a second model reviewed the card and judged the
+  first draft overstated how settled the action was. You are seeing the corrected version.
+
+The brief ends with a stats footer showing what was scanned, and — if anything went wrong —
+an **⚠️ About this run** section naming any evidence source that was unavailable. If a data
+source was down, the brief says so rather than quietly leaving it out.
+
+## Which report should I run?
+
+Five reports, and they answer genuinely different questions. The **daily policy brief** is
+the only one where policy is the subject; in the other four, markets lead.
+
+| Report | Use it when | Lede | Runs |
+|---|---|---|---|
+| **▶ Run policy brief now** | Something happened in Washington, Des Moines, Brussels or a courtroom and you need to know what it does | A government action | Twice daily, plus on demand |
+| **📚 Weekly memo** | Catching a colleague or board member up on the week | The week's markets, then policy | On demand |
+| **🗓️ Monthly review** | Leadership wants direction of travel, not a list | The month's trends | On demand |
+| **🔭 Analyst Note** | You want the forward read — where this is heading and what would prove it wrong | The market signal board | On demand |
+| **🎓 Market-education brief** | A staffer needs to *learn* how the market works, not just what it did | One data point and one concept | On demand |
+
+The rule of thumb for the daily brief: **would this still matter if the futures board hadn't
+moved at all today?** If yes, it belongs in the policy brief. If the story is the price move
+itself, the Analyst Note or the weekly memo is the right place.
+
+The daily brief is deliberately short and will sometimes be empty. An empty brief means
+nothing cleared the evidence bar — not that nothing was collected. Everything collected is
+always on the **Laws, Rules & Decisions** tab whether it made the brief or not.
+
+If you want to know why a brief was short, **Logs & Settings → Brief runs** shows the funnel
+for every run: how many cards were drafted, how many failed the six-question contract, how
+many the reviewer rejected, and how many were published.
 
 ## All Commands
 

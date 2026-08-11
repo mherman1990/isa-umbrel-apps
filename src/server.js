@@ -505,23 +505,142 @@ let lastRunProblem = null; // { when, message }
 const RUN_BUSY_MESSAGE = "A run is already in progress — give it a minute.";
 const RUN_STILL_GOING = Symbol("run-still-going"); // race sentinel: the run outlived the grace window
 
-// Returns null on success, RUN_BUSY_MESSAGE if a run was already in progress (nothing started),
-// or a failure string if this run started and then failed. Never throws.
+// ⚠️ A SECOND CLICK ATTACHES TO THE RUNNING BRIEF; IT DOES NOT START A SECOND ONE AND IT DOES NOT
+// SIMPLY BOUNCE. The old behaviour returned "already in progress" and left the user with no thread
+// to watch, which reads as "nothing happened" and invites a third click. `currentRun` is the handle
+// an impatient click now joins: same promise, same run row, same status to poll.
+//
+// `runInProgress` remains the mutual-exclusion flag, and it is load-bearing beyond the UI — it is
+// the other half of the invariant that makes `store.setCurrentRunId` safe to keep ambient. One run
+// at a time is what lets every `recordUsage` call attribute itself without threading an id.
+let currentRun = null; // { id, edition, promise, startedAt }
+
+/** The run a status poll should describe: the live one, else the most recent row. */
+export function activeRunSnapshot() {
+  const row = currentRun ? store.getBriefRun(currentRun.id) : store.listBriefRuns(1)[0];
+  if (!row) return null;
+  return {
+    id: row.id,
+    edition: row.edition,
+    status: row.status,
+    stage: row.stage,
+    live: Boolean(currentRun && currentRun.id === row.id),
+    startedAt: row.started_at,
+    finishedAt: row.finished_at,
+    cardsOut: row.cards_out,
+    cardsDrafted: row.cards_drafted,
+    costUsd: row.cost_usd,
+    missingLayers: row.missing_layers ? JSON.parse(row.missing_layers) : [],
+    error: row.error,
+  };
+}
+
+// Returns null on success, RUN_BUSY_MESSAGE if this call attached to a run already going, or a
+// failure string if this run started and then failed. Never throws.
 async function triggerRun(edition) {
-  if (runInProgress) return RUN_BUSY_MESSAGE; // bounce — a run that never starts must NOT clear the banner
+  // Attach rather than bounce. The caller still gets RUN_BUSY_MESSAGE so the notice can say what
+  // happened, but it now awaits the REAL run instead of returning immediately on nothing.
+  if (runInProgress && currentRun) {
+    await currentRun.promise.catch(() => {});
+    return RUN_BUSY_MESSAGE;
+  }
+  if (runInProgress) return RUN_BUSY_MESSAGE; // a run exists but predates this bookkeeping — bounce as before
   runInProgress = true;
   lastRunProblem = null; // a genuinely-starting run retires any prior failure banner (not just on success)
-  try {
-    if (["weekly", "monthly", "education", "analyst"].includes(edition)) await runMemo(edition, process.env);
-    else await runPipeline({ edition, env: process.env });
-    return null;
-  } catch (err) {
-    console.error(`❌ ${edition} run failed: ${err.message}`);
-    lastRunProblem = { when: fmtCT(Date.now()), message: `${edition.toUpperCase()} run failed: ${err.message}` };
-    return lastRunProblem.message;
-  } finally {
-    runInProgress = false;
+
+  // Memo presets keep their existing shape — no run row, no cards. Only the daily brief is carded,
+  // and widening this to the memos would be exactly the refactor of existing run types the design
+  // constraint rules out.
+  const isMemo = ["weekly", "monthly", "education", "analyst"].includes(edition);
+  let runId = null;
+  if (!isMemo) {
+    try {
+      runId = store.startBriefRun({ runKey: `${edition}:${new Date().toISOString().slice(0, 13)}`, edition, trigger: "manual" });
+    } catch (err) {
+      console.log(`⚠️  Could not open a run record (the run itself proceeds): ${err.message}`);
+    }
   }
+
+  const promise = (async () => {
+    try {
+      if (isMemo) await runMemo(edition, process.env);
+      else await runPipeline({ edition, env: process.env, runId });
+      if (runId) store.finishBriefRun(runId, { status: "ok" });
+      return null;
+    } catch (err) {
+      console.error(`❌ ${edition} run failed: ${err.message}`);
+      lastRunProblem = { when: fmtCT(Date.now()), message: `${edition.toUpperCase()} run failed: ${err.message}` };
+      if (runId) store.finishBriefRun(runId, { status: "failed", error: err.message });
+      return lastRunProblem.message;
+    } finally {
+      // Clear the ambient attribution even if finishBriefRun never ran — a stale current-run id
+      // would silently bill the next Ask-box question to this run.
+      store.setCurrentRunId(null);
+      runInProgress = false;
+      currentRun = null;
+    }
+  })();
+
+  currentRun = { id: runId, edition, promise, startedAt: Date.now() };
+  return promise;
+}
+
+/**
+ * The brief run log — one row per run, with what each stage did to the cards.
+ *
+ * ⚠️ THE POINT OF THIS PANEL IS THE FUNNEL, NOT THE TIMESTAMP. "8 drafted → 3 failed the contract →
+ * 1 rejected in review → 4 published" is the only place the pipeline's own judgement is visible from
+ * the Pi. A run that publishes two cards because six failed the lint looks identical, in the brief
+ * itself, to a quiet day — and those need completely different responses.
+ */
+function runLogSection() {
+  let runs = [];
+  try {
+    runs = store.listBriefRuns(12);
+  } catch (err) {
+    return `<h2>Brief runs</h2><p class="muted">Run log unavailable: ${esc(err.message)}</p>`;
+  }
+  if (!runs.length) return "";
+  const badge = (s) =>
+    s === "ok" ? '<span style="color:#2d7a3e">✓</span>' : s === "running" ? '<span style="color:#4a8fd0">●</span>' : '<span style="color:#b04a4a">✕</span>';
+  const rows = runs
+    .map((r) => {
+      const missing = r.missing_layers ? JSON.parse(r.missing_layers) : [];
+      const when = String(r.started_at ?? "").slice(0, 16).replace("T", " ");
+      const funnel =
+        r.cards_drafted || r.cards_out
+          ? `${r.cards_drafted} drafted → ${r.cards_linted_out} failed the contract → ${r.cards_rejected} rejected in review → <b>${r.cards_out} published</b>`
+          : r.status === "ok"
+            ? '<span class="muted">no cards — nothing cleared the evidence bar</span>'
+            : '<span class="muted">—</span>';
+      return `<tr>
+        <td>${badge(r.status)} ${esc(when)}</td>
+        <td>${esc(String(r.edition ?? "").toUpperCase())}</td>
+        <td>${funnel}</td>
+        <td>${r.sources_failed ? `<span title="${esc(missing.join(", "))}">${r.sources_failed} source${r.sources_failed === 1 ? "" : "s"} down</span>` : '<span class="muted">all up</span>'}</td>
+        <td style="text-align:right">${r.cost_usd ? "$" + Number(r.cost_usd).toFixed(3) : '<span class="muted">—</span>'}</td>
+      </tr>`;
+    })
+    .join("");
+  // Which slot the reviewer rejects most is the signal for which prompt instruction to rewrite —
+  // it is the whole reason rejected cards are stored rather than discarded.
+  let slots = [];
+  try {
+    slots = store.rejectionsBySlot(30);
+  } catch {
+    /* best effort */
+  }
+  const slotLine = slots.length
+    ? `<p class="muted" style="font-size:.82em">Rejections by slot, last 30 days: ${slots.map((s) => `<b>${esc(s.slot)}</b> ×${s.n}`).join(" · ")}. The slot rejected most often is the one whose prompt instruction to tune.</p>`
+    : "";
+  return `<h2>Brief runs</h2>
+    <table class="runlog"><thead><tr><th>Started</th><th>Edition</th><th>Cards</th><th>Sources</th><th style="text-align:right">Cost</th></tr></thead><tbody>${rows}</tbody></table>
+    ${slotLine}
+    <style>
+      .runlog{width:100%;border-collapse:collapse;font-size:.83em;margin:6px 0 4px}
+      .runlog th{text-align:left;font-weight:600;border-bottom:1px solid #dde3ea;padding:5px 8px}
+      .runlog td{padding:5px 8px;border-bottom:1px solid #f0f3f6;vertical-align:top}
+    </style>`;
 }
 
 // ---------- paid-endpoint guards (avoid duplicate Claude spend) ----------
@@ -1263,11 +1382,18 @@ ${homeCalendar()}
   .reports .rdesc{font-size:.8em;line-height:1.35}
   .reports .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px 22px;margin-top:12px}
   @media(max-width:640px){.reports .grid{grid-template-columns:1fr}}
+  .runstat{margin-top:10px;padding:8px 11px;border-radius:7px;border:1px solid #d7dee7;background:#f6f9fc;font-size:.82em;line-height:1.45}
+  .runstat.done{border-color:#bfe0c4;background:#f2faf3}
+  .runstat.bad{border-color:#e6c4c4;background:#fdf5f5}
+  .runstat b{font-weight:600}
+  .runstat .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#4a8fd0;margin-right:6px;animation:rspin 1.1s ease-in-out infinite}
+  @keyframes rspin{0%,100%{opacity:.35}50%{opacity:1}}
 </style>
 <div class="reports">
   <div class="report">
     <form method="post" action="/run"><input type="hidden" name="edition" value="auto"><button>▶ Run policy brief now</button></form>
     <span class="muted rdesc">Scans the 7 government sources, flags what's relevant to Iowa soy, and writes it up. Also the twice-daily refresh that keeps Markets, News &amp; alerts current — it now stays quiet on days with no policy movement instead of saving a blank brief.</span>
+    <div id="runstat" class="runstat" hidden></div>
   </div>
   <p class="muted" style="margin:16px 0 0;font-weight:600">On-demand reports</p>
   <div class="grid">
@@ -1290,6 +1416,45 @@ ${homeCalendar()}
   </div>
   ${runInProgress ? '<p class="muted" style="margin-top:10px">a run is in progress…</p>' : ""}
 </div>
+<script>
+/* Stage-level run status. The brief takes minutes and the old UI redirected with an optimistic
+   "refresh in a minute or two", so the wait was completely opaque — you could not tell a working
+   run from a wedged one. Polls a small JSON endpoint; degrades to silence if it is unreachable. */
+(function(){
+  var box=document.getElementById('runstat'); if(!box) return;
+  var STAGES={'starting':'starting up','collecting':'fetching sources','drafting cards':'drafting cards','delivering':'rendering and sending'};
+  var timer=null, misses=0;
+  function paint(r){
+    if(!r){ box.hidden=true; return; }
+    box.hidden=false;
+    box.className='runstat'+(r.status==='ok'?' done':(r.status==='failed'||r.status==='aborted_cost')?' bad':'');
+    if(r.live||r.status==='running'){
+      box.innerHTML='<span class="dot"></span><b>'+(r.edition||'').toUpperCase()+' run in progress</b> — '+(STAGES[r.stage]||r.stage||'working');
+      return;
+    }
+    if(r.status==='failed'){ box.innerHTML='<b>Last run failed.</b> '+(r.error?String(r.error).slice(0,160):'See Logs for detail.'); return; }
+    if(r.status==='aborted_cost'){ box.innerHTML='<b>Last run stopped at its cost ceiling.</b> Raise output.briefCostCeilingUsd in Settings, or leave it — the brief still shipped what it had.'; return; }
+    var bits=[];
+    if(r.cardsOut!=null) bits.push(r.cardsOut+' card'+(r.cardsOut===1?'':'s')+' published'+(r.cardsDrafted?' of '+r.cardsDrafted+' drafted':''));
+    if(r.costUsd) bits.push('$'+Number(r.costUsd).toFixed(2));
+    if(r.missingLayers&&r.missingLayers.length) bits.push(r.missingLayers.length+' evidence layer'+(r.missingLayers.length===1?'':'s')+' unavailable');
+    box.innerHTML='<b>Last run finished.</b> '+(bits.join(' · ')||'No cards cleared the evidence bar.');
+  }
+  function poll(){
+    fetch('/api/run-status',{headers:{'x-requested-with':'fetch'}}).then(function(r){return r.json()}).then(function(j){
+      misses=0; paint(j.run);
+      /* Keep polling only while something is live; otherwise settle and stop. */
+      if(j.run&&(j.run.live||j.run.status==='running')){ timer=setTimeout(poll,2500); }
+      else if(timer){ clearTimeout(timer); timer=null; }
+    }).catch(function(){ if(++misses<3&&timer){ timer=setTimeout(poll,5000);} });
+  }
+  poll();
+  /* A click starts the run; begin polling immediately so the first stage shows without a reload. */
+  document.querySelectorAll('form[action="/run"]').forEach(function(f){
+    f.addEventListener('submit',function(){ setTimeout(function(){ if(!timer){ timer=setTimeout(poll,1200);} },0); });
+  });
+})();
+</script>
 <h2>Saved briefs <span class="muted" style="font-weight:400;font-size:.7em">(<a href="/feed.xml">RSS</a>)</span></h2>
 ${briefs.length ? `<ul class="briefs">${items}</ul>` : "<p class='muted'>No briefs yet. Click a Run button above, or wait for the next scheduled edition.</p>"}
 `;
@@ -2763,6 +2928,20 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
         return;
       }
 
+      // Stage-level run status for the home-page poller. Read-only, cheap, no model calls.
+      if (req.method === "GET" && url.pathname === "/api/run-status") {
+        res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+        let run = null;
+        try {
+          run = activeRunSnapshot();
+        } catch (err) {
+          // A status endpoint must never be the thing that breaks the page.
+          console.log(`⚠️  run-status failed: ${err.message}`);
+        }
+        res.end(JSON.stringify({ run }));
+        return;
+      }
+
       if (req.method === "POST" && url.pathname === "/market-cards") {
         let notice;
         try {
@@ -2867,6 +3046,7 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
           settings = `<div class="banner err">⚠️ ${esc(err.message)}</div>`;
         }
         const body = `<h1>🛠 Logs &amp; Settings</h1>
+          ${runLogSection()}
           <h2>Recent activity</h2><pre class="logs">${esc(logBuffer.slice(-300).join("\n") || "(nothing yet)")}</pre>
           ${settings}`;
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });

@@ -14,6 +14,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { eventKeyFor } from "./eventkey.js";
+import { costOf } from "./pricing.js";
 
 const PROJECT_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 // Where mutable data (database, briefings) lives. Defaults to the project root;
@@ -906,6 +907,263 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_expect_open   ON report_expectations(resolved_at);
 `);
 
+// ---------------------------------------------------------------------------
+// POLICY CARDS + THE PER-RUN LOG (the daily brief's structured output).
+//
+// Until now every run type in this codebase emitted a markdown STRING and nothing else. That is why
+// nothing could be linted, nothing could be counted, and "did this thread already go out yesterday?"
+// had no answer that did not involve re-reading prose. `policy_cards` is the first structured record
+// of what a brief actually said.
+//
+// ⚠️ CARDS ARE KEYED ON `event_key`, NOT ON uid — the same identity `seen_items`, `evidence_packets`
+// and the LRD collapse already use. A Federal Register notice cross-filed into four dockets is ONE
+// card, and tomorrow's run recognises it as the SAME thread rather than a new one. Keying on uid
+// would have re-surfaced one action as four cards and then as four more the next morning.
+//
+// ⚠️ REJECTED CARDS ARE STORED, NOT DISCARDED. `status='rejected'` rows with the reviewer's
+// `reject_slot` are the only measurement of whether the synthesis prompt is getting better. Deleting
+// them would make the reviewer's work unauditable — the same reasoning as `thesis_challenges`.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS policy_cards (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id        INTEGER,           -- brief_runs.id; NULL only for cards made outside a tracked run
+    event_key     TEXT NOT NULL,     -- thread identity, shared with seen_items / evidence_packets
+    lead_uid      TEXT,
+    edition       TEXT,
+    card          TEXT NOT NULL,     -- JSON: the six slots as drafted, after code-side binding
+    certainty     TEXT NOT NULL,     -- enacted | proposed | contested | speculative
+    status        TEXT NOT NULL,     -- kept | rejected
+    lint_failures TEXT,              -- JSON array of slot names that failed the deterministic lint
+    reject_slot   TEXT,              -- the reviewer must name the slot that failed
+    reject_reason TEXT,
+    downgraded_from TEXT,            -- set when the reviewer lowered certainty
+    created_at    TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_cards_event  ON policy_cards(event_key, created_at);
+  CREATE INDEX IF NOT EXISTS idx_cards_run    ON policy_cards(run_id);
+  CREATE INDEX IF NOT EXISTS idx_cards_status ON policy_cards(status);
+
+  CREATE TABLE IF NOT EXISTS brief_runs (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_key        TEXT,             -- idempotency: a second click inside the window ATTACHES to this
+    edition        TEXT NOT NULL,
+    trigger        TEXT,             -- 'manual' | 'schedule'
+    status         TEXT NOT NULL,    -- running | ok | failed | aborted_cost
+    stage          TEXT,             -- live stage label, polled by the run-status UI
+    started_at     TEXT NOT NULL,
+    finished_at    TEXT,
+    sources_ok     INTEGER DEFAULT 0,
+    sources_failed INTEGER DEFAULT 0,
+    missing_layers TEXT,             -- JSON array — named in the brief when an evidence layer died
+    cards_drafted  INTEGER DEFAULT 0,
+    cards_linted_out INTEGER DEFAULT 0,
+    cards_rejected INTEGER DEFAULT 0,
+    cards_out      INTEGER DEFAULT 0,
+    cost_usd       REAL DEFAULT 0,
+    error          TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_runs_started ON brief_runs(started_at);
+  CREATE INDEX IF NOT EXISTS idx_runs_key     ON brief_runs(run_key);
+`);
+
+// Attribute every model call to the run that paid for it. Without this, cost-per-run and
+// cost-per-tier can only be estimated by timestamp proximity, which is wrong the moment a manual run
+// overlaps a scheduled one. Additive, so existing databases keep their history with a NULL run_id.
+for (const columnDef of ["run_id INTEGER"]) {
+  try {
+    db.exec(`ALTER TABLE token_usage ADD COLUMN ${columnDef}`);
+  } catch {
+    /* column already exists */
+  }
+}
+
+// ⚠️ THE CURRENT RUN IS AMBIENT, AND THAT IS A DELIBERATE CHOICE. `recordUsage` is called from
+// triage.js, packets.js, newsrank.js, thesis.js, challenger.js, brief.js and eight places in
+// pipeline.js. Threading a run id through all of them would have meant touching every one of those
+// call sites — a large diff across working code, for a field only the run log reads. Instead the
+// pipeline sets the id once and every existing call attributes itself with no change at all.
+//
+// This is only sound because ONE RUN EXECUTES AT A TIME: `runInProgress` in server.js already
+// enforces it, and the scheduler bounces rather than overlapping. If that ever stops being true this
+// becomes wrong — so `runInProgress` and this variable are two halves of one invariant.
+let _currentRunId = null;
+/** Attribute subsequent model calls to this run. Pass null when the run ends. */
+export function setCurrentRunId(id) {
+  _currentRunId = id ?? null;
+}
+export function currentRunId() {
+  return _currentRunId;
+}
+
+/** Open a run row and make it current. `runKey` is the idempotency key — see `findAttachableRun`. */
+export function startBriefRun({ runKey = null, edition, trigger = "manual" }) {
+  const info = db
+    .prepare("INSERT INTO brief_runs (run_key, edition, trigger, status, stage, started_at) VALUES (?, ?, ?, 'running', 'starting', ?)")
+    .run(runKey, edition, trigger, new Date().toISOString());
+  setCurrentRunId(info.lastInsertRowid);
+  return info.lastInsertRowid;
+}
+
+/**
+ * The run an impatient second click should ATTACH to, rather than starting a second one.
+ *
+ * Matched on `run_key` within a short window and only while still `running`. Returning a finished run
+ * would make the button silently do nothing when a user legitimately wants a fresh brief — the window
+ * exists to absorb double-clicks, not to rate-limit the feature.
+ */
+export function findAttachableRun(runKey, windowSeconds = 120) {
+  if (!runKey) return null;
+  const cutoff = new Date(Date.now() - windowSeconds * 1000).toISOString();
+  return db.prepare("SELECT * FROM brief_runs WHERE run_key = ? AND status = 'running' AND started_at >= ? ORDER BY id DESC LIMIT 1").get(runKey, cutoff) ?? null;
+}
+
+/** Update the live stage label the run-status UI polls. Cheap enough to call per stage. */
+export function setRunStage(id, stage) {
+  if (!id) return;
+  db.prepare("UPDATE brief_runs SET stage = ? WHERE id = ?").run(stage, id);
+}
+
+/** Merge counters/fields into a run row. Only the keys present are written. */
+export function updateBriefRun(id, fields = {}) {
+  if (!id) return;
+  const allowed = [
+    "status", "stage", "finished_at", "sources_ok", "sources_failed", "missing_layers",
+    "cards_drafted", "cards_linted_out", "cards_rejected", "cards_out", "cost_usd", "error",
+  ];
+  const keys = Object.keys(fields).filter((k) => allowed.includes(k));
+  if (!keys.length) return;
+  const set = keys.map((k) => `${k} = @${k}`).join(", ");
+  const payload = { id };
+  for (const k of keys) payload[k] = Array.isArray(fields[k]) ? JSON.stringify(fields[k]) : fields[k];
+  db.prepare(`UPDATE brief_runs SET ${set} WHERE id = @id`).run(payload);
+}
+
+/** Close a run, stamp its final cost, and clear the ambient id. Safe to call twice. */
+export function finishBriefRun(id, { status = "ok", error = null, ...counters } = {}) {
+  if (!id) return;
+  updateBriefRun(id, { ...counters, status, error, finished_at: new Date().toISOString(), cost_usd: runCostUsd(id) });
+  if (_currentRunId === id) setCurrentRunId(null);
+}
+
+export function getBriefRun(id) {
+  return db.prepare("SELECT * FROM brief_runs WHERE id = ?").get(id) ?? null;
+}
+
+export function listBriefRuns(limit = 20) {
+  return db.prepare("SELECT * FROM brief_runs ORDER BY id DESC LIMIT ?").all(limit);
+}
+
+/**
+ * What this run has spent so far, in dollars — the number the cost ceiling aborts on.
+ *
+ * Sums all four billed components per model. Summing only `input_tokens` would make a cached prefix
+ * look free, which is the exact bug v1.29.0 found in `audit`; `costOf` is the single formula both
+ * callers share.
+ */
+export function runCostUsd(runId) {
+  if (!runId) return 0;
+  const rows = db
+    .prepare(
+      `SELECT model,
+              SUM(input_tokens)       AS input,
+              SUM(output_tokens)      AS output,
+              SUM(cache_read_tokens)  AS cacheRead,
+              SUM(cache_write_tokens) AS cacheWrite
+         FROM token_usage WHERE run_id = ? GROUP BY model`
+    )
+    .all(runId);
+  return rows.reduce((sum, r) => sum + costOf(r.model, r), 0);
+}
+
+/** Per-tier cost for this run, for the run-log row. Keyed by model so tiers are named, not guessed. */
+export function runCostByModel(runId) {
+  if (!runId) return [];
+  return db
+    .prepare(
+      `SELECT model, purpose,
+              SUM(input_tokens) AS input, SUM(output_tokens) AS output,
+              SUM(cache_read_tokens) AS cacheRead, SUM(cache_write_tokens) AS cacheWrite
+         FROM token_usage WHERE run_id = ? GROUP BY model, purpose ORDER BY model, purpose`
+    )
+    .all(runId)
+    .map((r) => ({ ...r, costUsd: costOf(r.model, r) }));
+}
+
+/** File one card — kept or rejected. Rejections are stored so the reviewer's work is auditable. */
+export function insertPolicyCard(c) {
+  return db
+    .prepare(
+      `INSERT INTO policy_cards (run_id, event_key, lead_uid, edition, card, certainty, status,
+          lint_failures, reject_slot, reject_reason, downgraded_from, created_at)
+       VALUES (@run_id, @event_key, @lead_uid, @edition, @card, @certainty, @status,
+          @lint_failures, @reject_slot, @reject_reason, @downgraded_from, @created_at)`
+    )
+    .run({
+      run_id: c.runId ?? null,
+      event_key: c.eventKey,
+      lead_uid: c.leadUid ?? null,
+      edition: c.edition ?? null,
+      card: JSON.stringify(c.card ?? {}),
+      certainty: c.certainty ?? "speculative",
+      status: c.status ?? "kept",
+      lint_failures: c.lintFailures?.length ? JSON.stringify(c.lintFailures) : null,
+      reject_slot: c.rejectSlot ?? null,
+      reject_reason: c.rejectReason ?? null,
+      downgraded_from: c.downgradedFrom ?? null,
+      created_at: new Date().toISOString(),
+    }).lastInsertRowid;
+}
+
+/**
+ * The KEPT cards filed for these threads inside the window — how a run knows a thread is a
+ * continuation rather than news.
+ *
+ * ⚠️ KEPT ONLY, ON PURPOSE. Keying this on every card including rejections would let a card the
+ * reviewer killed at 06:00 suppress the corrected version at 07:00 — the thread would go silent
+ * precisely because the first attempt was bad. Same reasoning as the loop-until-dry rule that
+ * dedupes against `seen`, not against `confirmed`.
+ */
+export function priorCardsFor(eventKeys, hours = 36) {
+  const keys = [...new Set((eventKeys ?? []).filter(Boolean))];
+  if (!keys.length) return new Map();
+  const cutoff = new Date(Date.now() - hours * 3600e3).toISOString();
+  const rows = db
+    .prepare(
+      `SELECT event_key, card, certainty, created_at FROM policy_cards
+        WHERE status = 'kept' AND created_at >= ? AND event_key IN (${keys.map(() => "?").join(",")})
+        ORDER BY created_at ASC`
+    )
+    .all(cutoff, ...keys);
+  const out = new Map();
+  for (const r of rows) {
+    let card = null;
+    try { card = JSON.parse(r.card); } catch { /* keep the row, lose the body */ }
+    out.set(r.event_key, { certainty: r.certainty, createdAt: r.created_at, card });
+  }
+  return out;
+}
+
+/** Cards filed by one run, newest first. Powers the run-log detail view. */
+export function cardsForRun(runId) {
+  return db.prepare("SELECT * FROM policy_cards WHERE run_id = ? ORDER BY id ASC").all(runId).map((r) => {
+    let card = null;
+    try { card = JSON.parse(r.card); } catch { /* leave null */ }
+    return { ...r, card, lint_failures: r.lint_failures ? JSON.parse(r.lint_failures) : [] };
+  });
+}
+
+/** Reviewer rejection counts by slot — the log that tells you which prompt slot to tune. */
+export function rejectionsBySlot(days = 30) {
+  const cutoff = new Date(Date.now() - days * 86400e3).toISOString();
+  return db
+    .prepare(
+      `SELECT reject_slot AS slot, COUNT(*) AS n FROM policy_cards
+        WHERE status = 'rejected' AND created_at >= ? AND reject_slot IS NOT NULL
+        GROUP BY reject_slot ORDER BY n DESC`
+    )
+    .all(cutoff);
+}
+
 export function upsertExpectation(e) {
   db.prepare(
     `INSERT INTO report_expectations (dedupe_key, report, report_date, item, series, unit,
@@ -1569,7 +1827,7 @@ export function listBriefs(limit = 50) {
  */
 export function recordUsage(model, purpose, inputTokens, outputTokens, usage = null) {
   db.prepare(
-    "INSERT INTO token_usage (ts, model, purpose, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    "INSERT INTO token_usage (ts, model, purpose, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, run_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
   ).run(
     new Date().toISOString(),
     model,
@@ -1577,7 +1835,10 @@ export function recordUsage(model, purpose, inputTokens, outputTokens, usage = n
     inputTokens ?? 0,
     outputTokens ?? 0,
     usage?.cache_read_input_tokens ?? 0,
-    usage?.cache_creation_input_tokens ?? 0
+    usage?.cache_creation_input_tokens ?? 0,
+    // Ambient, set once per run — see `setCurrentRunId`. NULL outside a tracked run (an Ask-box
+    // question, a CLI memo), which is correct: those are not part of any run's cost ceiling.
+    _currentRunId
   );
 }
 
