@@ -93,6 +93,12 @@
       "maxItemsPerRun": 5,
       "_note": "Markets tab — CFTC managed-money fund positioning (CBOT soybeans). No key."
     },
+    "fas_export_sales": {
+      "enabled": true,
+      "maxItemsPerRun": 3,
+      "historyYears": 6,
+      "_note": "Markets — USDA FAS Export Sales (ESR): weekly US net sales + shipments for soybeans/meal/oil, plus China destination detail and the NEXT-marketing-year book. Free key FAS_API_KEY (https://apps.fas.usda.gov/opendataweb/home). ⚠️ Auth header is X-Api-Key, NOT the documented API_KEY — the API answers API_KEY_MISSING to its own documented header. historyYears only applies to the FIRST population; after that only the open marketing year is refetched."
+    },
     "open_meteo": {
       "enabled": true,
       "maxItemsPerRun": 5,

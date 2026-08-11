@@ -188,7 +188,7 @@
       "eval_cadence": "weekly",
       "inputs": [
         { "key": "today", "source": "system_clock" },
-        { "key": "us_soy_export_sales_china", "source": "usda_fas_export_sales", "note": "weekly China net sales / commitments." },
+        { "key": "us_soy_export_sales_china", "source": "fas_export_sales", "note": "weekly China net sales / commitments — series fas:soybeans:china:net-sales, :commitments, :share and :next-my-commitments. Renamed from usda_fas_export_sales to match the real adapter id; this field is descriptive only (triggers.js does not resolve it), but a reader should not have to hunt for an adapter that never existed under that name." },
         { "key": "china_commitments_vs_yearago", "source": "computed" }
       ],
       "fire_when": {

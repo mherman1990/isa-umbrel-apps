@@ -40,6 +40,7 @@ import * as barchart from "./barchart.js";
 import * as vegscape from "./vegscape.js";
 import * as cropcasma from "./cropcasma.js";
 import * as cbot_futures from "./cbot_futures.js";
+import * as fas_export_sales from "./fas_export_sales.js";
 
 export const adapters = {
   [federal_register.id]: federal_register,
@@ -68,6 +69,11 @@ export const adapters = {
   [vegscape.id]: vegscape,
   [cropcasma.id]: cropcasma,
   [cbot_futures.id]: cbot_futures,
+  // ⚠️ `fas_export_sales` was listed in SOURCE_CLASS below (and in eventkey.js) long before this
+  // line existed — a declared id with no module behind it, so the tool appeared to watch export
+  // demand while nothing ever fetched it. Registering an id without registering the adapter is a
+  // silent no-op; the two lists must move together.
+  [fas_export_sales.id]: fas_export_sales,
 };
 
 // Information CLASS per source — decides which portal tab an item surfaces on, and
