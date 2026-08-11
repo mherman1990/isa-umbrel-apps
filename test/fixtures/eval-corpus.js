@@ -20,7 +20,25 @@
 export const FR_13552_ABSTRACT =
   "This document announces the Agency's receipt of and solicits comments on applications to register new pesticide products containing currently registered active ingredients that would entail a change in use pattern. The Agency is providing this notice in accordance with the Federal Insecticide, Fungicide, and Rodenticide Act (FIFRA). EPA uses the month and year in the title to identify when the Agency compiled the applications identified in this notice of receipt. Unit II. of this document identifies certain applications received in 2025 and 2026 that are currently being evaluated by EPA, along with information about each application, including when it was received, who submitted the application, and the purpose of the application.";
 
-const rg = (docId, title, { frDocNum = null, summary = "", deadline = "2026-08-06" } = {}) => ({
+// ⚠️ COMMENT DEADLINES ARE THE ONE FIELD HELD RELATIVE TO TODAY, AND IT IS DELIBERATE.
+//
+// The recorded values were 2026-08-06 (the nine docket copies) and 2026-08-05 (the Federal Register
+// original of 2026-13552, which closes one day earlier). Frozen, they made this corpus a TIME BOMB:
+// `store.upcomingDeadlines` filters `comment_deadline >= yesterday`, so on 2026-08-08 every fixture
+// deadline aged out, the deadline list went empty, and the collapse assertion in
+// eval-intelligence.test.js ("there was something to collapse") began failing on a codebase that had
+// not changed. A test that goes red on a calendar date teaches nothing about the code.
+//
+// So the DATES float and the RELATIONSHIP is what's preserved — the 31-day gap from publication, and
+// the FR original closing one day before its docket copies, which is the only property any assertion
+// here actually reads. Every other field in this file stays exactly as recorded.
+const dateInDays = (n) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+/** Was 2026-08-06 — 31 days after the recorded 2026-07-06 publication date. */
+export const DEADLINE_DOCKET_COPIES = dateInDays(31);
+/** Was 2026-08-05 — the FR original of 2026-13552 closes one day before its docket copies. */
+export const DEADLINE_FR_ORIGINAL = dateInDays(30);
+
+const rg = (docId, title, { frDocNum = null, summary = "", deadline = DEADLINE_DOCKET_COPIES } = {}) => ({
   uid: `regulations_gov:${docId}`,
   sourceId: "regulations_gov",
   sourceLabel: "Regulations.gov",
@@ -87,7 +105,7 @@ export const CASE_CROSS_FILED = [
   rg("EPA-HQ-OPP-2025-2500-0002", "Pesticide Product Registration: Applications for New Uses (April 2026)", { frDocNum: "2026-13552" }),
   // …and the Federal Register original of the SAME notice, from the other source.
   fr("2026-13552", "Pesticide Product Registration; Receipt of Applications for New Uses (April 2026)", FR_13552_ABSTRACT, {
-    deadline: "2026-08-05",
+    deadline: DEADLINE_FR_ORIGINAL,
     docType: "notice",
   }),
   // fr:2026-13553 — 2 docket copies.
