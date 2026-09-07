@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-granary
 category: finance
 name: Granary
-version: "0.1.1"
+version: "0.1.2"
 tagline: Private household planning, without financial execution
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-granary/icon.svg
 description: >-
@@ -27,10 +27,11 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  Fixes first-run startup on Umbrel by preparing the persistent data directory
-  for Granary's non-root UID before the web service starts. The web process
-  remains non-root with a read-only filesystem, dropped capabilities, and the
-  same immutable application image. Synthetic preview only; do not enter real
-  household data yet.
+  Fixes successful sign-in returning immediately to the password screen when
+  Granary is opened over Umbrel's plain HTTP app port. Session cookies remain
+  HttpOnly and SameSite=Strict; only the HTTPS-only Secure attribute is disabled
+  for this trusted local/Tailscale deployment. Also includes the 0.1.1 data
+  directory ownership fix. Synthetic preview only; do not enter real household
+  data yet.
 submitter: Matt
 submission: https://github.com/mherman1990/isa-umbrel-apps
