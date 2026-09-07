@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-granary
 category: finance
 name: Granary
-version: "0.3.0"
+version: "0.3.1"
 tagline: Private household planning, without financial execution
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-granary/icon.svg
 description: >-
@@ -31,6 +31,8 @@ releaseNotes: >-
   expiring password-reauthenticated policy approvals, deterministic fees,
   stated tax, inflation, debt-interest and drawdown planning, saved protection
   reviews and printable packets, plus version/health and recovery hardening.
+  Review corrections preserve complete scenario inputs, bind policies to currency,
+  make approvals atomic, and bound effective-annual-return projections.
   Existing credentials and synthetic ledger data remain in the persistent data
   directory. Synthetic preview only; do not enter real household data yet.
 submitter: Matt
