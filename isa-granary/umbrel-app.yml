@@ -2,14 +2,16 @@ manifestVersion: 1
 id: isa-granary
 category: finance
 name: Granary
-version: "0.1.2"
+version: "0.2.0"
 tagline: Private household planning, without financial execution
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-granary/icon.svg
 description: >-
   Granary is a private, local-first household planning workspace for one
   consenting household. The current preview provides first-run local
   authentication and a synthetic-only manual ledger with exact money,
-  provenance, transfers, and reconciliation foundations.
+  correction history, atomic CSV import/export, transfers, and reconciliation.
+  It also includes deterministic planning, reproducible goal scenarios, and a
+  protection-readiness checklist.
 
 
   Granary is decision support only. It cannot trade, transfer money, pay bills,
@@ -27,11 +29,10 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  Fixes successful sign-in returning immediately to the password screen when
-  Granary is opened over Umbrel's plain HTTP app port. Session cookies remain
-  HttpOnly and SameSite=Strict; only the HTTPS-only Secure attribute is disabled
-  for this trusted local/Tailscale deployment. Also includes the 0.1.1 data
-  directory ownership fix. Synthetic preview only; do not enter real household
-  data yet.
+  Adds append-only ledger corrections and removal, atomic CSV import/export,
+  transfer and reconciliation screens, deterministic cash-flow and liquidity
+  planning, seeded goal scenarios, and a protection-readiness checklist.
+  Existing local credentials and ledger data remain in the persistent data
+  directory. Synthetic preview only; do not enter real household data yet.
 submitter: Matt
 submission: https://github.com/mherman1990/isa-umbrel-apps
