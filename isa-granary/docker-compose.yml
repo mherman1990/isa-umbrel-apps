@@ -34,6 +34,7 @@ services:
       GRANARY_PORT: "3000"
       GRANARY_DATA_DIR: "/data"
       GRANARY_ALLOW_LAN: "true"
+      GRANARY_SECURE_COOKIES: "false"
     volumes:
       - ${APP_DATA_DIR}/data:/data
     tmpfs:
