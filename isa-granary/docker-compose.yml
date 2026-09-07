@@ -1,0 +1,29 @@
+services:
+  app_proxy:
+    environment:
+      APP_HOST: isa-granary_web_1
+      APP_PORT: 3000
+
+  web:
+    image: ghcr.io/mherman1990/granary:0.1.0-preview
+    restart: on-failure
+    stop_grace_period: 30s
+    user: "1000:1000"
+    init: true
+    read_only: true
+    environment:
+      GRANARY_HOST: "0.0.0.0"
+      GRANARY_PORT: "3000"
+      GRANARY_DATA_DIR: "/data"
+      GRANARY_ALLOW_LAN: "true"
+    volumes:
+      - ${APP_DATA_DIR}/data:/data
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 100
+    mem_limit: 384m
+    cpus: 1.0
