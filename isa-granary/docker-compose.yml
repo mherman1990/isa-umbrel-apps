@@ -5,7 +5,7 @@ services:
       APP_PORT: 3000
 
   web:
-    image: ghcr.io/mherman1990/granary:0.1.0-preview
+    image: ghcr.io/mherman1990/granary@sha256:88cd8622f3383478bb0398759d7a92ed765cff7cf3bac31b704f125a239010fa
     restart: on-failure
     stop_grace_period: 30s
     user: "1000:1000"
