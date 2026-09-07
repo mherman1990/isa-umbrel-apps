@@ -4,8 +4,26 @@ services:
       APP_HOST: isa-granary_web_1
       APP_PORT: 3000
 
+  data_permissions:
+    image: ghcr.io/mherman1990/granary@sha256:88cd8622f3383478bb0398759d7a92ed765cff7cf3bac31b704f125a239010fa
+    user: "0:0"
+    command: ["chown", "-R", "1000:1000", "/data"]
+    restart: "no"
+    read_only: true
+    volumes:
+      - ${APP_DATA_DIR}/data:/data
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+    security_opt:
+      - no-new-privileges:true
+
   web:
     image: ghcr.io/mherman1990/granary@sha256:88cd8622f3383478bb0398759d7a92ed765cff7cf3bac31b704f125a239010fa
+    depends_on:
+      data_permissions:
+        condition: service_completed_successfully
     restart: on-failure
     stop_grace_period: 30s
     user: "1000:1000"
