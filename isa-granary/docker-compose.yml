@@ -5,7 +5,7 @@ services:
       APP_PORT: 3000
 
   data_permissions:
-    image: ghcr.io/mherman1990/granary@sha256:1de83e76f5215badb8c71eeae8ee4f3e51eb260dfa6cbd8b54011d90930e7275
+    image: ghcr.io/mherman1990/granary@sha256:0fc8ee2c1a21a10b420c5aab20a4534fb7f01418ebcf029fd8670a5caa6092fa
     user: "0:0"
     command: ["chown", "-R", "1000:1000", "/data"]
     restart: "no"
@@ -20,7 +20,7 @@ services:
       - no-new-privileges:true
 
   web:
-    image: ghcr.io/mherman1990/granary@sha256:1de83e76f5215badb8c71eeae8ee4f3e51eb260dfa6cbd8b54011d90930e7275
+    image: ghcr.io/mherman1990/granary@sha256:0fc8ee2c1a21a10b420c5aab20a4534fb7f01418ebcf029fd8670a5caa6092fa
     depends_on:
       data_permissions:
         condition: service_completed_successfully
