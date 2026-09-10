@@ -1,5 +1,39 @@
 # Changelog
 
+## 1.32.0 — Multi-user login, so the app can be shared without Tailscale
+
+The web UI could only be gated by a single shared password sent as an HTTP Basic popup
+(`POLIBRIEF_PASSWORD`) — fine on a Tailscale-only network, not something to hand a director. This
+release adds a real sign-in page with **named accounts** so teammates and directors can review The
+Bean Brief over a public link (e.g. Tailscale Funnel) without Tailscale on their device or an Umbrel
+login. See [`docs/remote-access.md`](docs/remote-access.md).
+
+### Added — accounts, a login page, and a session cookie
+
+- **`src/auth.js`** (new, zero dependencies): per-user accounts in `/data/users.json`, passwords
+  hashed with Node's built-in **scrypt** (never stored in the clear), stateless **HMAC-signed
+  session cookies** (survive restarts, no DB table), and a **feed token** for machine endpoints.
+- **`/login` + `/logout`** with an ISA-branded form; the session cookie is `HttpOnly`, `SameSite=Lax`,
+  and `Secure` when served over HTTPS (detected via `x-forwarded-proto`, so Funnel gets `Secure`
+  while the plain-HTTP Umbrel tile still works). A modest per-IP brute-force brake guards the form.
+- **CLI:** `node src/index.js user add|list|rm <name>` (interactive hidden password prompt).
+
+### Changed — the single auth choke point now accepts a cookie *or* Basic auth
+
+- `checkAuth` gains cookie support and still accepts HTTP Basic against the same accounts, so saved
+  `https://user:pass@…/calendar.ics` subscriptions keep working. Browser navigations without a
+  session are redirected to `/login`; non-browser clients get a `401`.
+- `/calendar.ics` and `/feed.xml` accept `?token=…` so Outlook/RSS subscriptions work without a
+  login. The tokenized URLs are shown on **Logs & Settings → Access & accounts**.
+- **No behavior change on upgrade:** auth is opt-in. With no accounts and no `POLIBRIEF_PASSWORD`
+  the app stays open (today's Tailscale default); the gate turns on when the first account is added.
+
+### Notes
+
+- `page()` gained an optional `{ chrome: false }` to render the login screen without the nav.
+- New optional env: `POLIBRIEF_SESSION_SECRET` (rotate to log everyone out), `POLIBRIEF_FEED_TOKEN`.
+- Tests: `test/auth.test.js` (hashing, sessions, feed token) + an end-to-end server auth check.
+
 ## 1.30.0 — Evidence packets; storylines become a state transition
 
 Phase 2 of the runtime-prompt plan. Both halves attack the same thing from different ends: **a
