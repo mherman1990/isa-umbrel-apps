@@ -49,6 +49,22 @@ const round = (v) => (v == null ? "—" : Math.abs(v) >= 1000 ? Math.round(v).to
 // line, not in the firing condition. (See chinaClockDetail below.)
 const DATA_TRIGGERS = new Set(["cot_managed_money_extreme", "pre_report_positioning", "harvest_strong_anomaly", "basis_carry_state"]);
 
+// The stored market_series each trigger reads, colocated with dataFires()/describe() below so the two
+// can't drift. The snapshot relevance gate (pipeline.formatMarketSnapshot) uses this to keep any series
+// an ACTIVE trigger depends on at full detail. Date-only seasonal triggers read no series and are
+// absent on purpose; pre_report_positioning is calendar-only (reads the report schedule, not a series).
+export const TRIGGER_SERIES = {
+  cot_managed_money_extreme: ["cftc:soybeans:mm-net"],
+  harvest_strong_anomaly: ["nass:us:stocks"],
+  basis_carry_state: [], // needs a futures carry spread (CME blocked) — no series until a curve feed lands
+  china_demand_clock: [
+    "fas:soybeans:china:next-my-commitments",
+    "fas:soybeans:china:commitments",
+    "fas:soybeans:china:share",
+    "agtransport:soy-net-export-sales", // the labelled all-destinations fallback chinaClockDetail degrades to
+  ],
+};
+
 function dataFires(id, now, snap) {
   if (id === "cot_managed_money_extreme") {
     const s = snap.get("cftc:soybeans:mm-net");
@@ -288,4 +304,15 @@ export function triggersText(now = new Date()) {
   return fired
     .map((f) => `- [${f.card_type}, priority ${f.priority}] ${f.name}: ${f.history_note}${f.detail ? ` (current data: ${f.detail})` : ""}`)
     .join("\n");
+}
+
+/**
+ * The market_series that CURRENTLY-fired triggers depend on — the trigger half of the snapshot
+ * relevance gate's "referenced" set. A series here is one an active condition card is keying on right
+ * now, so it earns full detail regardless of whether it happens to be moving.
+ */
+export function firedTriggerSeries(now = new Date()) {
+  const out = new Set();
+  for (const f of evaluateTriggers(now)) for (const s of TRIGGER_SERIES[f.id] ?? []) out.add(s);
+  return out;
 }

@@ -218,6 +218,23 @@ db.exec(`
     category   TEXT,            -- groups series into one chart (e.g. "biofuel_feedstock")
     updated_at TEXT
   );
+  -- Vintage trail (§1.4). market_series keeps only the LATEST value per (series, period) — its upsert
+  -- overwrites in place, so every revision USDA/FAS/EIA makes to an already-published period silently
+  -- replaces the number we originally saw. That is two losses: leadlag.js then pairs today's REVISED
+  -- value of X at date d with the price move after d — a value nobody had on d (lookahead bias) — and
+  -- the revision itself ("USDA keeps cutting carryout") is a signal we never keep. This companion table
+  -- is append-only: one row the first time we see a value for (series, period), and another each time a
+  -- later refresh REVISES it. market_series stays the display/latest table (every existing reader is
+  -- unchanged); this holds the real-time history. (wasde.js already encodes its vintage into the period
+  -- itself, so it simply gets one row per period here — no conflict.)
+  CREATE TABLE IF NOT EXISTS market_series_vintage (
+    series TEXT NOT NULL,       -- same id as market_series
+    period TEXT NOT NULL,       -- the data's reference period ("YYYY-MM" / "YYYY-MM-DD")
+    as_of  TEXT NOT NULL,       -- ISO timestamp we first observed THIS value for (series, period)
+    value  REAL,
+    PRIMARY KEY (series, period, as_of)
+  );
+  CREATE INDEX IF NOT EXISTS idx_vintage_series_period ON market_series_vintage(series, period, as_of);
 `);
 
 const stmtUpsertSeriesPoint = db.prepare(
@@ -228,6 +245,35 @@ const stmtUpsertSeriesMeta = db.prepare(
   `INSERT INTO market_series_meta (series, label, unit, category, updated_at) VALUES (?, ?, ?, ?, ?)
      ON CONFLICT(series) DO UPDATE SET label=excluded.label, unit=excluded.unit, category=excluded.category, updated_at=excluded.updated_at`
 );
+// The most recent value we have on record for (series, period) — used to decide whether an incoming
+// point is a genuine revision worth a new vintage row, or the same number re-fetched (skip it, so the
+// trail stays first-print + real revisions rather than one identical row per pipeline run).
+const stmtLatestVintage = db.prepare(
+  "SELECT value FROM market_series_vintage WHERE series = ? AND period = ? ORDER BY as_of DESC LIMIT 1"
+);
+const stmtInsertVintage = db.prepare(
+  "INSERT OR IGNORE INTO market_series_vintage (series, period, as_of, value) VALUES (?, ?, ?, ?)"
+);
+
+// One-time backfill so the vintage trail has a baseline the moment this ships: seed it from whatever
+// market_series already holds, stamped with each series' last refresh time (our best estimate of when
+// we last knew that value). Without it, getSeriesFirstVintage() would be empty until every adapter
+// re-ran, and leadlag.js would see no predictors for a cycle. Guarded to run only when the trail is
+// empty but series exist, and INSERT OR IGNORE, so it never double-seeds or clobbers real vintages.
+try {
+  const vintageRows = db.prepare("SELECT COUNT(*) AS n FROM market_series_vintage").get().n;
+  const seriesRows = db.prepare("SELECT COUNT(*) AS n FROM market_series").get().n;
+  if (vintageRows === 0 && seriesRows > 0) {
+    db.prepare(
+      `INSERT OR IGNORE INTO market_series_vintage (series, period, as_of, value)
+         SELECT ms.series, ms.period, COALESCE(meta.updated_at, ?), ms.value
+           FROM market_series ms
+           LEFT JOIN market_series_meta meta ON meta.series = ms.series`
+    ).run(new Date().toISOString());
+  }
+} catch {
+  /* backfill is best-effort — a fresh DB has nothing to seed */
+}
 // Memoized marketSnapshot() result. The snapshot is derived purely from market_series /
 // market_series_meta, which only change via saveSeriesPoints() — so we compute it once and
 // hand back the same object until the series data changes. Invalidated below on every write.
@@ -236,11 +282,19 @@ let _snapshotCache = null;
 
 /** Upsert a whole timeseries (idempotent — safe to re-refresh each run). */
 export function saveSeriesPoints(series, meta, points) {
+  const asOf = new Date().toISOString(); // one observation time for this whole refresh
   const run = db.transaction(() => {
-    stmtUpsertSeriesMeta.run(series, meta.label ?? series, meta.unit ?? "", meta.category ?? "", new Date().toISOString());
+    stmtUpsertSeriesMeta.run(series, meta.label ?? series, meta.unit ?? "", meta.category ?? "", asOf);
     for (const p of points ?? []) {
       if (p && p.period != null && p.value != null && !Number.isNaN(Number(p.value))) {
-        stmtUpsertSeriesPoint.run(series, String(p.period), Number(p.value));
+        const period = String(p.period), value = Number(p.value);
+        stmtUpsertSeriesPoint.run(series, period, value); // latest/display, as before
+        // Append to the vintage trail only on first sight or a genuine revision — an unchanged
+        // re-fetch adds nothing, so the trail stays [first print, …each revision], not one row per run.
+        const prev = stmtLatestVintage.get(series, period);
+        if (!prev || Number(prev.value) !== value) {
+          stmtInsertVintage.run(series, period, asOf, value);
+        }
       }
     }
   });
@@ -249,6 +303,34 @@ export function saveSeriesPoints(series, meta, points) {
 }
 export function getSeries(series) {
   return db.prepare("SELECT period, value FROM market_series WHERE series = ? ORDER BY period").all(series);
+}
+
+/**
+ * Point-in-time view: the FIRST value we recorded for each period (earliest as_of), not the latest
+ * revision. This is what a backtest or lead-lag scan must use — pairing a period with the number that
+ * was actually known then, not one USDA revised into existence months later (see leadlag.js). Same
+ * {period, value}[] shape as getSeries(), so it's a drop-in there. Falls back to nothing only for a
+ * series with no vintage rows at all (a brand-new DB before the first refresh + backfill).
+ */
+export function getSeriesFirstVintage(series) {
+  return db
+    .prepare(
+      `SELECT v.period, v.value
+         FROM market_series_vintage v
+         JOIN (SELECT period, MIN(as_of) AS first_as_of
+                 FROM market_series_vintage WHERE series = ? GROUP BY period) f
+           ON v.period = f.period AND v.as_of = f.first_as_of
+        WHERE v.series = ?
+        ORDER BY v.period`
+    )
+    .all(series, series);
+}
+
+/** The full revision trail for one (series, period): [{as_of, value}] oldest first. */
+export function getSeriesVintages(series, period) {
+  return db
+    .prepare("SELECT as_of, value FROM market_series_vintage WHERE series = ? AND period = ? ORDER BY as_of")
+    .all(series, period);
 }
 /**
  * Everything the signal-card sparkline needs, in one pass: the last `n` points to draw, plus the
@@ -296,6 +378,32 @@ function periodToMs(p) {
 }
 
 /**
+ * Shared data-freshness math: how old the latest point is (days), the series' own cadence (median
+ * spacing of its recent points), and whether it is overdue. ONE definition on purpose — it feeds both
+ * marketSnapshot() (per-series latency in the LLM prompt, so a 3-month-old figure never reads as this
+ * week's) and seriesFreshness() (the dashboard's stale-feed detector). If those two ever disagreed,
+ * the prompt's "STALE" marker and the UI's stale flag would mean different things. `periodsAsc` is the
+ * series' periods in ascending order; cadence is taken over the last 8, matching the dashboard window.
+ */
+function freshnessFromPeriods(periodsAsc) {
+  const latestMs = periodsAsc.length ? periodToMs(periodsAsc[periodsAsc.length - 1]) : null;
+  if (latestMs == null) return { ageDays: null, cadenceDays: null, stale: false };
+  const ageDays = Math.round((Date.now() - latestMs) / 86400e3);
+  const recent = periodsAsc.slice(-8);
+  const gaps = [];
+  for (let i = 1; i < recent.length; i++) {
+    const a = periodToMs(recent[i - 1]), b = periodToMs(recent[i]);
+    if (a != null && b != null) gaps.push((b - a) / 86400e3);
+  }
+  gaps.sort((x, y) => x - y);
+  const cadenceDays = gaps.length ? Math.round(gaps[Math.floor(gaps.length / 2)]) : 30;
+  // Overdue only well past its own rhythm — so a source's normal publication lag (e.g. EIA feedstocks
+  // run ~3 months behind) doesn't cry wolf, while a genuinely-dead feed still flags.
+  const stale = ageDays > Math.max(cadenceDays * 3.5, 18);
+  return { ageDays, cadenceDays, stale };
+}
+
+/**
  * Deep trend snapshot of every market series — computed over the FULL stored history,
  * so the query engine can teach trends, not just report the latest number. Per series:
  * latest + prior change, year-over-year, historical range + where the latest sits
@@ -309,12 +417,15 @@ function periodToMs(p) {
  */
 export function marketSnapshot() {
   if (_snapshotCache) return _snapshotCache;
-  const metas = db.prepare("SELECT series, label, unit, category FROM market_series_meta ORDER BY category, label").all();
+  const metas = db.prepare("SELECT series, label, unit, category, updated_at FROM market_series_meta ORDER BY category, label").all();
   const out = [];
   for (const m of metas) {
     const pts = db.prepare("SELECT period, value FROM market_series WHERE series = ? ORDER BY period").all(m.series);
     const n = pts.length;
     if (!n) continue;
+    // How current this figure is (age vs. its own cadence) — surfaced in the prompt so a quarterly
+    // print never reads as current, and so a silently-broken feed shows as STALE rather than "quiet".
+    const { ageDays, cadenceDays, stale } = freshnessFromPeriods(pts.map((p) => p.period));
     const latest = pts[n - 1];
     const previous = n > 1 ? pts[n - 2] : null;
     const changeAbs = previous ? latest.value - previous.value : null;
@@ -430,6 +541,10 @@ export function marketSnapshot() {
       historyYears: new Set(pts.map((p) => String(p.period).slice(0, 4))).size,
       count: n, firstPeriod: pts[0].period,
       trail: pts.slice(-12),
+      // Per-series latency (§1.5): ageDays = days since the latest data point; cadenceDays = its own
+      // publish rhythm; stale = overdue vs that rhythm; refreshedAt = when we last fetched it (distinct
+      // from the data period — separates "market is quiet" from "our feed stopped").
+      ageDays, cadenceDays, stale, refreshedAt: m.updated_at,
     });
   }
   _snapshotCache = out;
@@ -458,22 +573,25 @@ export function seriesFreshness() {
   const out = [];
   for (const m of metas) {
     const pts = db.prepare("SELECT period FROM market_series WHERE series = ? ORDER BY period DESC LIMIT 8").all(m.series);
-    const latestMs = pts.length ? periodToMs(pts[0].period) : null;
-    if (latestMs == null) continue;
-    const ageDays = Math.round((Date.now() - latestMs) / 86400e3);
-    const gaps = [];
-    for (let i = 0; i < pts.length - 1; i++) {
-      const a = periodToMs(pts[i].period), b = periodToMs(pts[i + 1].period);
-      if (a != null && b != null) gaps.push((a - b) / 86400e3);
-    }
-    gaps.sort((x, y) => x - y);
-    const cadenceDays = gaps.length ? Math.round(gaps[Math.floor(gaps.length / 2)]) : 30;
-    // Overdue only well past its own rhythm — so a source's normal publication lag (e.g. EIA
-    // feedstocks run ~3 months behind) doesn't cry wolf; a genuinely-dead feed still flags.
-    const stale = ageDays > Math.max(cadenceDays * 3.5, 18);
-    out.push({ series: m.series, label: m.label, category: m.category, latest: pts[0].period, ageDays, cadenceDays, stale, refreshedAt: m.updated_at });
+    if (!pts.length) continue;
+    const periodsAsc = pts.map((p) => p.period).reverse(); // freshnessFromPeriods wants ascending
+    const { ageDays, cadenceDays, stale } = freshnessFromPeriods(periodsAsc);
+    if (ageDays == null) continue;
+    out.push({ series: m.series, label: m.label, category: m.category, latest: periodsAsc[periodsAsc.length - 1], ageDays, cadenceDays, stale, refreshedAt: m.updated_at });
   }
   return out.sort((a, b) => b.ageDays - a.ageDays);
+}
+
+/**
+ * Series ids named by report expectations still awaiting a settled actual (resolved_at IS NULL).
+ * Each such series carries a pending, scoreable surprise, so the snapshot's relevance gate keeps it at
+ * full detail even when it is otherwise quiet — an open expectation IS a reason to keep watching it.
+ */
+export function openExpectationSeries() {
+  return db
+    .prepare("SELECT DISTINCT series FROM report_expectations WHERE resolved_at IS NULL AND series IS NOT NULL AND series <> ''")
+    .all()
+    .map((r) => r.series);
 }
 
 // ---------- curriculum + glossary (BeanBrief education engine) ----------
