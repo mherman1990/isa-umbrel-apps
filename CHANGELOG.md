@@ -1,8 +1,13 @@
 # Changelog
 
-## Unreleased — Snapshot relevance gate + per-series latency
+## Unreleased — Market-data quality: relevance gate, latency labels, and a vintage trail
 
 _(Version assigned at release time from `git tag` — main runs ahead of what's deployed.)_
+
+Steps 1–2 of the data-pipeline-expansion plan — groundwork before any new sources are added, so more
+pipelines make the brief better rather than noisier.
+
+### Snapshot relevance gate + per-series latency (§1.5 / §4)
 
 The market block is the largest single thing in the cached prompt prefix (~22k characters), and every
 series added dilutes the rest — `PERCENTILE_CAVEATS` exists precisely because the model compresses away
@@ -11,7 +16,7 @@ own **freshness** and spend **full detail only where it earns the tokens** (§1.
 data-pipeline-expansion plan). No new data sources; every existing brief, memo, Ask answer and signal
 card gets a tighter, better-labelled market block.
 
-### Added — every series line says how current it is
+#### Added — every series line says how current it is
 
 - `marketSnapshot()` now carries per-series **latency**: `ageDays` (days since the latest data point),
   `cadenceDays` (the series' own publish rhythm), `stale` (overdue vs. that rhythm), and `refreshedAt`
@@ -22,7 +27,7 @@ card gets a tighter, better-labelled market block.
   series, `next <Report> <date> (Nd)` — so `nass:us:price (2026-06)` and a daily futures print stop
   reading as equally current, and the model can see how long until a figure refreshes.
 
-### Added — a relevance gate over the market block
+#### Added — a relevance gate over the market block
 
 - Full detail (change, YoY, range/percentile, momentum, seasonal, trail) is now reserved for series
   that are **moving** (|changeZ| ≥ 1σ and fresh), **at a multi-year extreme** (≤5th/≥95th percentile
@@ -35,13 +40,45 @@ card gets a tighter, better-labelled market block.
   from `computeSignals()` (via `SIGNAL_CHART`), `firedTriggerSeries()` (new — from a `TRIGGER_SERIES`
   map colocated with the trigger code that reads those series), and `store.openExpectationSeries()`.
 
-### Notes
+#### Notes
 
 - Applies to every prompt that renders the market block — the Ask box, the analyst/memo runs, and the
   signal cards — so the token saving and the freshness labels reach all of them at once.
 - No schema change, no new keys, no data migration: `market_series_meta.updated_at` already existed.
 - Tests: `test/snapshot-relevance.test.js` (latency fields, the pure gate, the next-release resolver,
   the open-expectations query, and end-to-end rendering). Full suite 291 → 304.
+
+### Vintage trail — stop losing revisions, and fix leadlag's lookahead (§1.4)
+
+`market_series` upserts on `(series, period)`, so every revision USDA/FAS/EIA makes to an
+already-published period overwrote the number we first saw. Two costs: `leadlag.js` paired today's
+_revised_ value of X at date _d_ with the price move after _d_ — a value nobody had on _d_ (lookahead
+bias) — and the revision itself ("USDA keeps cutting carryout") was a signal we never kept. (`wasde.js`
+is the one series that already avoided this, by encoding its vintage into the period.)
+
+#### Added — an append-only vintage trail
+
+- New `market_series_vintage` table. `saveSeriesPoints` still writes the latest value to `market_series`
+  (display — **every existing reader is unchanged**) and now also appends to the trail: one row on first
+  sight of a value, another on each genuine revision, and nothing on an unchanged re-fetch. A companion
+  table rather than a primary-key change on the core table — additive, no rebuild, matches this repo's
+  migration style (and SQLite can't add a column to a PK via ALTER anyway). A one-time boot backfill
+  seeds the trail from existing rows, so there's a point-in-time baseline immediately.
+- New `store.getSeriesFirstVintage()` (first print per period) and `getSeriesVintages()` (full trail).
+  The revision-_direction_ signal this now makes collectable is a deliberate follow-up built on these.
+
+#### Changed — leadlag reads predictors at their first print
+
+- `leadlag.js` now sources each predictor from `getSeriesFirstVintage()` instead of the latest value,
+  closing the lookahead bias. History collected before this shipped is unaffected (its first-print falls
+  back to the current value via the backfill); prints collected from here on are point-in-time correct.
+- Cache key bumped (`leadlag_v2` → `leadlag_v3`) so the stored scan recomputes on the new inputs.
+
+#### Notes
+
+- No new data sources, no new keys. `market_series_vintage` is additive and auto-creates on boot.
+- Tests: `test/series-vintage.test.js` (trail behavior + boot backfill) and
+  `test/leadlag-vintage.test.js` (a revision must not move the scan). Full suite 304 → 310.
 
 ## 1.32.0 — Multi-user login, so the app can be shared without Tailscale
 
