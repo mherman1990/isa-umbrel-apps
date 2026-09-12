@@ -1,35 +1,23 @@
 #!/usr/bin/env node
-// probe-cme-settlements.mjs — does the CME settlements data actually reach us FROM THIS HOST?
+// probe-cme-settlements.mjs — fetch the CME soybean-complex + corn settlement curve FROM THIS HOST.
 //
-// CME IP-blocks cloud/dev IPs (both the CmeWS JSON endpoint and ftp/pub/settle/stlags 403 from the
-// workstation — verified). The bet is that the Pi's residential/business IP is not blocked. This probe
-// answers that from wherever it runs and DUMPS THE REAL RESPONSE SHAPE (top-level keys + the first raw
-// settlement rows), so the adapter's field-name assumptions can be confirmed against reality — the dev
-// IP can't see it.
+// Confirmed on the Pi (2026-09): CME IP-blocks cloud/dev IPs (403), but the Pi's residential IP reaches
+// the CmeWS JSON endpoint (HTTP 200). The endpoint REQUIRES ?tradeDate=MM/DD/YYYY; a day with no session
+// returns 200 + empty, so this steps back to the last settled day. (The plan's ftp/pub/settle/stlags text
+// file is dead — a real 404 from the Pi — so it's dropped.)
 //
-// ⚠️ SELF-CONTAINED ON PURPOSE: no repo imports, Node built-ins only. The deployed container runs a
-// BUILT IMAGE, so branch files aren't in /app — this script has to be runnable standalone. Run it on
-// the Pi, inside the app container (its outbound traffic egresses from the Pi's IP), one of two ways:
+// ⚠️ SELF-CONTAINED ON PURPOSE: no repo imports, Node built-ins only. The deployed container runs a BUILT
+// IMAGE, so branch files aren't in /app — pipe this into the container's Node instead of exec-ing a path:
 //
-//   # A) if you have this branch checked out on your workstation, copy it over then pipe it in:
-//   scp scripts/probe-cme-settlements.mjs umbrel@umbrel:/tmp/probe-cme.mjs
+//   scp scripts/probe-cme-settlements.mjs umbrel@umbrel:/tmp/probe-cme.mjs   # from a workstation clone
 //   cat /tmp/probe-cme.mjs | sudo docker exec -i isa-polibrief_web_1 node --input-type=module -
 //
-//   # B) or paste it onto the Pi with a heredoc, then pipe it in:
-//   cat > /tmp/probe-cme.mjs <<'EOF'
-//   ...(paste this whole file)...
-//   EOF
-//   cat /tmp/probe-cme.mjs | sudo docker exec -i isa-polibrief_web_1 node --input-type=module -
+// (or paste it onto the Pi with a `cat > /tmp/probe-cme.mjs <<'EOF' … EOF` heredoc, then the same pipe.)
+// Once a release carries this file in the image, the plain form works too:
+//   sudo docker exec -w /app isa-polibrief_web_1 node scripts/probe-cme-settlements.mjs
 //
-// It never touches the database. Exit 0 = at least one route returned a soybean curve; non-zero = every
-// route was blocked/empty (then: retry later, or fall back to Barchart — docs/market-data-options.md).
+// Read-only; never touches the database. Exit 0 = a soybean curve came back; non-zero = blocked/empty.
 
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-
-// CmeWS product ids: soybeans 320 and corn 300 are confirmed (docs/overnight-queue.md); meal 310 and
-// oil 312 follow CME's numbering and are what this probe is here to confirm.
 const PRODUCTS = [
   { key: "zs", id: 320, label: "Soybeans" },
   { key: "zm", id: 310, label: "Soybean meal" },
@@ -37,85 +25,60 @@ const PRODUCTS = [
   { key: "zc", id: 300, label: "Corn" },
 ];
 const CMEWS = "https://www.cmegroup.com/CmeWS/mvc/Settlements/Futures/Settlements";
-const STLAGS = "https://www.cmegroup.com/ftp/pub/settle/stlags";
 const UA = "Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
 const TIMEOUT_MS = 30_000;
+const LOOKBACK_DAYS = 7;
 
-const OUT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "cme-probe-"));
-let pass = 0, fail = 0;
-const ok = (m) => { console.log(`  ✓ ${m}`); pass++; };
-const bad = (m) => { console.log(`  ✗ ${m}`); fail++; };
-
-async function grab(url, accept) {
+async function grab(url) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
   const started = Date.now();
   try {
-    const res = await fetch(url, { signal: ctl.signal, headers: { "user-agent": UA, accept } });
+    const res = await fetch(url, { signal: ctl.signal, headers: { "user-agent": UA, accept: "application/json" } });
     const body = await res.text();
-    return { status: res.status, ok: res.ok, ctype: res.headers.get("content-type") || "", bytes: body.length, ms: Date.now() - started, body };
+    let json = null; try { json = JSON.parse(body); } catch { /* leave null */ }
+    return { status: res.status, ok: res.ok, ctype: res.headers.get("content-type") || "", bytes: body.length, ms: Date.now() - started, body, json };
   } catch (err) {
-    return { status: 0, ok: false, ctype: "", bytes: 0, ms: Date.now() - started, body: "", error: err.name === "AbortError" ? `timeout ${TIMEOUT_MS / 1000}s` : err.message };
+    return { status: 0, ok: false, ctype: "", bytes: 0, ms: Date.now() - started, body: "", json: null, error: err.name === "AbortError" ? `timeout ${TIMEOUT_MS / 1000}s` : err.message };
   } finally {
     clearTimeout(timer);
   }
 }
-const save = (name, body) => { const p = path.join(OUT_DIR, name); try { fs.writeFileSync(p, body); } catch { /* ignore */ } return p; };
-const clip = (s, n = 200) => String(s).replace(/\s+/g, " ").slice(0, n);
+const rowsOf = (j) => (j && Array.isArray(j.settlements) ? j.settlements.filter((r) => r && r.month && !/total/i.test(String(r.month))) : []);
+const clip = (s, n = 220) => String(s).replace(/\s+/g, " ").slice(0, n);
+function mdy(d) { return `${String(d.getUTCMonth() + 1).padStart(2, "0")}/${String(d.getUTCDate()).padStart(2, "0")}/${d.getUTCFullYear()}`; }
 
-let soybeanCurveSeen = false;
-
-console.log("\n=== Route 1: CmeWS JSON settlements (per product) ===");
-for (const p of PRODUCTS) {
-  const url = `${CMEWS}/${p.id}/FUT`;
-  const r = await grab(url, "application/json");
-  console.log(`\n  ${p.label} (id ${p.id}) → ${url}`);
-  console.log(`    HTTP ${r.status} | ${r.ctype || "?"} | ${r.bytes} bytes | ${r.ms}ms${r.error ? ` | ${r.error}` : ""}`);
-  if (!r.ok || !r.bytes) { bad(`${p.label}: not reachable — ${clip(r.body || r.error, 160)}`); continue; }
-  let json;
-  try { json = JSON.parse(r.body); } catch (e) { bad(`${p.label}: not JSON (${e.message})`); continue; }
-  save(`cmews-${p.key}.json`, r.body);
-  const rows = Array.isArray(json.settlements) ? json.settlements : [];
-  console.log(`    top-level keys: [${Object.keys(json).join(", ")}]`);
-  console.log(`    tradeDate: ${JSON.stringify(json.tradeDate ?? json.tradeDateLabel ?? null)} | settlements: ${rows.length}`);
-  if (rows.length) {
-    // Print the FIRST TWO ROWS VERBATIM — this is how we confirm the real field names (settle?
-    // openInterest? volume?), which the adapter currently only assumes.
-    console.log(`    first rows verbatim (confirm field names against the adapter):`);
-    for (const row of rows.slice(0, 2)) console.log(`      ${JSON.stringify(row)}`);
-    ok(`${p.label}: reachable, ${rows.length} settlement rows`);
-    if (p.key === "zs") soybeanCurveSeen = true;
-  } else {
-    bad(`${p.label}: reachable but no settlements[] — raw head: ${clip(r.body, 200)}`);
-  }
+// Find the most recent settled trade date (steps back over weekends/holidays), using soybeans.
+console.log(`\n=== Resolving the last settled trade date (Soybeans, id 320) ===`);
+let tradeDate = null;
+for (let i = 0; i < LOOKBACK_DAYS; i++) {
+  const ds = mdy(new Date(Date.now() - i * 86400000));
+  const r = await grab(`${CMEWS}/320/FUT?tradeDate=${ds}`);
+  const n = rowsOf(r.json).length;
+  console.log(`  tradeDate=${ds} -> HTTP ${r.status} | ${r.bytes}b | settlements=${n}${r.error ? ` | ${r.error}` : ""}`);
+  if (r.status !== 200 && i === 0) console.log(`    (not 200 — head: ${clip(r.body || r.error, 200)})`);
+  if (r.ok && n) { tradeDate = ds; break; }
 }
-
-console.log("\n=== Route 2: ftp/pub/settle/stlags text file ===");
-{
-  const r = await grab(STLAGS, "*/*");
-  console.log(`  ${STLAGS}`);
-  console.log(`    HTTP ${r.status} | ${r.ctype || "?"} | ${r.bytes} bytes | ${r.ms}ms${r.error ? ` | ${r.error}` : ""}`);
-  const looksBlocked = /application\/json/i.test(r.ctype) && /block|scraping|terms of use/i.test(r.body);
-  if (r.ok && r.bytes && !looksBlocked) {
-    save("stlags.txt", r.body);
-    console.log(`    First 40 lines (PASTE THESE BACK so the text parser can be pinned to the real layout):`);
-    console.log(r.body.split(/\r?\n/).slice(0, 40).map((l) => "      " + l).join("\n"));
-    ok("stlags: reachable text file");
-    if (/soybean/i.test(r.body)) soybeanCurveSeen = true;
-  } else {
-    bad(`stlags: not reachable${looksBlocked ? " (IP-block page)" : ""} — ${clip(r.body || r.error, 160)}`);
-  }
-}
-
-console.log("\n────────────────────────────────────────────────────────");
-if (soybeanCurveSeen) {
-  console.log(`✅ A soybean curve came back from this host (${pass} ok / ${fail} failed).`);
-  console.log(`   Next: confirm the field names in the verbatim rows above match src/adapters/cme_settlements.js,`);
-  console.log(`   then set CME_SETTLEMENTS=1 in /data/.env and run  node src/index.js market-refresh.`);
-} else {
-  console.log(`❌ Every route was blocked or empty from this host (${pass} ok / ${fail} failed).`);
+if (!tradeDate) {
+  console.log(`\n❌ No soybean curve from this host in the last ${LOOKBACK_DAYS} days.`);
   console.log(`   If this ran on the Pi, CME is blocking its IP too — fall back to Barchart OnDemand`);
-  console.log(`   (docs/market-data-options.md) or contact CME's GCC (gcc@cmegroup.com). Leave CME_SETTLEMENTS unset.`);
+  console.log(`   (docs/market-data-options.md) or contact CME's GCC (gcc@cmegroup.com). Leave CME_SETTLEMENTS unset.\n`);
+  process.exit(1);
 }
-console.log(`\nRaw responses saved under: ${OUT_DIR} (inside the container if run via docker exec)\n`);
-process.exit(soybeanCurveSeen ? 0 : 1);
+
+console.log(`\n=== tradeDate=${tradeDate}: dumping all four products (confirm field names against the adapter) ===`);
+let okCount = 0;
+for (const p of PRODUCTS) {
+  const r = await grab(`${CMEWS}/${p.id}/FUT?tradeDate=${tradeDate}`);
+  const rows = rowsOf(r.json);
+  console.log(`\n  ${p.label} (id ${p.id}) -> HTTP ${r.status} | rows=${rows.length}`);
+  if (r.json) console.log(`    top-level keys: [${Object.keys(r.json).join(", ")}] | tradeDate=${JSON.stringify(r.json.tradeDate ?? null)}`);
+  for (const row of rows.slice(0, 3)) console.log(`      ${JSON.stringify(row)}`);
+  if (rows.length) okCount++;
+  else console.log(`    (no rows — head: ${clip(r.body || r.error)})`);
+}
+
+console.log(`\n────────────────────────────────────────────────────────`);
+console.log(`✅ Reachable: ${okCount}/${PRODUCTS.length} products returned a curve for ${tradeDate}.`);
+console.log(`   To enable: set CME_SETTLEMENTS=1 in /data/.env, then  node src/index.js market-refresh.\n`);
+process.exit(0);

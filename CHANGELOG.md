@@ -6,7 +6,8 @@ _(Version assigned at release time from `git tag` — main runs ahead of what's 
 
 Steps 1–3 of the data-pipeline-expansion plan: the quality groundwork (steps 1–2), so more pipelines
 make the brief better rather than noisier — then the first new source (step 3, the CME forward curve),
-prepped and gated off pending a reachability probe from the Pi.
+finalized against CME's real response and confirmed reachable from the Pi, shipped gated off for a human
+to flip on.
 
 ### Snapshot relevance gate + per-series latency (§1.5 / §4)
 
@@ -81,25 +82,29 @@ is the one series that already avoided this, by encoding its vintage into the pe
 - Tests: `test/series-vintage.test.js` (trail behavior + boot backfill) and
   `test/leadlag-vintage.test.js` (a revision must not move the scan). Full suite 304 → 310.
 
-### CME forward-curve adapter + probe — prepped, gated OFF (§1.1)
+### CME forward-curve adapter + probe (§1.1) — reachable from the Pi, gated OFF
 
 The system's only price feed is a front-month *continuous* settle (`cbot_futures.js`, Yahoo), so there
 is no curve: no carry, no old-crop/new-crop or calendar spreads, no correctly-paired crush legs, and
-`basis_carry_state` can't fire. The CME settlements surfaces (CmeWS JSON per product, and the
-`ftp/pub/settle/stlags` text file) give every contract month's settle + open interest — keyless — but
-CME **IP-blocks cloud/dev IPs** (both 403 from the workstation). The bet is the Pi's IP isn't blocked.
+`basis_carry_state` can't fire. CME's CmeWS JSON settlements give every contract month's settle + open
+interest, keyless. CME **IP-blocks cloud/dev IPs** (403 from the workstation) — but the probe confirmed
+the **Pi's residential IP reaches it (HTTP 200)**, the "defer to the Pi" pattern paying off. (The plan's
+`ftp/pub/settle/stlags` text file is **dead** — a real 404 from the Pi, not a block — and was dropped.)
 
-- **`scripts/probe-cme-settlements.mjs`** — run on the Pi; tries both routes, prints status + a parsed
-  sample, dumps the raw responses (so the text parser can be pinned to the real layout), and exits 0
-  only if a soybean curve came back.
-- **`src/adapters/cme_settlements.js`** — parses the CmeWS JSON into `cme:*` curve series (per-contract
-  settle + open interest, a `front` nearest-contract settle, and a `carry` = 2nd − 1st that feeds
-  `basis_carry_state`). Namespace kept distinct from `cbot:*`/`barchart:*`. **Inert until
-  `CME_SETTLEMENTS=1`** — returns `[]` with no network call while off, exactly like `barchart` without
-  its key. Runbook: `docs/cme-settlements.md`.
-- Tests: `test/cme-settlements.test.js` — the pure parsers (grain eighths vs. product decimals, month
-  codes, trade date), the series builder (front + carry), the gating (inert by default), and a
-  provisional `stlags` text parse. Full suite 310 → 318. (No behavior change until enabled on the Pi.)
+- **`src/adapters/cme_settlements.js`** — fetches `…/Settlements/{id}/FUT?tradeDate=MM/DD/YYYY` per
+  product (soybeans 320, meal 310, oil 312, corn 300) with a browser UA, stepping back to the last
+  settled day (a session-less date returns 200 + empty). Emits `cme:*` series: per-contract settle +
+  open interest, a `front` **lead-contract** settle (the max-open-interest month — the nearest month is
+  often an expiring near-zero-OI stub), and `carry` (next − lead), the spread `basis_carry_state` needs.
+  Prices parse both grain eighths (`1296'4` = 1296.5) and product decimals, and strip A/B settlement
+  indicators. Namespace distinct from `cbot:*`/`barchart:*`. **Inert until `CME_SETTLEMENTS=1`** — returns
+  `[]` with no network call while off, like `barchart` without its key. Runbook: `docs/cme-settlements.md`.
+- **`scripts/probe-cme-settlements.mjs`** — self-contained (Node built-ins only) so it runs on the Pi
+  before the image carries it: resolves the last settled date and dumps each product's rows verbatim to
+  confirm field names. Exit 0 = a curve came back.
+- Tests: `test/cme-settlements.test.js` — the pure parsers (grain eighths vs. decimals, A/B suffixes,
+  `MM/DD/YYYY` trade date, month codes), the series builder (OI-lead front + carry), and the gating
+  (inert by default). Full suite 310 → 317. (No behavior change until enabled on the Pi.)
 
 ## 1.32.0 — Multi-user login, so the app can be shared without Tailscale
 
