@@ -1,5 +1,48 @@
 # Changelog
 
+## Unreleased — Snapshot relevance gate + per-series latency
+
+_(Version assigned at release time from `git tag` — main runs ahead of what's deployed.)_
+
+The market block is the largest single thing in the cached prompt prefix (~22k characters), and every
+series added dilutes the rest — `PERCENTILE_CAVEATS` exists precisely because the model compresses away
+qualifications when the block runs long. Before adding any new pipelines, this makes the block carry its
+own **freshness** and spend **full detail only where it earns the tokens** (§1.5 and §4 of the
+data-pipeline-expansion plan). No new data sources; every existing brief, memo, Ask answer and signal
+card gets a tighter, better-labelled market block.
+
+### Added — every series line says how current it is
+
+- `marketSnapshot()` now carries per-series **latency**: `ageDays` (days since the latest data point),
+  `cadenceDays` (the series' own publish rhythm), `stale` (overdue vs. that rhythm), and `refreshedAt`
+  (when we last fetched it — distinct from the data period, so "the market is quiet" and "our feed
+  stopped" stop looking the same). One shared `freshnessFromPeriods()` helper feeds both this and the
+  Markets freshness dashboard, so the prompt's `STALE` marker and the UI's stale flag can't diverge.
+- Each snapshot line shows `(period, N d)` and, where a scheduled USDA/CFTC report refreshes the
+  series, `next <Report> <date> (Nd)` — so `nass:us:price (2026-06)` and a daily futures print stop
+  reading as equally current, and the model can see how long until a figure refreshes.
+
+### Added — a relevance gate over the market block
+
+- Full detail (change, YoY, range/percentile, momentum, seasonal, trail) is now reserved for series
+  that are **moving** (|changeZ| ≥ 1σ and fresh), **at a multi-year extreme** (≤5th/≥95th percentile
+  with ≥3 years of history, and fresh), or **referenced** by a live signal, a fired condition trigger,
+  or an open (unresolved) report expectation. The quiet, unreferenced middle collapses to one value
+  line each. Nothing is dropped — every series still shows value, period and age, so any figure can be
+  cited and staleness stays visible — and full history for a condensed series is a Markets-tab click
+  away.
+- `seriesRelevance()` and `nextReleaseForSeries()` are pure and exported; the referenced set is built
+  from `computeSignals()` (via `SIGNAL_CHART`), `firedTriggerSeries()` (new — from a `TRIGGER_SERIES`
+  map colocated with the trigger code that reads those series), and `store.openExpectationSeries()`.
+
+### Notes
+
+- Applies to every prompt that renders the market block — the Ask box, the analyst/memo runs, and the
+  signal cards — so the token saving and the freshness labels reach all of them at once.
+- No schema change, no new keys, no data migration: `market_series_meta.updated_at` already existed.
+- Tests: `test/snapshot-relevance.test.js` (latency fields, the pure gate, the next-release resolver,
+  the open-expectations query, and end-to-end rendering). Full suite 291 → 304.
+
 ## 1.32.0 — Multi-user login, so the app can be shared without Tailscale
 
 The web UI could only be gated by a single shared password sent as an HTTP Basic popup

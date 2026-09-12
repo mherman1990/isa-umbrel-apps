@@ -296,6 +296,32 @@ function periodToMs(p) {
 }
 
 /**
+ * Shared data-freshness math: how old the latest point is (days), the series' own cadence (median
+ * spacing of its recent points), and whether it is overdue. ONE definition on purpose — it feeds both
+ * marketSnapshot() (per-series latency in the LLM prompt, so a 3-month-old figure never reads as this
+ * week's) and seriesFreshness() (the dashboard's stale-feed detector). If those two ever disagreed,
+ * the prompt's "STALE" marker and the UI's stale flag would mean different things. `periodsAsc` is the
+ * series' periods in ascending order; cadence is taken over the last 8, matching the dashboard window.
+ */
+function freshnessFromPeriods(periodsAsc) {
+  const latestMs = periodsAsc.length ? periodToMs(periodsAsc[periodsAsc.length - 1]) : null;
+  if (latestMs == null) return { ageDays: null, cadenceDays: null, stale: false };
+  const ageDays = Math.round((Date.now() - latestMs) / 86400e3);
+  const recent = periodsAsc.slice(-8);
+  const gaps = [];
+  for (let i = 1; i < recent.length; i++) {
+    const a = periodToMs(recent[i - 1]), b = periodToMs(recent[i]);
+    if (a != null && b != null) gaps.push((b - a) / 86400e3);
+  }
+  gaps.sort((x, y) => x - y);
+  const cadenceDays = gaps.length ? Math.round(gaps[Math.floor(gaps.length / 2)]) : 30;
+  // Overdue only well past its own rhythm — so a source's normal publication lag (e.g. EIA feedstocks
+  // run ~3 months behind) doesn't cry wolf, while a genuinely-dead feed still flags.
+  const stale = ageDays > Math.max(cadenceDays * 3.5, 18);
+  return { ageDays, cadenceDays, stale };
+}
+
+/**
  * Deep trend snapshot of every market series — computed over the FULL stored history,
  * so the query engine can teach trends, not just report the latest number. Per series:
  * latest + prior change, year-over-year, historical range + where the latest sits
@@ -309,12 +335,15 @@ function periodToMs(p) {
  */
 export function marketSnapshot() {
   if (_snapshotCache) return _snapshotCache;
-  const metas = db.prepare("SELECT series, label, unit, category FROM market_series_meta ORDER BY category, label").all();
+  const metas = db.prepare("SELECT series, label, unit, category, updated_at FROM market_series_meta ORDER BY category, label").all();
   const out = [];
   for (const m of metas) {
     const pts = db.prepare("SELECT period, value FROM market_series WHERE series = ? ORDER BY period").all(m.series);
     const n = pts.length;
     if (!n) continue;
+    // How current this figure is (age vs. its own cadence) — surfaced in the prompt so a quarterly
+    // print never reads as current, and so a silently-broken feed shows as STALE rather than "quiet".
+    const { ageDays, cadenceDays, stale } = freshnessFromPeriods(pts.map((p) => p.period));
     const latest = pts[n - 1];
     const previous = n > 1 ? pts[n - 2] : null;
     const changeAbs = previous ? latest.value - previous.value : null;
@@ -430,6 +459,10 @@ export function marketSnapshot() {
       historyYears: new Set(pts.map((p) => String(p.period).slice(0, 4))).size,
       count: n, firstPeriod: pts[0].period,
       trail: pts.slice(-12),
+      // Per-series latency (§1.5): ageDays = days since the latest data point; cadenceDays = its own
+      // publish rhythm; stale = overdue vs that rhythm; refreshedAt = when we last fetched it (distinct
+      // from the data period — separates "market is quiet" from "our feed stopped").
+      ageDays, cadenceDays, stale, refreshedAt: m.updated_at,
     });
   }
   _snapshotCache = out;
@@ -458,22 +491,25 @@ export function seriesFreshness() {
   const out = [];
   for (const m of metas) {
     const pts = db.prepare("SELECT period FROM market_series WHERE series = ? ORDER BY period DESC LIMIT 8").all(m.series);
-    const latestMs = pts.length ? periodToMs(pts[0].period) : null;
-    if (latestMs == null) continue;
-    const ageDays = Math.round((Date.now() - latestMs) / 86400e3);
-    const gaps = [];
-    for (let i = 0; i < pts.length - 1; i++) {
-      const a = periodToMs(pts[i].period), b = periodToMs(pts[i + 1].period);
-      if (a != null && b != null) gaps.push((a - b) / 86400e3);
-    }
-    gaps.sort((x, y) => x - y);
-    const cadenceDays = gaps.length ? Math.round(gaps[Math.floor(gaps.length / 2)]) : 30;
-    // Overdue only well past its own rhythm — so a source's normal publication lag (e.g. EIA
-    // feedstocks run ~3 months behind) doesn't cry wolf; a genuinely-dead feed still flags.
-    const stale = ageDays > Math.max(cadenceDays * 3.5, 18);
-    out.push({ series: m.series, label: m.label, category: m.category, latest: pts[0].period, ageDays, cadenceDays, stale, refreshedAt: m.updated_at });
+    if (!pts.length) continue;
+    const periodsAsc = pts.map((p) => p.period).reverse(); // freshnessFromPeriods wants ascending
+    const { ageDays, cadenceDays, stale } = freshnessFromPeriods(periodsAsc);
+    if (ageDays == null) continue;
+    out.push({ series: m.series, label: m.label, category: m.category, latest: periodsAsc[periodsAsc.length - 1], ageDays, cadenceDays, stale, refreshedAt: m.updated_at });
   }
   return out.sort((a, b) => b.ageDays - a.ageDays);
+}
+
+/**
+ * Series ids named by report expectations still awaiting a settled actual (resolved_at IS NULL).
+ * Each such series carries a pending, scoreable surprise, so the snapshot's relevance gate keeps it at
+ * full detail even when it is otherwise quiet — an open expectation IS a reason to keep watching it.
+ */
+export function openExpectationSeries() {
+  return db
+    .prepare("SELECT DISTINCT series FROM report_expectations WHERE resolved_at IS NULL AND series IS NOT NULL AND series <> ''")
+    .all()
+    .map((r) => r.series);
 }
 
 // ---------- curriculum + glossary (BeanBrief education engine) ----------
