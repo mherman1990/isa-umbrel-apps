@@ -11,14 +11,26 @@ Pi's residential/business IP is blocked too. So the adapter stays inert until pr
 
 ## 1. Probe from the Pi
 
+The probe isn't in the deployed image (it lives on the branch), and the app container runs a *built
+image* — so `docker exec … node scripts/…` won't find it. The probe is self-contained (Node built-ins
+only), so **pipe it into the container's Node instead** (its outbound traffic egresses from the Pi's IP):
+
 ```sh
-sudo docker exec -w /app isa-polibrief_web_1 node scripts/probe-cme-settlements.mjs
+# on your workstation, in the isa-umbrel-apps clone on this branch:
+scp scripts/probe-cme-settlements.mjs umbrel@umbrel:/tmp/probe-cme.mjs
+# then on the Pi:
+cat /tmp/probe-cme.mjs | sudo docker exec -i isa-polibrief_web_1 node --input-type=module -
 ```
 
+(If scp isn't handy, paste the file onto the Pi with a `cat > /tmp/probe-cme.mjs <<'EOF' … EOF` heredoc,
+then run the same pipe. The script header spells this out.)
+
 It tries both routes (the CmeWS JSON endpoint per product, and the `stlags` text file), prints HTTP
-status + a parsed sample for each, saves the raw responses under a temp dir, and exits 0 if at least
-one route returned a soybean curve. **If it prints raw `stlags` lines, paste them back** — the text
-parser (`parseStlags`) is provisional and needs pinning to the real column layout.
+status, and for the JSON route **dumps the first settlement rows verbatim so you can confirm the real
+field names** against the adapter. It exits 0 if a soybean curve came back. **If it prints raw `stlags`
+lines, paste them back** — the text parser (`parseStlags`) is provisional and needs pinning to the real
+column layout. Once the image carries the probe (after a release), the plain
+`docker exec … node scripts/probe-cme-settlements.mjs` form works too.
 
 - **Exit 0 / curve parsed** → go to step 2.
 - **Exit 1 / all 403** → the Pi's IP is blocked too. Fall back to Barchart OnDemand
