@@ -31,6 +31,7 @@ import { summarizeItem } from "./summarize.js";
 import { syncRegistryFromSeed } from "./registry.js";
 import { studioBody, studioCatalog, studioSeries, studioSeriesCSV, studioEvents } from "./studio.js";
 import { sanitizeEmailHtml, emailBodyToText, emailBodyToPreview, textToHtml } from "./emailhtml.js";
+import * as auth from "./auth.js";
 
 // All user-facing timestamps render in Central time (the ISA org timezone).
 const CENTRAL_TZ = "America/Chicago";
@@ -233,7 +234,7 @@ function setupGzip(req, res) {
   };
 }
 
-function page(title, body) {
+function page(title, body, { chrome = true } = {}) {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -485,14 +486,14 @@ function page(title, body) {
     details.summary > summary, .mailitem > summary { padding: 4px 0; }
   }
 </style></head>
-<body><header>
+<body>${chrome ? `<header>
 <a class="brand" href="/"><img class="logo" src="/assets/isa-logo-main.png" alt="Iowa Soybean Association"><span class="brandname">The Bean Brief</span></a>
 <nav><a href="/">Home</a><a href="/items">Laws, Rules &amp; Decisions</a><a href="/news">News</a><a href="/markets">Markets</a><a href="/studio">Studio</a><a href="/map">Map</a><a href="/watchlist">Watchlist</a><a href="/sources">Sources</a><a href="/registry">Registry</a><a href="/logs">Logs &amp; Settings</a></nav>
 </header>
 <script>(function(){var p=location.pathname,act=null;document.querySelectorAll('nav a').forEach(function(a){var h=a.getAttribute('href');if(h==='/'?p==='/':p===h||p.indexOf(h+'/')===0){a.classList.add('active');act=a;}});
 /* On a phone the nav is one horizontal strip (see the mobile CSS), so the current tab can sit off
    screen — scroll it into view, without scrolling the page itself. */
-if(act&&act.offsetParent){var n=act.parentNode;if(n.scrollWidth>n.clientWidth+4)n.scrollLeft=Math.max(0,act.offsetLeft-16);}})();</script>
+if(act&&act.offsetParent){var n=act.parentNode;if(n.scrollWidth>n.clientWidth+4)n.scrollLeft=Math.max(0,act.offsetLeft-16);}})();</script>` : ``}
 ${body}
 </body></html>`;
 }
@@ -1002,10 +1003,30 @@ function settingsSection(watchlist, openId) {
         `<form method="post" action="/watchlist/test-email"><input type="hidden" name="edition" value="${esc(edition)}"><button class="ghost tiny">✉️ ${esc(label)}</button></form>`
     ).join("")}
   </div>
-  <div class="kicker">Security</div>
-  <p class="muted">${process.env.POLIBRIEF_PASSWORD ? "Password protection is ON." : "No password set. To require one, add POLIBRIEF_PASSWORD=yourpassword to .env and restart (fine to skip on a Tailscale-only network)."}</p>
-  <div class="kicker">Comment-deadline calendar</div>
-  <p class="muted">📅 <a href="/calendar.ics">calendar.ics</a> — in Outlook: Calendar → Add calendar → Subscribe from web → paste this page's address ending in /calendar.ics. Upcoming comment deadlines then appear on your work calendar automatically.</p>
+  <div class="kicker">Access &amp; accounts</div>
+  ${(() => {
+    const users = auth.listUsers();
+    const legacy = Boolean(process.env.POLIBRIEF_PASSWORD);
+    if (!auth.authEnabled()) {
+      return `<p class="stale-warn">🔓 <strong>Login is OFF — anyone who can reach this site can open it.</strong>
+        Create the first account on the Pi <em>before</em> you expose the app (e.g. with Tailscale Funnel):
+        <br><code>docker exec -it isa-polibrief_web_1 node src/index.js user add &lt;name&gt;</code>
+        <br>Accounts live in <code>/data/users.json</code>; the login gate turns on automatically once one exists.</p>`;
+    }
+    return `<p class="muted">🔒 Login is <strong>ON</strong>.${users.length
+        ? ` ${users.length} account${users.length === 1 ? "" : "s"}: ${users.map((u) => `<strong>${esc(u.username)}</strong>`).join(", ")}.`
+        : ""}${legacy ? " A legacy shared password (<code>POLIBRIEF_PASSWORD</code>) is also accepted." : ""}
+      Manage accounts on the Pi with <code>docker exec … node src/index.js user add|list|rm &lt;name&gt;</code>.</p>
+      <form method="post" action="/logout" style="margin-top:2px"><button class="ghost tiny">Sign out</button></form>`;
+  })()}
+  <div class="kicker">Comment-deadline calendar &amp; brief feed</div>
+  ${(() => {
+    const tok = auth.authEnabled() ? auth.feedToken() : null;
+    const cal = tok ? `/calendar.ics?token=${encodeURIComponent(tok)}` : "/calendar.ics";
+    const rss = tok ? `/feed.xml?token=${encodeURIComponent(tok)}` : "/feed.xml";
+    return `<p class="muted">📅 <a href="${esc(cal)}">calendar.ics</a> — in Outlook: Calendar → Add calendar → Subscribe from web → paste this site's address ending in <code>${esc(cal)}</code>. Upcoming comment deadlines then appear on your work calendar automatically.
+      <br>📰 <a href="${esc(rss)}">feed.xml</a> — RSS feed of briefs.${tok ? ` <span class="muted">The <code>?token=…</code> lets these two work in readers that can't sign in — keep it private; rotate it by deleting <code>/data/.feed_token</code> and restarting.</span>` : ""}</p>`;
+  })()}
 </details>`;
 }
 
@@ -2785,18 +2806,114 @@ function slugify(label) {
   return label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "topic";
 }
 
-function checkAuth(req, res) {
-  const password = process.env.POLIBRIEF_PASSWORD;
-  if (!password) return true;
+// True when the request reached us over HTTPS (Tailscale Funnel / a reverse proxy sets
+// x-forwarded-proto). Governs whether the session cookie is marked Secure — we don't set
+// Secure on plain-HTTP localhost/Umbrel-tile access, or the cookie would never be sent back.
+function isHttps(req) {
+  const xf = String(req.headers["x-forwarded-proto"] ?? "").split(",")[0].trim();
+  return xf === "https" || Boolean(req.socket?.encrypted);
+}
+
+function wantsHtml(req) {
+  return req.method === "GET" && String(req.headers.accept ?? "").includes("text/html");
+}
+
+// The gate. Called once, up front, for every request that isn't a public asset or /health.
+// Order: feed-token (machine subscriptions) → session cookie (browsers) → HTTP Basic
+// (power users, saved user:pass@ URLs). Unauthenticated browser navigations are sent to the
+// login page; everything else gets a 401 so non-browser clients still get a normal challenge.
+function checkAuth(req, res, url) {
+  if (!auth.authEnabled()) return true; // opt-in: no accounts + no legacy password ⇒ open
+
+  // Outlook (/calendar.ics) and RSS (/feed.xml) readers can't log in — they carry a token.
+  if (url.pathname === "/calendar.ics" || url.pathname === "/feed.xml") {
+    if (auth.checkFeedToken(url.searchParams.get("token"))) return true;
+  }
+
+  const cookies = auth.parseCookies(req.headers.cookie);
+  const sess = auth.verifySession(cookies[auth.COOKIE_NAME]);
+  if (sess) { req.user = sess.username; return true; }
+
   const header = req.headers.authorization ?? "";
   if (header.startsWith("Basic ")) {
     const decoded = Buffer.from(header.slice(6), "base64").toString("utf8");
-    const supplied = decoded.slice(decoded.indexOf(":") + 1);
-    if (supplied === password) return true;
+    const i = decoded.indexOf(":");
+    const user = i >= 0 ? decoded.slice(0, i) : "";
+    const pass = i >= 0 ? decoded.slice(i + 1) : decoded;
+    if (auth.verifyPassword(user, pass)) { req.user = user || "(basic)"; return true; }
   }
-  res.writeHead(401, { "www-authenticate": 'Basic realm="polibrief"', "content-type": "text/plain" });
-  res.end("Password required (any username; password from POLIBRIEF_PASSWORD in .env)");
+
+  if (wantsHtml(req)) {
+    redirect(res, `/login?next=${encodeURIComponent(url.pathname + url.search)}`);
+  } else {
+    res.writeHead(401, { "www-authenticate": 'Basic realm="polibrief"', "content-type": "text/plain" });
+    res.end("Sign in required — open this site in a browser to log in, or use HTTP Basic auth.");
+  }
   return false;
+}
+
+// ---------- login page ----------
+// Kept deliberately minimal: no nav (you're not in yet), the ISA logo (a public asset),
+// one form. `next` round-trips the page you were headed to so login lands you back there.
+function loginPage({ next = "/", error = false } = {}) {
+  const safeNext = /^\/($|[^/\\])/.test(String(next ?? "")) ? next : "/"; // never redirect off-site
+  const body = `<div class="login-wrap">
+  <form class="login-card" method="post" action="/login">
+    <img class="logo" src="/assets/isa-logo-main.png" alt="Iowa Soybean Association">
+    <h1>The Bean Brief</h1>
+    <p class="muted">Sign in to review policy &amp; market intelligence.</p>
+    ${error ? '<p class="banner err" role="alert">Incorrect username or password.</p>' : ""}
+    <input type="hidden" name="next" value="${esc(safeNext)}">
+    <label>Username<input type="text" name="username" autocomplete="username" autofocus required></label>
+    <label>Password<input type="password" name="password" autocomplete="current-password" required></label>
+    <button type="submit">Sign in</button>
+  </form>
+</div>
+<style>
+  body { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+  .login-wrap { width: 100%; max-width: 380px; padding: 24px 0; }
+  .login-card { display: flex; flex-direction: column; gap: 12px; border: 1px solid var(--line);
+    border-top: 4px solid var(--isa-gold); border-radius: 12px; padding: 26px 24px 28px;
+    box-shadow: 0 2px 14px rgba(0,74,141,.08); }
+  .login-card .logo { height: 46px; width: auto; align-self: flex-start; }
+  .login-card h1 { margin: 6px 0 0; font-size: 1.35rem; }
+  .login-card p.muted { margin: 0 0 4px; }
+  .login-card label { display: flex; flex-direction: column; gap: 4px; font-size: .85em;
+    font-weight: 600; color: var(--isa-dark); }
+  .login-card input { border: 1px solid var(--isa-dark-40); border-radius: 6px; padding: 9px 10px;
+    font-size: 1rem; background: #fff; color: var(--ink); }
+  .login-card button { margin-top: 6px; padding: 10px 14px; font-size: 1rem; }
+  .login-card .banner { margin: 2px 0; }
+</style>`;
+  return page("Sign in — The Bean Brief", body, { chrome: false });
+}
+
+// Modest brute-force brake for the login form (it's the one endpoint reachable pre-auth once the
+// app is public). Per-IP: after LOGIN_MAX failures inside the window, refuse for LOGIN_LOCK_MS.
+// In memory only — a restart clears it, which is fine for a small-team review tool.
+const loginFails = new Map(); // ip -> { count, first, until }
+const LOGIN_MAX = 8;
+const LOGIN_WINDOW_MS = 5 * 60 * 1000;
+const LOGIN_LOCK_MS = 5 * 60 * 1000;
+function clientIp(req) {
+  const xf = String(req.headers["x-forwarded-for"] ?? "").split(",")[0].trim();
+  return xf || req.socket?.remoteAddress || "unknown";
+}
+function loginLockedUntil(ip) {
+  const rec = loginFails.get(ip);
+  if (rec?.until && rec.until > Date.now()) return rec.until;
+  return 0;
+}
+function noteLoginFailure(ip) {
+  const now = Date.now();
+  const rec = loginFails.get(ip) ?? { count: 0, first: now, until: 0 };
+  if (now - rec.first > LOGIN_WINDOW_MS) { rec.count = 0; rec.first = now; }
+  rec.count += 1;
+  if (rec.count >= LOGIN_MAX) rec.until = now + LOGIN_LOCK_MS;
+  loginFails.set(ip, rec);
+}
+function clearLoginFailures(ip) {
+  loginFails.delete(ip);
 }
 
 /**
@@ -2898,7 +3015,48 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
         return;
       }
 
-      if (!checkAuth(req, res)) return;
+      // ----- login / logout (must be reachable before the gate) -----
+      if (url.pathname === "/login") {
+        const next = url.searchParams.get("next") || "/";
+        if (req.method === "GET") {
+          res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+          res.end(loginPage({ next, error: url.searchParams.get("error") === "1" }));
+          return;
+        }
+        if (req.method === "POST") {
+          const ip = clientIp(req);
+          const form = await readForm(req);
+          const nx = form.get("next") || "/";
+          const safeNext = /^\/($|[^/\\])/.test(nx) ? nx : "/"; // same-site path only (no //host, no /\host)
+          if (loginLockedUntil(ip)) {
+            res.writeHead(429, { "content-type": "text/plain" });
+            res.end("Too many attempts. Wait a few minutes and try again.");
+            return;
+          }
+          const ok = auth.verifyPassword(form.get("username"), form.get("password"));
+          if (!ok) {
+            noteLoginFailure(ip);
+            await new Promise((r) => setTimeout(r, 300)); // constant-ish delay slows guessing
+            redirect(res, `/login?error=1&next=${encodeURIComponent(safeNext)}`);
+            return;
+          }
+          clearLoginFailures(ip);
+          const token = auth.signSession(form.get("username"));
+          res.writeHead(303, {
+            "set-cookie": auth.sessionCookie(token, { secure: isHttps(req) }),
+            location: safeNext,
+          });
+          res.end();
+          return;
+        }
+      }
+      if (url.pathname === "/logout") {
+        res.writeHead(303, { "set-cookie": auth.clearCookie({ secure: isHttps(req) }), location: "/login" });
+        res.end();
+        return;
+      }
+
+      if (!checkAuth(req, res, url)) return;
 
       // ----- pages -----
       if (req.method === "GET" && url.pathname === "/") {
@@ -3653,6 +3811,12 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
 
   server.listen(port, "0.0.0.0", () => {
     console.log(`\n🌐 polibrief web UI on http://localhost:${port} (reachable on your LAN / Tailscale too)`);
+    if (auth.authEnabled()) {
+      const n = auth.userCount();
+      console.log(`🔒 Login is ON — ${n} account${n === 1 ? "" : "s"}${process.env.POLIBRIEF_PASSWORD ? " (+ legacy POLIBRIEF_PASSWORD)" : ""}.`);
+    } else {
+      console.log("🔓 Login is OFF — the UI is open to anyone who can reach it. Add an account before exposing it: node src/index.js user add <name>");
+    }
   });
 
   if (schedule) {

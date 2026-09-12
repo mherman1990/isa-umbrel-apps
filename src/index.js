@@ -13,6 +13,7 @@
 import { Command } from "commander";
 import dotenv from "dotenv";
 import path from "node:path";
+import readline from "node:readline";
 
 import { PROJECT_ROOT, DATA_DIR } from "./store.js";
 
@@ -288,6 +289,68 @@ program
       console.log(`   ${(e?.full_name ?? c.entity_id).padEnd(28)} ${c.kind.padEnd(16)} ${(c.last_error ?? "").slice(0, 50)}`);
     }
     console.log();
+  });
+
+// ----- web UI accounts (login page) -----
+function promptHidden(question) {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
+    rl._writeToOutput = () => {}; // mute echo so the password isn't shown
+    process.stdout.write(question);
+    rl.question("", (answer) => {
+      rl.close();
+      process.stdout.write("\n");
+      resolve(answer);
+    });
+  });
+}
+
+const userCmd = program.command("user").description("Manage web-UI login accounts (the /login page)");
+
+userCmd
+  .command("add <username>")
+  .alias("passwd")
+  .description("Create or update an account (prompts for the password unless given)")
+  .argument("[password]", "password (omit to be prompted; avoids shell history)")
+  .option("--role <role>", "label only: viewer | editor | admin", "viewer")
+  .action(async (username, password, opts) => {
+    const auth = await import("./auth.js");
+    let pw = password;
+    if (!pw) {
+      pw = await promptHidden(`Password for ${username}: `);
+      const again = await promptHidden("Confirm password: ");
+      if (pw !== again) throw new Error("passwords did not match");
+    } else {
+      console.log("⚠️  Password passed on the command line — it may be saved in your shell history.");
+    }
+    const r = auth.setUser(username, pw, opts.role);
+    console.log(`✅ Saved account "${r.username}" (${r.role}). Login is now required for the web UI.`);
+  });
+
+userCmd
+  .command("list")
+  .description("List web-UI accounts")
+  .action(async () => {
+    const auth = await import("./auth.js");
+    const users = auth.listUsers();
+    if (!users.length) {
+      console.log("No accounts yet. The web UI is OPEN. Add one: node src/index.js user add <name>");
+      return;
+    }
+    console.log(`👥 ${users.length} account(s):`);
+    for (const u of users) console.log(`   ${u.username.padEnd(24)} ${u.role}${u.created ? `   since ${String(u.created).slice(0, 10)}` : ""}`);
+    if (process.env.POLIBRIEF_PASSWORD) console.log("   (legacy POLIBRIEF_PASSWORD is also accepted)");
+  });
+
+userCmd
+  .command("rm <username>")
+  .alias("remove")
+  .description("Delete a web-UI account")
+  .action(async (username) => {
+    const auth = await import("./auth.js");
+    const ok = auth.removeUser(username);
+    console.log(ok ? `🗑️  Removed "${username}".` : `No account named "${username}".`);
+    if (ok && !auth.authEnabled()) console.log("⚠️  No accounts remain and no POLIBRIEF_PASSWORD is set — the web UI is now OPEN.");
   });
 
 program.parseAsync(process.argv).catch((err) => {

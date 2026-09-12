@@ -187,7 +187,10 @@ Everything below happens in the browser (the Umbrel tile / port 8484):
 - **Logs** — recent activity, in plain English, when something looks off.
 - Scheduler runs the AM/PM briefs, the weekly memo (default Friday 5 PM), and a
   nightly backup (kept 14 days, in the data folder under `backups/`).
-- Optional password: set `POLIBRIEF_PASSWORD=...` in `.env` and restart.
+- **Login:** the UI is open by default (fine on a Tailscale-only network). To require a
+  username/password — e.g. before letting teammates review it over a public link — add
+  accounts with `node src/index.js user add <name>` and expose it with Tailscale Funnel.
+  See **[docs/remote-access.md](docs/remote-access.md)**.
 
 ---
 

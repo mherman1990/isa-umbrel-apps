@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-polibrief
 category: automation
 name: The Bean Brief
-version: "1.31.0"
+version: "1.32.0"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
@@ -28,7 +28,20 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  THE ANALYST NOTE NOW HAS TO SHOW ITS WORK, AND IS ARGUED WITH BEFORE YOU READ IT. Until now the
+  YOU CAN NOW LET TEAMMATES AND DIRECTORS READ THE BEAN BRIEF IN A NORMAL BROWSER — no Tailscale on
+  their laptop, no logging into your Pi. Two things make that safe. First, the site now has a real
+  sign-in page with named accounts: each person gets their own username and password, there is a
+  Sign out button, and passwords are scrambled before they are stored — never kept in plain text.
+  Second, nothing changes until you decide to switch it on. With no accounts the app behaves exactly
+  as it does today (open on your Tailscale network); it starts requiring a login the moment you add
+  the first account. So you create the logins first, then hand out the link. Accounts are added and
+  removed with a one-line command, and there is a short guide in the app's docs (remote-access) for
+  that and for publishing a public web link with Tailscale Funnel. Your Outlook calendar
+  subscription and the RSS feed keep working — they use a private token link shown on the Settings
+  page, because a calendar app cannot fill in a login box. Update only — no new keys, nothing to
+  change, and no change at all to how briefs are made or what they cost.
+  ---
+  PREVIOUS RELEASE (1.31.0) — THE ANALYST NOTE NOW HAS TO SHOW ITS WORK, AND IS ARGUED WITH BEFORE YOU READ IT. Until now the
   Analyst Note made claims and nothing checked whether it could point at anything. Each claim it
   makes is now written down as a numbered piece of evidence — a specific stored item, a specific
   market series, a specific signal — and the app checks every one of those references against what
