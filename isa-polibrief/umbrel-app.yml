@@ -28,7 +28,13 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  DAILY RIN PRICES ARE NOW TRACKED. The app mines the daily RIN credit prices out of the EcoEngineers
+  RIN PRICE TRACKING FIX. The daily RIN-price reader added in 1.37.0 didn't match the real layout of the
+  EcoEngineers email, so it was capturing nothing. This fixes the parser to read the snapshot's actual
+  inline format (D3 $x  D4 $x  D5 $x  D6 $x), confirmed against the live inbox. RIN prices (D3–D6) now fill
+  in on the next market refresh. Still requires the collector Gmail App Password (EMAIL_INTAKE_PASS).
+  Update only — no change to how briefs are made or what they cost.
+  ---
+  PREVIOUS RELEASE (1.37.0) — DAILY RIN PRICES ARE NOW TRACKED. The app mines the daily RIN credit prices out of the EcoEngineers
   "Carbon Markets Snapshot" email that lands in the collector inbox (the RIN data is Banyan Commodity
   Group's) and builds a running dataset — every RIN D-code (D3, D4, D5, D6) across every crop-year vintage
   the report shows, one point per day. D4 is the biomass-based-diesel credit tied directly to soybean-oil

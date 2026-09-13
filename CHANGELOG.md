@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.37.1 — Fix the RIN-price parser to the real EcoEngineers email layout
+
+_The `banyan_rin` parser shipped in 1.37.0 assumed a header-row/values-row matrix (how the PDF rendered), but the live email — confirmed via `scripts/probe-rin-email.mjs` on the Pi — lays the RIN block out INLINE: "US$ per RIN (Renewable Fuel Standard) 2026 D3 $2.370 D4 $2.169 D5 $2.160 D6 $2.112". So it parsed 0 cells. Auto-tagged `v1.37.1` by `auto-release.yml`._
+
+### Fixed
+
+- **`src/adapters/banyan_rin.js`** — `parseRinMatrix` → `parseRinPrices`: anchor on each "US$ per RIN …
+  <YEAR>" block and read the inline "D&lt;n&gt; $&lt;price&gt;" pairs that follow, stopping at the next
+  section. The price pattern is bounded ($ + 1–2 integer digits + 2–3 decimals) so a 2-decimal LCFS/CFP
+  credit or a bare year is never mistaken for a RIN price. Captures the current-vintage D3–D6 headline
+  block, and any additional inline per-vintage blocks automatically.
+- **`scripts/probe-rin-email.mjs`** — updated to the renamed parser; now also dumps the multi-vintage
+  "Daily Full RIN Update" section so prior-vintage series can be added if wanted.
+
+### Tests
+
+- `test/banyan_rin.test.js` rewritten against the real inline fixture (uid 1043, 2026-09-11): D3–D6 parse,
+  LCFS/CFP not mistaken for RINs, multi-vintage inline blocks, timezone-proof snapshot date, fail-soft.
+  Full suite: 373 pass.
+
+### Notes
+
+- Requires `EMAIL_INTAKE_PASS` on the Pi (unchanged). After deploy, re-run `scripts/probe-rin-email.mjs`
+  to confirm cells > 0.
+- Only the current-vintage headline block is inline today; the "Daily Full RIN Update" table (prior
+  vintages) is a possible follow-up once its format is confirmed from the probe's new section dump.
+
 ## 1.37.0 — Daily RIN prices (Banyan, via the EcoEngineers Carbon Markets Snapshot email)
 
 _First release cut under the two-phase auto-release: the store manifest advances only after the image builds (PR #22). Auto-tagged `v1.37.0` from `main` by `auto-release.yml`._
