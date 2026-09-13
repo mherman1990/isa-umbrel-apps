@@ -37,8 +37,8 @@ const nowYm = () => {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 };
 
-/** POST a ComexStat export query (one retry-with-backoff); returns the raw row list. Throws only after
- *  the last attempt (caller fail-softs). */
+/** POST a ComexStat export query (retries with backoff); returns the raw row list. Throws only after the
+ *  last attempt — callers let that propagate so the pipeline can flag the layer/source unavailable. */
 async function query({ filters, details = [], metrics }) {
   const body = { flow: "export", monthDetail: true, period: { from: START, to: nowYm() }, filters, details, metrics };
   for (let attempt = 0; attempt <= RETRIES; attempt++) {
@@ -107,10 +107,15 @@ async function pull() {
   return { total, china };
 }
 
-/** Returns [{ series, meta, points }] for store.saveSeriesPoints. Fail-soft. */
-export async function fetchSeries() {
-  let total, china;
-  try { ({ total, china } = await pull()); } catch { return []; }
+/** Returns [{ series, meta, points }] for store.saveSeriesPoints.
+ *
+ * pull() is deliberately NOT wrapped here: query() already retries transient blips, so an error escaping
+ * it means SECEX is genuinely unreachable after all retries — and that must PROPAGATE. refreshMarketSeries
+ * records a throwing adapter as an unavailable evidence layer (while still protecting the rest of the
+ * refresh); swallowing it into [] would read as a successful empty refresh and leave the last-known Brazil
+ * values looking current in the brief. `pull` is injectable for tests only. */
+export async function fetchSeries({ pull: pullFn = pull } = {}) {
+  const { total, china } = await pullFn();
   const totalVol = rowsToPoints(total, kgToTonnes);
   const price = rowsToPoints(total, unitValue);
   const chinaVol = rowsToPoints(china, kgToTonnes);
@@ -123,9 +128,10 @@ export async function fetchSeries() {
   return out;
 }
 
-export async function fetchItems() {
-  let total, china;
-  try { ({ total, china } = await pull()); } catch { return []; }
+export async function fetchItems({ pull: pullFn = pull } = {}) {
+  // Same as fetchSeries: let an exhausted-retry failure propagate. collect() records a throwing source as
+  // "skipped" (unavailable) — a signal that returning [] (a successful empty fetch) would erase.
+  const { total, china } = await pullFn();
   const totalVol = rowsToPoints(total, kgToTonnes);
   const chinaVol = rowsToPoints(china, kgToTonnes);
   if (!totalVol.length) return [];
