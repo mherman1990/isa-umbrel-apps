@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-polibrief
 category: automation
 name: The Bean Brief
-version: "1.32.0"
+version: "1.33.0"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
@@ -28,7 +28,28 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  YOU CAN NOW LET TEAMMATES AND DIRECTORS READ THE BEAN BRIEF IN A NORMAL BROWSER — no Tailscale on
+  THE MARKET DATA IS NOW LABELED WITH HOW FRESH IT IS, AND ONLY THE NUMBERS ACTUALLY MOVING GET THE
+  SPOTLIGHT. Every market figure the app reasons from now shows how many days old it is and, where a USDA
+  or CFTC report is due, when the next one lands — so a three-month-old price can no longer read as if it
+  were today's, and a feed that has quietly stopped is flagged as stale instead of looking like a calm
+  market. At the same time the market section stops burying the signal: series that are moving, at a
+  multi-year extreme, or tied to an active trigger are shown in full, while the quiet ones collapse to a
+  single line. Nothing is dropped — every number is still there to cite — the routine ones just take less
+  room, so the important ones stop getting skimmed past.
+  ALSO — REVISED NUMBERS NO LONGER ERASE THE ORIGINAL. When USDA or others revise an already-published
+  figure, the app used to overwrite the number it first saw. It now keeps the first print alongside the
+  latest, which does two things: it begins recording which way each series gets revised (itself a signal),
+  and it fixes a subtle flaw in the "what leads the price" scan, which had been pairing today's revised
+  number with a past price move — a number nobody actually had at the time. The scan now uses only what
+  was known then.
+  ALSO — GROUNDWORK FOR THE FUTURES FORWARD CURVE (carry, store-vs-deliver, calendar spreads) is in place
+  but switched OFF. The app can now read CME's full settlement curve and open interest, and this release
+  confirmed the Pi can actually reach CME (a cloud server cannot). It ships turned off; there is a short
+  guide (cme-settlements) for switching it on when you are ready — it is what will finally let the
+  store-vs-deliver card use a real carry spread.
+  Update only — no new keys, no settings to change, and no change to how briefs are made or what they cost.
+  ---
+  PREVIOUS RELEASE (1.32.0) — YOU CAN NOW LET TEAMMATES AND DIRECTORS READ THE BEAN BRIEF IN A NORMAL BROWSER — no Tailscale on
   their laptop, no logging into your Pi. Two things make that safe. First, the site now has a real
   sign-in page with named accounts: each person gets their own username and password, there is a
   Sign out button, and passwords are scrambled before they are stored — never kept in plain text.

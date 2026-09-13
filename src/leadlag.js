@@ -41,7 +41,7 @@ const BONFERRONI_Z = 3.54;
 // value survives restarts, so without a bump a code change silently keeps serving the old answer —
 // which bit during development: after adding the exclusions the scan correctly returned zero leads
 // while leadLagText() went on reporting the four pre-exclusion artifacts.
-const CACHE_KEY = "leadlag_v2";
+const CACHE_KEY = "leadlag_v3"; // v3: predictors read at first-print (point-in-time), not revised value
 const CACHE_TTL_MS = 7 * 864e5; // the answer moves on the scale of months; recompute weekly
 
 // --- exclusions: series that CANNOT honestly be tested against price -------------------------
@@ -138,7 +138,13 @@ export function computeLeadLag() {
   for (const meta of metas) {
     let pts = [];
     try {
-      pts = store.getSeries(meta.series);
+      // POINT-IN-TIME, NOT REVISED. Pair each period with the value that was actually KNOWN then — its
+      // first print — never the number USDA/FAS/EIA revised into existence months later. Reading the
+      // revised value here pairs ΔX at date d with the price move after d using data nobody had on d:
+      // textbook lookahead bias, and this scan is already conservative enough that it's worth closing.
+      // (getSeriesFirstVintage falls back to current values for anything predating the vintage trail,
+      // so history collected before §1.4 shipped is unaffected; new prints are point-in-time correct.)
+      pts = store.getSeriesFirstVintage(meta.series);
     } catch {
       continue;
     }

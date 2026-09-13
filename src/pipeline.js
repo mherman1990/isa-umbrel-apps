@@ -16,14 +16,14 @@ import { detectChanges } from "./alerts.js";
 import { adapters, classOf, sourceIdsForClass } from "./adapters/index.js";
 import { syncRegistryFromSeed } from "./registry.js";
 import { EDUCATION_SYSTEM_PROMPT, seedCurriculum } from "./curriculum.js";
-import { signalsText, computeSignals } from "./signals.js";
+import { signalsText, computeSignals, SIGNAL_CHART } from "./signals.js";
 import { weatherRiskText } from "./weather.js";
 import { crushText } from "./crush.js";
 import { leadLagText } from "./leadlag.js";
 import { upcomingReportsText, upcomingReports, upcomingPolicyEventsText } from "./calendar.js";
 import { fetchDocumentText } from "./summarize.js";
 import { emailBodyToText } from "./emailhtml.js";
-import { evaluateTriggers, triggersText } from "./triggers.js";
+import { evaluateTriggers, triggersText, firedTriggerSeries } from "./triggers.js";
 // compliance.js is intentionally NOT imported here — it's decoupled (platform split 2026-07-11)
 // and reserved for the future farmer-facing tool. Bean Brief's internal outputs run un-muzzled.
 import { mapPool } from "./util.js";
@@ -770,27 +770,120 @@ const PERCENTILE_CAVEATS = {
   "fas:soybeans:china:commitments": "cumulative marketing-year-to-date total for China, resetting each September. Late in a marketing year this ratchets to a seasonal high while weekly business is finished; check fas:soybeans:china:next-my-commitments for the new-crop book before reading it as strength or weakness.",
 };
 
+// --- snapshot relevance gate + per-series latency (§1.5 / §4 of the pipeline-expansion plan) ------
+//
+// The market block is the largest single thing in the cached prompt prefix (~22k characters), and every
+// series added dilutes the rest — PERCENTILE_CAVEATS exists precisely because the model compresses away
+// qualifications when the block is long. So full detail is spent only where it earns its tokens:
+//
+//   FULL detail when a series is
+//     • referenced — a live signal, a fired condition trigger, or an OPEN report expectation names it
+//     • moving     — its last move is ≥ 1σ of the series' own typical swing (|changeZ|), and it's fresh
+//     • at an extreme — ≤5th / ≥95th percentile with ≥3 years of history to mean it, and fresh
+//   otherwise → ONE summary line (value, period, age), with full history a Markets-tab click away.
+//
+// A stale-but-referenced series still gets full detail: something is actively keying on it, so its
+// silence is itself the news. Everything the gate demotes is the quiet, unreferenced, unremarkable
+// middle — the lines the model was skimming past anyway.
+const GATE_MOVE_Z = 1.0; // |changeZ| ≥ this = a real move, measured in the series' own volatility units
+const GATE_EXTREME_LO = 5; // percentile at/below → an extreme worth full detail…
+const GATE_EXTREME_HI = 95; // …or at/above
+const GATE_EXTREME_MIN_YEARS = 3; // …but only with enough history that "extreme" isn't just "all we have"
+
 /**
- * Render the deep trend snapshot as compact, category-grouped lines — latest + change,
- * year-over-year, historical range/percentile, and a seasonal read — so the model can
- * teach trends (is this seasonally normal? how does it compare to years past?) from the
- * full history we store, not just the latest number.
+ * The relevance decision for ONE snapshot series. Pure (no store/signal/trigger access) so it can be
+ * unit-tested against hand-built series objects. `referenced` is the set of series ids a live signal,
+ * fired trigger, or open expectation is keying on. Returns whether the series earns full detail plus the
+ * reasons, so a caller (or a test) can see WHY it was kept.
  */
-function formatMarketSnapshot(snapshot) {
+export function seriesRelevance(s, referenced = new Set()) {
+  const reasons = [];
+  if (referenced.has(s.series)) reasons.push("referenced");
+  if (!s.stale && s.changeZ != null && Math.abs(s.changeZ) >= GATE_MOVE_Z) reasons.push("moving");
+  if (
+    !s.stale &&
+    s.percentile != null &&
+    (s.percentile <= GATE_EXTREME_LO || s.percentile >= GATE_EXTREME_HI) &&
+    (s.historyYears ?? 0) >= GATE_EXTREME_MIN_YEARS
+  ) {
+    reasons.push("extreme");
+  }
+  return { full: reasons.length > 0, reasons };
+}
+
+// Which scheduled release refreshes each series — keyed by series-id prefix → calendar event `type`(s)
+// (see calendar_events.2026.json). Lets the snapshot say when the NEXT print lands, not just how old the
+// last one is, so "nass:us:price (2026-06)" and "cftc:soybeans:mm-net (2026-09-09)" stop reading as
+// equally current. Series with no fixed USDA/CFTC release (EIA feedstocks, FRED, satellite, weather,
+// Brazil survey) are absent on purpose — promising a date we can't keep is worse than silence.
+const SERIES_RELEASE_TYPES = [
+  [/^wasde:/, ["WASDE"]],
+  [/^fas:/, ["EXPORT_SALES"]],
+  [/^cftc:/, ["COT"]],
+  [/^nass:\w+:condition$/, ["CROP_PROGRESS"]],
+  [/^nass:us:stocks$/, ["GRAIN_STOCKS"]],
+];
+
+/**
+ * The soonest upcoming release that refreshes `series`, from a pre-fetched `upcoming` list
+ * (calendar.upcomingReports, already date-sorted). Pure/testable. null when the series has no scheduled
+ * release or none falls in the window.
+ */
+export function nextReleaseForSeries(series, upcoming = []) {
+  const entry = SERIES_RELEASE_TYPES.find(([re]) => re.test(series));
+  if (!entry) return null;
+  const types = new Set(entry[1]);
+  return upcoming.find((r) => types.has(r.type)) ?? null;
+}
+
+/** The set of series a live signal, a fired trigger, or an open expectation is currently keying on. */
+function referencedSeries(now = new Date()) {
+  const set = new Set();
+  try { for (const sig of computeSignals().signals) { const c = SIGNAL_CHART[sig.id]; if (c?.series) set.add(c.series); } } catch { /* signals optional */ }
+  try { for (const s of firedTriggerSeries(now)) set.add(s); } catch { /* triggers optional */ }
+  try { for (const s of store.openExpectationSeries()) set.add(s); } catch { /* expectations optional */ }
+  return set;
+}
+
+/**
+ * Render the deep trend snapshot as compact, category-grouped lines. Series that are moving, at an
+ * extreme, or referenced by a live signal/trigger/open expectation are shown in FULL — latest + change,
+ * year-over-year, historical range/percentile, momentum, seasonal, plus how old the figure is and when
+ * the next release lands; the quiet remainder collapses to one value line each (§1.5/§4). Nothing is
+ * dropped — every series still shows its latest value, period and age — so a figure can always be cited
+ * and staleness is always visible; the full stats for a condensed series are a Markets-tab click away.
+ */
+export function formatMarketSnapshot(snapshot, now = new Date()) {
   if (!snapshot || snapshot.length === 0) return "";
   const fmt = (v) => (v == null ? "—" : Math.abs(v) >= 1000 ? Math.round(v).toLocaleString() : String(Number(Number(v).toFixed(2))));
   const pct = (v) => (v == null ? "" : `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`);
+  // "period, 12d" — the data period plus how old it is, so a quarterly figure never reads as this week's.
+  const age = (s) => (s.ageDays == null ? `${s.latest.period}` : `${s.latest.period}, ${s.ageDays}d`);
+  const referenced = referencedSeries(now);
+  const upcoming = (() => { try { return upcomingReports(30, now); } catch { return []; } })();
   const byCat = new Map();
   for (const s of snapshot) {
     const cat = s.category || "other";
     if (!byCat.has(cat)) byCat.set(cat, []);
     byCat.get(cat).push(s);
   }
-  const lines = [];
+  // One-line legend so the model reads the latency + condensation correctly — it must not treat a
+  // one-liner as "no data", nor a stale figure as current.
+  const lines = [
+    'Each line: value (period, days-old); "STALE" = feed overdue vs its own cadence. Quiet, unreferenced series are condensed to one line — ask for a series by name for full history.',
+  ];
   for (const [cat, list] of byCat) {
     lines.push(`# ${cat}`);
     for (const s of list) {
-      const parts = [`${fmt(s.latest.value)} ${s.unit} (${s.latest.period})`];
+      const staleMark = s.stale ? ", STALE" : "";
+      const { full } = seriesRelevance(s, referenced);
+      if (!full) {
+        // The quiet middle: one value line. The figure + period + age are still here, so anything that
+        // needs to cite it (or notice it went stale) still can.
+        lines.push(`- ${s.label}: ${fmt(s.latest.value)} ${s.unit} (${age(s)}${staleMark})`);
+        continue;
+      }
+      const parts = [`${fmt(s.latest.value)} ${s.unit} (${age(s)}${staleMark})`];
       // Percent deltas are suppressed on zero-crossing series (basis) where they'd be nonsense —
       // fall back to the absolute move so the model still sees the direction and size.
       if (s.changePct != null) parts.push(`Δ ${pct(s.changePct)} vs prior`);
@@ -820,6 +913,12 @@ function formatMarketSnapshot(snapshot) {
         // seasonalYears is stated because a 3-year "norm" deserves far less weight than a 10-year
         // one, and the model cannot tell them apart otherwise.
         parts.push(`seasonal ${pct(s.seasonalDeltaPct)} vs ${mon} avg across ${s.seasonalYears} yrs (${s.seasonalPctile}th pctile for ${mon})`);
+      }
+      // When the next scheduled print lands — turns "how old" into "how long until it refreshes".
+      const next = nextReleaseForSeries(s.series, upcoming);
+      if (next) {
+        const daysOut = Math.ceil((Date.parse(next.date + "T12:00:00Z") - now.getTime()) / 86400e3);
+        if (Number.isFinite(daysOut) && daysOut >= 0) parts.push(`next ${next.name} ${next.date} (${daysOut}d)`);
       }
       let line = `- ${s.label}: ${parts.join("; ")}`;
       if (s.trail && s.trail.length > 1) line += ` — recent: ${s.trail.map((p) => fmt(p.value)).join(" → ")}`;

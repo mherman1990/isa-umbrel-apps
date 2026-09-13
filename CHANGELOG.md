@@ -1,5 +1,109 @@
 # Changelog
 
+## 1.33.0 — Market-data quality: relevance gate, latency labels, and a vintage trail
+
+Steps 1–3 of the data-pipeline-expansion plan: the quality groundwork (steps 1–2), so more pipelines
+make the brief better rather than noisier — then the first new source (step 3, the CME forward curve),
+finalized against CME's real response and confirmed reachable from the Pi, shipped gated off for a human
+to flip on.
+
+### Snapshot relevance gate + per-series latency (§1.5 / §4)
+
+The market block is the largest single thing in the cached prompt prefix (~22k characters), and every
+series added dilutes the rest — `PERCENTILE_CAVEATS` exists precisely because the model compresses away
+qualifications when the block runs long. Before adding any new pipelines, this makes the block carry its
+own **freshness** and spend **full detail only where it earns the tokens** (§1.5 and §4 of the
+data-pipeline-expansion plan). No new data sources; every existing brief, memo, Ask answer and signal
+card gets a tighter, better-labelled market block.
+
+#### Added — every series line says how current it is
+
+- `marketSnapshot()` now carries per-series **latency**: `ageDays` (days since the latest data point),
+  `cadenceDays` (the series' own publish rhythm), `stale` (overdue vs. that rhythm), and `refreshedAt`
+  (when we last fetched it — distinct from the data period, so "the market is quiet" and "our feed
+  stopped" stop looking the same). One shared `freshnessFromPeriods()` helper feeds both this and the
+  Markets freshness dashboard, so the prompt's `STALE` marker and the UI's stale flag can't diverge.
+- Each snapshot line shows `(period, N d)` and, where a scheduled USDA/CFTC report refreshes the
+  series, `next <Report> <date> (Nd)` — so `nass:us:price (2026-06)` and a daily futures print stop
+  reading as equally current, and the model can see how long until a figure refreshes.
+
+#### Added — a relevance gate over the market block
+
+- Full detail (change, YoY, range/percentile, momentum, seasonal, trail) is now reserved for series
+  that are **moving** (|changeZ| ≥ 1σ and fresh), **at a multi-year extreme** (≤5th/≥95th percentile
+  with ≥3 years of history, and fresh), or **referenced** by a live signal, a fired condition trigger,
+  or an open (unresolved) report expectation. The quiet, unreferenced middle collapses to one value
+  line each. Nothing is dropped — every series still shows value, period and age, so any figure can be
+  cited and staleness stays visible — and full history for a condensed series is a Markets-tab click
+  away.
+- `seriesRelevance()` and `nextReleaseForSeries()` are pure and exported; the referenced set is built
+  from `computeSignals()` (via `SIGNAL_CHART`), `firedTriggerSeries()` (new — from a `TRIGGER_SERIES`
+  map colocated with the trigger code that reads those series), and `store.openExpectationSeries()`.
+
+#### Notes
+
+- Applies to every prompt that renders the market block — the Ask box, the analyst/memo runs, and the
+  signal cards — so the token saving and the freshness labels reach all of them at once.
+- No schema change, no new keys, no data migration: `market_series_meta.updated_at` already existed.
+- Tests: `test/snapshot-relevance.test.js` (latency fields, the pure gate, the next-release resolver,
+  the open-expectations query, and end-to-end rendering). Full suite 291 → 304.
+
+### Vintage trail — stop losing revisions, and fix leadlag's lookahead (§1.4)
+
+`market_series` upserts on `(series, period)`, so every revision USDA/FAS/EIA makes to an
+already-published period overwrote the number we first saw. Two costs: `leadlag.js` paired today's
+_revised_ value of X at date _d_ with the price move after _d_ — a value nobody had on _d_ (lookahead
+bias) — and the revision itself ("USDA keeps cutting carryout") was a signal we never kept. (`wasde.js`
+is the one series that already avoided this, by encoding its vintage into the period.)
+
+#### Added — an append-only vintage trail
+
+- New `market_series_vintage` table. `saveSeriesPoints` still writes the latest value to `market_series`
+  (display — **every existing reader is unchanged**) and now also appends to the trail: one row on first
+  sight of a value, another on each genuine revision, and nothing on an unchanged re-fetch. A companion
+  table rather than a primary-key change on the core table — additive, no rebuild, matches this repo's
+  migration style (and SQLite can't add a column to a PK via ALTER anyway). A one-time boot backfill
+  seeds the trail from existing rows, so there's a point-in-time baseline immediately.
+- New `store.getSeriesFirstVintage()` (first print per period) and `getSeriesVintages()` (full trail).
+  The revision-_direction_ signal this now makes collectable is a deliberate follow-up built on these.
+
+#### Changed — leadlag reads predictors at their first print
+
+- `leadlag.js` now sources each predictor from `getSeriesFirstVintage()` instead of the latest value,
+  closing the lookahead bias. History collected before this shipped is unaffected (its first-print falls
+  back to the current value via the backfill); prints collected from here on are point-in-time correct.
+- Cache key bumped (`leadlag_v2` → `leadlag_v3`) so the stored scan recomputes on the new inputs.
+
+#### Notes
+
+- No new data sources, no new keys. `market_series_vintage` is additive and auto-creates on boot.
+- Tests: `test/series-vintage.test.js` (trail behavior + boot backfill) and
+  `test/leadlag-vintage.test.js` (a revision must not move the scan). Full suite 304 → 310.
+
+### CME forward-curve adapter + probe (§1.1) — reachable from the Pi, gated OFF
+
+The system's only price feed is a front-month *continuous* settle (`cbot_futures.js`, Yahoo), so there
+is no curve: no carry, no old-crop/new-crop or calendar spreads, no correctly-paired crush legs, and
+`basis_carry_state` can't fire. CME's CmeWS JSON settlements give every contract month's settle + open
+interest, keyless. CME **IP-blocks cloud/dev IPs** (403 from the workstation) — but the probe confirmed
+the **Pi's residential IP reaches it (HTTP 200)**, the "defer to the Pi" pattern paying off. (The plan's
+`ftp/pub/settle/stlags` text file is **dead** — a real 404 from the Pi, not a block — and was dropped.)
+
+- **`src/adapters/cme_settlements.js`** — fetches `…/Settlements/{id}/FUT?tradeDate=MM/DD/YYYY` per
+  product (soybeans 320, meal 310, oil 312, corn 300) with a browser UA, stepping back to the last
+  settled day (a session-less date returns 200 + empty). Emits `cme:*` series: per-contract settle +
+  open interest, a `front` **lead-contract** settle (the max-open-interest month — the nearest month is
+  often an expiring near-zero-OI stub), and `carry` (next − lead), the spread `basis_carry_state` needs.
+  Prices parse both grain eighths (`1296'4` = 1296.5) and product decimals, and strip A/B settlement
+  indicators. Namespace distinct from `cbot:*`/`barchart:*`. **Inert until `CME_SETTLEMENTS=1`** — returns
+  `[]` with no network call while off, like `barchart` without its key. Runbook: `docs/cme-settlements.md`.
+- **`scripts/probe-cme-settlements.mjs`** — self-contained (Node built-ins only) so it runs on the Pi
+  before the image carries it: resolves the last settled date and dumps each product's rows verbatim to
+  confirm field names. Exit 0 = a curve came back.
+- Tests: `test/cme-settlements.test.js` — the pure parsers (grain eighths vs. decimals, A/B suffixes,
+  `MM/DD/YYYY` trade date, month codes), the series builder (OI-lead front + carry), and the gating
+  (inert by default). Full suite 310 → 317. (No behavior change until enabled on the Pi.)
+
 ## 1.32.0 — Multi-user login, so the app can be shared without Tailscale
 
 The web UI could only be gated by a single shared password sent as an HTTP Basic popup
