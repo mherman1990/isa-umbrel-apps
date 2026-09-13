@@ -5,7 +5,7 @@ services:
       APP_PORT: 3000
 
   data_permissions:
-    image: ghcr.io/mherman1990/granary@sha256:0fc8ee2c1a21a10b420c5aab20a4534fb7f01418ebcf029fd8670a5caa6092fa
+    image: ghcr.io/mherman1990/granary@sha256:9626f7038b7e344aa30e8ef2cf1893a024ae4b2f41a69e9770fab49b3bfbcb4e
     user: "0:0"
     command: ["chown", "-R", "1000:1000", "/data"]
     restart: "no"
@@ -20,7 +20,7 @@ services:
       - no-new-privileges:true
 
   web:
-    image: ghcr.io/mherman1990/granary@sha256:0fc8ee2c1a21a10b420c5aab20a4534fb7f01418ebcf029fd8670a5caa6092fa
+    image: ghcr.io/mherman1990/granary@sha256:9626f7038b7e344aa30e8ef2cf1893a024ae4b2f41a69e9770fab49b3bfbcb4e
     depends_on:
       data_permissions:
         condition: service_completed_successfully
@@ -35,6 +35,11 @@ services:
       GRANARY_DATA_DIR: "/data"
       GRANARY_ALLOW_LAN: "true"
       GRANARY_SECURE_COOKIES: "false"
+      # umbrel.local serves apps over plain HTTP, so browsers discard a Secure
+      # session cookie after login. Since 0.5.1 Granary requires this explicit
+      # acknowledgement before it will serve non-loopback HTTP sessions, and
+      # refuses to start without it. Limited to Umbrel's private app route.
+      GRANARY_ALLOW_INSECURE_HTTP: "true"
     volumes:
       - ${APP_DATA_DIR}/data:/data
     tmpfs:

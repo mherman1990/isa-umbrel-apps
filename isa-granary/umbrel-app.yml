@@ -2,20 +2,25 @@ manifestVersion: 1
 id: isa-granary
 category: finance
 name: Granary
-version: "0.3.1"
+version: "0.6.0"
 tagline: Private household planning, without financial execution
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-granary/icon.svg
 description: >-
   Granary is a private, local-first household planning workspace for one
-  consenting household. The synthetic preview includes a traceable ledger,
-  persistent planning snapshots and goals, reproducible scenarios, versioned
-  reauthenticated policies, deeper deterministic planning, protection-review
-  packets, and local operational health.
+  consenting household. It includes a traceable ledger, persistent planning
+  snapshots and goals, reproducible scenarios, versioned reauthenticated
+  policies, deeper deterministic planning, protection-review packets, and local
+  operational health.
 
 
-  Granary is decision support only. It cannot trade, transfer money, pay bills,
-  file taxes, sign documents, contact financial providers, or connect to Black
-  Gold. No household data or credentials are built into the image.
+  It can read real household records by manual entry, CSV, or an owner-configured
+  read-only brokerage connector. All three stay disabled until the owner
+  completes a local live-readiness attestation held outside the app.
+
+
+  Granary is decision support only. It cannot trade, transfer money, place an
+  order, pay bills, file taxes, sign documents, or connect to Black Gold. No
+  household data or credentials are built into the image.
 developer: Matt Herman
 website: https://github.com/mherman1990/isa-umbrel-apps
 dependencies: []
@@ -27,13 +32,14 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  Adds a unified Today workspace, immutable planning history, versioned goals,
-  expiring password-reauthenticated policy approvals, deterministic fees,
-  stated tax, inflation, debt-interest and drawdown planning, saved protection
-  reviews and printable packets, plus version/health and recovery hardening.
-  Review corrections preserve complete scenario inputs, bind policies to currency,
-  make approvals atomic, and bound effective-annual-return projections.
-  Existing credentials and synthetic ledger data remain in the persistent data
-  directory. Synthetic preview only; do not enter real household data yet.
+  Adds gated real-data intake and a Schwab read-only connector. Both fail closed
+  and stay disabled until the owner completes a local live-readiness attestation;
+  the app still cannot trade, transfer money, place an order, or contact a model
+  provider. Records are encrypted before storage and each batch needs an explicit
+  reauthenticated commit. Also unifies the version across the package, server and
+  manifest, which previously disagreed.
+
+
+  Existing credentials and ledger data remain in the persistent data directory.
 submitter: Matt
 submission: https://github.com/mherman1990/isa-umbrel-apps
