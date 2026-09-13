@@ -1,5 +1,42 @@
 # Changelog
 
+## 1.35.0 — Pipeline hardening: outage-visible Brazil feed, pinned AMS districts, refined probes
+
+_Post-1.34.0 follow-ups: the Codex P2 on the ComexStat adapter, the AMS district-field confirmation off the Pi, and the next-round discovery-probe refinements. Auto-tagged `v1.35.0` from `main` by `auto-release.yml`._
+
+### Changed
+
+- **`src/adapters/comexstat.js`** — `fetchSeries`/`fetchItems` now let an exhausted-retry failure propagate
+  instead of swallowing it to `[]`. `refreshMarketSeries` records a throwing adapter as an unavailable
+  evidence layer (and `collect()` marks the source skipped), so a genuine SECEX outage is flagged for the run
+  rather than leaving the last-known Brazil export / China-share values reading as current. `query()` still
+  retries transient blips, so only a real outage propagates. Addresses Codex's P2 review on #17.
+- **`src/adapters/usda_ams.js`** — the Iowa cash-basis district family is pinned to the confirmed field
+  `trade_loc` (six districts: North Central, Northeast, Northwest, South Central, Southeast, Southwest —
+  confirmed on the Pi 2026-09-13), keeping the documented aliases + value-based auto-detect as fallbacks. No
+  change to the live series (auto-detect already resolved it); this is hardening + a regression lock.
+
+### Probes (dev tooling for the next data round)
+
+- **`scripts/probe-nass-oil-stocks.mjs` (v2)** enumerates NASS's vocabulary via `get_param_values` instead of
+  guessing descriptors — v1's guesses all returned `400 bad request - invalid query`.
+- **`scripts/probe-45z-sources.mjs`** drills the EIA `feedbiofuel` data shape (soybean-oil → biodiesel/RD, the
+  direct 45Z demand pull on bean oil) plus the production/capacity route metadata.
+- **`scripts/probe-ams-districts.mjs`** header records the confirmed `trade_loc` result.
+
+### Tests
+
+- `test/comexstat.test.js` (+4): both methods propagate a terminal failure, `[]` only on a legitimate empty
+  response, and the four Brazil series still shape from pulled rows.
+- `test/dimension-families.test.js` (+1): pins `trade_loc` and the six district labels.
+- Full suite: 362 pass.
+
+### Notes
+
+- No new data series or keys in this release. Next up (1.36.0): the NASS soybean-oil-stocks series, the EIA
+  soybean-oil-feedstock demand series, Census HS trade (needs `CENSUS_API_KEY` on the Pi), and `banyan_rin` —
+  daily RIN prices mined from the Banyan email into `beanbrief@gmail.com`.
+
 ## 1.34.0 — Demand-side pipeline expansion: balance sheet + house nowcast, dimension families, and new competitor/climate/river feeds
 
 _Steps 4–7 of the data-pipeline-expansion plan, plus the Brazil coverage gap (§2 row 5), the crush-capacity staleness guard + the Aug-2026 workbook refresh, and the NOPA/free-oil-stocks finding. Auto-tagged `v1.34.0` from `main` by `auto-release.yml`._
