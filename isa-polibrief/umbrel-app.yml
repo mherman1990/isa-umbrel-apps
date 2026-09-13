@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-polibrief
 category: automation
 name: The Bean Brief
-version: "1.34.0"
+version: "1.35.0"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
@@ -28,7 +28,17 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  THE APP NOW ASSEMBLES THE WHOLE U.S. SOYBEAN BALANCE SHEET INTO ONE CARRYOUT NUMBER — AND KEEPS ITS OWN
+  THE BRAZIL SOYBEAN-EXPORT FEED NOW TELLS YOU WHEN IT'S DOWN, INSTEAD OF SHOWING OLD NUMBERS AS IF THEY WERE
+  CURRENT. If the SECEX/ComexStat source can't be reached, the app now flags that market layer as unavailable
+  for the run, rather than quietly leaving the last-known Brazil export and China-share figures looking like
+  today's — the kind of silent staleness that could mislead a read.
+  ALSO — small hardening under the hood: the Iowa cash-basis district breakout is now pinned to the confirmed
+  AMS data field (no change to what you see; it just can't silently pick the wrong column if AMS reshuffles its
+  report), and the data-source discovery tools were refined for the next round of feeds (soybean-oil stocks,
+  biofuel feedstock demand, and daily RIN prices).
+  Update only — no new keys, no new data series, and no change to how briefs are made or what they cost.
+  ---
+  PREVIOUS RELEASE (1.34.0) — THE APP NOW ASSEMBLES THE WHOLE U.S. SOYBEAN BALANCE SHEET INTO ONE CARRYOUT NUMBER — AND KEEPS ITS OWN
   FORECAST THAT GETS GRADED. Supply, crush, exports and stocks used to be separate figures the app re-derived
   on the fly; it now builds the full supply-and-demand picture once, so a market read can end in a checkable
   carryout instead of hand-waving. It also makes its own nowcast of ending stocks by layering the observed
