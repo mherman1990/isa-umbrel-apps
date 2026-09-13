@@ -28,7 +28,18 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  RIN PRICES NOW CAPTURE ALL VINTAGES. 1.37.1 read the current-year RIN prices but missed the prior-year
+  LCFS AND EU ETS CARBON PRICES ARE NOW TRACKED, ALONGSIDE THE RINs. The app already mines daily RIN
+  prices from the EcoEngineers "Carbon Markets Snapshot" email; it now also reads the other two
+  carbon-price blocks in that same email — the state Low Carbon Fuel Standard credit prices (California
+  LCFS and Oregon CFP, in US$ per tonne CO2e) and the EU ETS allowance price (in EU€ per tonne CO2e). The
+  two LCFS programs show as one compact cross-section line (California vs Oregon, with the spread between
+  them), and the EU ETS benchmark as its own line. LCFS credit value is a direct read on low-carbon-fuel
+  demand — the same 45Z/RFS demand pull that drives soybean-oil biofuel — and EU ETS is the global
+  carbon-price benchmark. Requires the collector Gmail App Password (EMAIL_INTAKE_PASS), the same key the
+  RIN prices already use; until it is set this stays off with no error. The new series fill in on the next
+  market refresh. Update only — no new keys, and no change to how briefs are made or what they cost.
+  ---
+  PREVIOUS RELEASE (1.37.2) — RIN PRICES NOW CAPTURE ALL VINTAGES. 1.37.1 read the current-year RIN prices but missed the prior-year
   vintages in the report's full table. This reads the complete "Daily Full RIN Update" matrix — every
   D-code (D3–D6) across every crop-year vintage the report lists (e.g. 2024, 2025, 2026) — so the RIN
   dataset is complete. Still requires the collector Gmail App Password (EMAIL_INTAKE_PASS). Update only —

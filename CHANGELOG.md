@@ -1,5 +1,36 @@
 # Changelog
 
+## 1.37.3 — Track LCFS/CFP + EU ETS carbon prices from the same EcoEngineers email
+
+_The EcoEngineers "Carbon Markets Snapshot" carries three price blocks; `banyan_rin` mines the RIN block, and this adds the other two. A new `carbon_prices` adapter reads the same inbox for the state LCFS/CFP credit prices ("US$ per Metric Ton of CO2e (State LCFS Programs)" → Oregon CFP + California LCFS) and the EU ETS allowance ("EU€ per Metric Ton of CO2e (EU ETS Allowance)"). Auto-tagged `v1.37.3` by `auto-release.yml`._
+
+### Added
+
+- **`src/adapters/carbon_prices.js`** — daily LCFS/CFP + EU ETS prices, INERT until `EMAIL_INTAKE_PASS`
+  is set (same key as `banyan_rin`/`email_intake`). LCFS programs are a §1.3 family
+  (`lcfs:by-program:<STATE>`, tokens `CA`/`OR`, `WA` pre-wired) so they render as one cross-section line;
+  EU ETS is a single series (`euets:allowance`). Both keyed by the snapshot's own date, one point per day.
+  The LCFS parse requires a `<State> … Credit $<price>` shape scoped to the LCFS section (a RIN price or a
+  stray `$` figure can't leak in); the EU-ETS value is read defensively (€ optional, bounded to a sane
+  €/t range) with a fail-soft null when absent.
+- Registered in `src/adapters/index.js` (adapters map + `SOURCE_CLASS: markets`) and `src/eventkey.js`
+  (`NON_OFFICIAL`) — the two move together, enforced by `test/newsrank.test.js`.
+- **`scripts/probe-carbon-prices.mjs`** — validates the parse against the live inbox and dumps the raw
+  LCFS/EU-ETS/offset region unconditionally, so the (unconfirmed) EU-ETS value position is diagnosable in
+  one Pi run.
+
+### Tests
+
+- `test/carbon_prices.test.js` — LCFS CA/OR capture + no-RIN-leak, EU-ETS parse (value present, European
+  comma, and fail-soft absent), and the `toSeriesRows` family/series shape. Full suite: 381 pass.
+
+### Notes
+
+- After deploy, run `scripts/probe-carbon-prices.mjs` to confirm the parse (esp. EU-ETS). The RIN capture
+  (`banyan_rin`) is unchanged.
+- Still open: Census HS trade (needs `CENSUS_API_KEY`); voluntary-market offset prices in the same email
+  are a possible follow-up.
+
 ## 1.37.2 — Capture the full RIN matrix (all vintages), not just current + 2024
 
 _The probe's section dump revealed the real "Daily Full RIN Update" layout: D-code-major with all vintages in one header row — "US$ per RIN (Renewable Fuel Standard) 2024 2025 2026" then "D3 $2.300 $2.350 $2.370" per D-code. 1.37.1's parser anchored on the first year only and read one price per D-code, so it caught 2026 (from the headline) + 2024 (matrix, by luck) but silently dropped 2025. Auto-tagged `v1.37.2` by `auto-release.yml`._

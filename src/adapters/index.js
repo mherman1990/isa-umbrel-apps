@@ -47,6 +47,7 @@ import * as river_stage from "./river_stage.js";
 import * as comexstat from "./comexstat.js";
 import * as fas_export_sales from "./fas_export_sales.js";
 import * as banyan_rin from "./banyan_rin.js";
+import * as carbon_prices from "./carbon_prices.js";
 
 export const adapters = {
   [federal_register.id]: federal_register,
@@ -94,6 +95,9 @@ export const adapters = {
   // Daily RIN prices (RFS D-code credits) mined from the EcoEngineers/Banyan "Carbon Markets Snapshot"
   // email in the collector inbox — INERT until EMAIL_INTAKE_PASS is set, like email_intake.
   [banyan_rin.id]: banyan_rin,
+  // Daily LCFS/CFP + EU ETS carbon prices from the SAME EcoEngineers snapshot email (the non-RIN blocks) —
+  // also INERT until EMAIL_INTAKE_PASS is set.
+  [carbon_prices.id]: carbon_prices,
 };
 
 // Information CLASS per source — decides which portal tab an item surfaces on, and
@@ -135,6 +139,7 @@ export const SOURCE_CLASS = {
   river_stage: "markets",
   comexstat: "markets",
   banyan_rin: "markets",
+  carbon_prices: "markets",
 };
 export const classOf = (sourceId) => SOURCE_CLASS[sourceId] ?? "official";
 export const sourceIdsForClass = (cls) => Object.keys(SOURCE_CLASS).filter((s) => SOURCE_CLASS[s] === cls);
