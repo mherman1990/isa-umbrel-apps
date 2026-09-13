@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.37.2 — Capture the full RIN matrix (all vintages), not just current + 2024
+
+_The probe's section dump revealed the real "Daily Full RIN Update" layout: D-code-major with all vintages in one header row — "US$ per RIN (Renewable Fuel Standard) 2024 2025 2026" then "D3 $2.300 $2.350 $2.370" per D-code. 1.37.1's parser anchored on the first year only and read one price per D-code, so it caught 2026 (from the headline) + 2024 (matrix, by luck) but silently dropped 2025. Auto-tagged `v1.37.2` by `auto-release.yml`._
+
+### Fixed
+
+- **`src/adapters/banyan_rin.js`** — `parseRinPrices` now reads the vintage list from each block's header
+  ("US$ per RIN … &lt;years…&gt;") and maps each D-code row's prices to those vintages by position, so
+  EVERY vintage × D-code cell is captured (deduped across the headline + full-matrix blocks; the earlier
+  headline wins the current vintage). Confirmed against the live email (uid 1043): 12 cells (2024/2025/2026
+  × D3–D6) instead of 8.
+
+### Tests
+
+- `test/banyan_rin.test.js` rewritten against the real full fixture (current-vintage headline + D-code-major
+  matrix): all 12 cells incl. 2025, LCFS/CFP not mistaken for RINs, headline-only block, fail-soft. Full
+  suite: 373 pass.
+
+### Notes
+
+- Requires `EMAIL_INTAKE_PASS` on the Pi (unchanged). After deploy, re-run `scripts/probe-rin-email.mjs` —
+  each snapshot should now show 12 cells (3 vintages × 4 D-codes).
+- Still open: Census HS trade (needs `CENSUS_API_KEY`).
+
 ## 1.37.1 — Fix the RIN-price parser to the real EcoEngineers email layout
 
 _The `banyan_rin` parser shipped in 1.37.0 assumed a header-row/values-row matrix (how the PDF rendered), but the live email — confirmed via `scripts/probe-rin-email.mjs` on the Pi — lays the RIN block out INLINE: "US$ per RIN (Renewable Fuel Standard) 2026 D3 $2.370 D4 $2.169 D5 $2.160 D6 $2.112". So it parsed 0 cells. Auto-tagged `v1.37.1` by `auto-release.yml`._
