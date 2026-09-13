@@ -1,8 +1,6 @@
 # Changelog
 
-## Unreleased — Market-data quality: relevance gate, latency labels, and a vintage trail
-
-_(Version assigned at release time from `git tag` — main runs ahead of what's deployed.)_
+## 1.33.0 — Market-data quality: relevance gate, latency labels, and a vintage trail
 
 Steps 1–3 of the data-pipeline-expansion plan: the quality groundwork (steps 1–2), so more pipelines
 make the brief better rather than noisier — then the first new source (step 3, the CME forward curve),
