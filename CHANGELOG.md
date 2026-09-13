@@ -120,6 +120,71 @@ as margin→utilization and soil-moisture→VCI:
   locks the pure parsers (ONI season→month mapping + phase; the hourly→daily stage reduction). Registered
   markets-class; both auto-populate on the next `market-refresh`. No new keys.
 
+### Added — Brazil soybean exports + China share (§2 row 5)
+
+`ibge_brazil` has the Brazil crop SIZE (production/area); this adds the export FLOW — the competitor-supply
+pace and the destination read the stack couldn't answer (how much of Brazil's crop China is taking, the
+"China bought Brazil, not the U.S." read).
+
+- **`src/adapters/comexstat.js`** (new) — Brazil SECEX/ComexStat (keyless): monthly soybean exports
+  (`comex:br:soy-exports`, tonnes, back to 2013), exports to China (`comex:br:soy-exports-china`), the
+  **China share** (`comex:br:soy-exports-china-share`, %), and the realized **FOB unit value**
+  (`comex:br:soy-export-price`, $/t = FOB ÷ kg). Two small queries (monthly total + China via the country
+  filter), with retry/backoff + spacing since ComexStat rate-limits rapid bursts.
+- **Verified end-to-end against the live API** — 125 monthly points, latest China share ~71%, FOB ~$450/t.
+
+### Notes / deferred (same row 5)
+
+- **Brazil FOB premium vs. Gulf** — the FOB unit value here is the Brazil half; the premium needs a U.S.
+  Gulf FOB counterpart the keyless stack doesn't yet carry, so it's deferred (noted, not guessed).
+- **CONAB monthly survey** — more timely than IBGE's ~2-point safra estimate, but its portal is a JS
+  dashboard with no confirmed data API; deferred (ibge_brazil carries production/area meanwhile).
+- Registered markets-class; `test/comexstat.test.js` locks the pure transforms (row→points, kg→tonnes,
+  FOB unit value, the China-share join, incl. the empty-string-≠-zero guard). No new keys.
+
+### Fixed — a loud staleness guard on the hand-maintained crush-capacity table
+
+`crush_capacity.json` is hand-maintained (reissued from the Denny workbook a few times a year) and is
+load-bearing in `crush.js`: a stale table understates nameplate, which **overstates utilization** — the
+exact inversion that retired the old volume-percentile scorer (a soft market reading bullish). The code
+degraded gracefully only when the table was *missing*; a present-but-stale table was trusted in silence.
+
+- **`crush.js` `capacityStaleness()`** (new) flags a stale table via two independent tells: **age**
+  (asOf older than ~9 months — capacity is added roughly quarterly) and a basis-independent **empirical**
+  one (observed crush at/above the workbook's own realistic-max daily ceiling is physically implausible
+  per calendar day unless a plant is missing). When it fires, the **Crush Utilization signal carries a
+  loud ⚠️** telling the analyst to read the % as an over-estimate, and a one-time **console warning** goes
+  to the logs — failing loudly instead of silently. Only applies to the nameplate basis (the trailing-max
+  fallback is already a self-updating relative read).
+- `test/crush-staleness.test.js` locks both tells, the trailing-6 window, the fallback/absent paths, and
+  that a fresh table (today's) is **not** false-flagged. No behavior change until the table actually goes
+  stale; sourcing capacity automatically (EIA/announcements) remains the longer-term option.
+
+### Changed — refreshed crush capacity from the Aug 15 2026 Denny workbook
+
+Matt supplied the newer consultant workbook (the staleness guard's intended input). Re-imported
+`src/data/crush_capacity.json` from it: **asOf 2026-07-15 → 2026-08-15**, nameplate **8,557,000 → 8,577,000
+bu/day** across **69 plants** (e.g. ADM Decatur 310k → 320k), the High Plains/Mitchell addition 95k → 120k,
+and a couple of closure capacities that now parse. Benchmarks follow the Aug workbook's consolidation on a
+**90%** run/max rate (7,719,300 bu/day; the July version split 88%/91%). Extracted programmatically and
+verified: the plant capacities sum exactly to the workbook's stated 8,577,000 total.
+
+### Added — NOPA (§2 row 8): the free NASS oil-stocks path (NOPA itself is paywalled)
+
+Row 8 wanted NOPA's timely monthly crush + soybean-oil stocks. **NOPA distributes that report exclusively
+through Refinitiv** (the nopa.org page says so; the newsroom carries no numbers) — so it is **not available
+to this free/keyless stack**, the same way EPA RIN is spreadsheet-only. Rather than a fragile scraper, the
+plan's own note points at the free-government equivalent: **USDA NASS Fats & Oils** carries soybean-oil
+STOCKS + PRODUCTION monthly (the piece that "drives the oil share of crush value"), at a ~45-day lag vs.
+NOPA's ~15.
+
+- **`scripts/probe-nass-oil-stocks.mjs`** (new) — a self-contained Pi probe to pin the NASS QuickStats
+  vocabulary for soybean-oil stocks/production (crude vs. once-refined vs. total split across
+  class_desc/short_desc), which can't be seen from dev (QuickStats key-gates). Once confirmed, the
+  `nass:us:soyoil-stocks` / `:soyoil-production` series get added to `usda_nass` with the right filtering —
+  the same probe-then-finalize pattern as the CME/Census adapters. NOPA-proper stays deferred as a paid
+  data-access decision.
+
 ## 1.33.0 — Market-data quality: relevance gate, latency labels, and a vintage trail
 
 Steps 1–3 of the data-pipeline-expansion plan: the quality groundwork (steps 1–2), so more pipelines
