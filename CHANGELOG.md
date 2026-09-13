@@ -68,6 +68,34 @@ discovery probe for the rest — the same build-then-validate-on-the-Pi pattern 
   and the EIA extension / EPA adapter are deliberately deferred to the probe rather than shipped as
   guesses. No new required keys for existing behavior.
 
+### Added — dimension families: Iowa basis by district (§1.3)
+
+`market_series` is `(series, period, value)`, so every adapter that received dimensioned data flattened
+it before storage — `usda_ams` pulled the 2850 rows **with** the crop-reporting district, then averaged
+the six districts into one statewide `ams:ia:basis`, throwing away the intra-state spread that is the
+actual Iowa story most weeks. This keeps the dimension without rebuilding the store:
+
+- **`market_series_meta` gains a nullable `family` column** (additive migration; the family id doubles as
+  the members' shared series-id prefix), surfaced through `marketSnapshot()`.
+- **`src/adapters/usda_ams.js`** now emits one nearby-basis series per district under
+  `ams:ia:basis-by-district:<token>` (family `ams:ia:basis-by-district`), **alongside — not replacing —**
+  the statewide series. The district field is resolved defensively (documented names, then auto-detected
+  from values that look like Iowa districts) and is **fail-safe**: if none resolves, no breakout is
+  emitted and the statewide series are untouched.
+- **`formatMarketSnapshot` gains a breakdown renderer** (`formatFamilyBlock`): a present family collapses
+  to ONE cross-section line — each district's basis, the spread, and which district is high/low — instead
+  of six separate series lines, so keeping the dimension costs the prompt a line, not a wall.
+- **`scripts/probe-ams-districts.mjs`** (new) — self-contained Pi probe to confirm the live district
+  field name + labels (the MARS call needs the key + the Pi's residential IP, so it can't be seen from dev).
+
+### Notes
+
+- Additive and fail-soft: no new keys, the `family` column migrates in place, and the district series
+  auto-populate on the next `market-refresh` once the field resolves on the Pi. `test/dimension-families.test.js`
+  locks the store column, the pure renderer, and the district extraction (including the no-field fallback).
+- The same family convention is ready for the other dimension-discarding sources (FAS destinations, §1.1's
+  contract months) — this ships the mechanism plus its first user.
+
 ## 1.33.0 — Market-data quality: relevance gate, latency labels, and a vintage trail
 
 Steps 1–3 of the data-pipeline-expansion plan: the quality groundwork (steps 1–2), so more pipelines
