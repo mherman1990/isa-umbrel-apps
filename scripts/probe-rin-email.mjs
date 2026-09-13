@@ -12,7 +12,7 @@
 
 import fs from "node:fs";
 import { emailBodyToText } from "../src/emailhtml.js";
-import { parseRinMatrix, snapshotDate } from "../src/adapters/banyan_rin.js";
+import { parseRinPrices, snapshotDate } from "../src/adapters/banyan_rin.js";
 
 function loadEnv() {
   const env = { ...process.env };
@@ -54,7 +54,7 @@ try {
   for await (const msg of client.fetch(newest, { uid: true, source: true }, { uid: true })) {
     const parsed = await simpleParser(msg.source);
     const text = emailBodyToText(parsed.html || parsed.text || "");
-    const cells = parseRinMatrix(text);
+    const cells = parseRinPrices(text);
     console.log(`\n----- uid ${msg.uid} -----`);
     console.log(`  from:    ${parsed.from?.text || ""}`);
     console.log(`  subject: ${parsed.subject || ""}`);
@@ -69,6 +69,10 @@ try {
       console.log("  ⚠️ no cells — dumping the first 1500 chars of body text so the regex can be adjusted:");
       console.log("  " + text.slice(0, 1500).replace(/\n/g, " "));
     }
+    // Surface the multi-vintage "Daily Full RIN Update" section (past the headline block) so we can decide
+    // whether to add prior-vintage series — its inline format may differ from the current-vintage headline.
+    const mi = text.search(/Daily Full RIN Update/i);
+    if (mi >= 0) console.log("  Daily Full RIN Update section (400 chars):\n     " + text.slice(mi, mi + 400).replace(/\s+/g, " "));
   }
 } finally {
   lock.release();

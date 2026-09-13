@@ -7,12 +7,15 @@
 // named market-data partner; hence "Banyan"). So this is an email-sourced market series, like
 // email_intake but producing a timeseries instead of items.
 //
-// WHAT WE CAPTURE. The email's "Daily Full RIN Update" is a vintage × D-code matrix — D3/D4/D5/D6 across
-// the recent crop-year vintages (e.g. 2024/2025/2026). We capture EVERY cell → one daily point per
-// series, grouped per vintage as a §1.3 family so the snapshot renders each year's D3–D6 as one
-// cross-section line. D4 (biomass-based diesel) is the soybean-oil-relevant credit; D6 the conventional
-// RFS credit; D3/D5 cellulosic/advanced. Keyed by the snapshot's own date so the dataset builds forward
-// (plus whatever history is still in the inbox).
+// WHAT WE CAPTURE. The snapshot lists each RIN D-code with its price INLINE, e.g. (confirmed against the
+// live email via scripts/probe-rin-email.mjs, 2026-09-13):
+//   "US$ per RIN (Renewable Fuel Standard) 2026 D3 $2.370 D4 $2.169 D5 $2.160 D6 $2.112"
+// We read every D-code (D3/D4/D5/D6) for that block's vintage → one daily point per series, grouped per
+// vintage as a §1.3 family so the snapshot renders each year's D3–D6 as one cross-section line. D4
+// (biomass-based diesel) is the soybean-oil-relevant credit; D6 the conventional RFS credit; D3/D5
+// cellulosic/advanced. Keyed by the snapshot's own date so the dataset builds forward. (The report also
+// carries a multi-vintage "Daily Full RIN Update" table further down; if it ever renders inline pairs the
+// parser picks those up too — today only the current-vintage headline block is inline.)
 //
 // Requires the same Gmail App Password as email_intake (EMAIL_INTAKE_PASS); INERT (returns []) without
 // it — exactly like email_intake staying skipped until the key is set. scripts/probe-rin-email.mjs
@@ -49,35 +52,40 @@ export function snapshotDate(text) {
 }
 
 /**
- * Parse the "Daily Full RIN Update" vintage × D-code matrix out of the snapshot's plain text. Pure;
- * returns [{ dcode:"d4", vintage:"2026", value:2.169 }]. Empty when the table isn't found (fail-soft).
+ * Parse the RIN D-code prices out of the snapshot's plain text. Pure; returns
+ * [{ dcode:"d4", vintage:"2026", value:2.169 }]. Empty when no RIN block is found (fail-soft).
  *
- * Robust to the single-lined text emailBodyToText produces: a vintage row is a 4-digit crop year
- * IMMEDIATELY followed by exactly one $ value per D-code column (the headline "… 2026 D3 D4 D5 D6 $…"
- * never matches, because a D-code — not a $ — follows its year). Column order is taken from the
- * "D-Code D3 D4 D5 D6" header when present, else the RFS-standard D3–D6.
+ * CONFIRMED against the live email (scripts/probe-rin-email.mjs, 2026-09-13): emailBodyToText renders the
+ * RIN block INLINE — a vintage header followed by D-code/price PAIRS:
+ *   "US$ per RIN (Renewable Fuel Standard) 2026 D3 $2.370 D4 $2.169 D5 $2.160 D6 $2.112"
+ * (NOT a D-code header row then a values row — that was only how the PDF happened to lay it out). So we
+ * anchor on each "US$ per RIN … <YEAR>" block and read the "D<n> $<price>" pairs that follow it, stopping
+ * at the next section. A price is bounded ($ + 1–2 integer digits + 2–3 decimals) so a two-decimal LCFS
+ * credit or a bare year can never be mistaken for one.
  */
-export function parseRinMatrix(text) {
+export function parseRinPrices(text) {
   const s = String(text || "").replace(/\s+/g, " ");
-  const hdr = /D[\s-]*Code\s*((?:\s*D[0-9]\b){2,})/i.exec(s);
-  let cols = hdr ? hdr[1].match(/D[0-9]/gi) : null;
-  if (!cols || cols.length < 2) cols = ["D3", "D4", "D5", "D6"];
-  cols = cols.map((c) => c.toUpperCase());
-  // A RIN price is a $ value with 1–2 integer digits and 2–3 decimals ($2.169). Bounding the decimals
-  // (and allowing zero spaces between cells) keeps a value from swallowing the next row's year if the
-  // ESP's HTML has no whitespace between table cells — e.g. "$2.040" stops cleanly before "2025".
-  const val = "\\$\\s*[0-9]{1,2}\\.[0-9]{2,3}";
-  const rowRe = new RegExp(`\\b(20[0-9]{2})\\b((?:\\s*${val}){${cols.length}})`, "g");
   const out = [];
-  let m;
-  while ((m = rowRe.exec(s)) !== null) {
-    const vintage = m[1];
-    const vals = (m[2].match(/[0-9]{1,2}\.[0-9]{2,3}/g) || []).map(Number);
-    if (vals.length !== cols.length) continue;
-    cols.forEach((dc, i) => {
-      const v = vals[i];
-      if (Number.isFinite(v) && v > 0) out.push({ dcode: dc.toLowerCase(), vintage, value: v });
-    });
+  const seen = new Set(); // dedupe vintage:dcode across repeated blocks
+  const anchor = /US\$\s*per\s*RIN\b[^0-9]{0,40}(20[0-9]{2})/gi;
+  let a;
+  while ((a = anchor.exec(s)) !== null) {
+    const vintage = a[1];
+    // The D-code prices sit right after the vintage; stop at the next section so nothing else is scanned.
+    let seg = s.slice(anchor.lastIndex, anchor.lastIndex + 200);
+    const stop = seg.search(/US\$|EU€|Metric Ton|Daily Full/i);
+    if (stop >= 0) seg = seg.slice(0, stop);
+    const pairRe = /\bD([3-9])\s*\$\s*([0-9]{1,2}\.[0-9]{2,3})\b/g;
+    let p;
+    while ((p = pairRe.exec(seg)) !== null) {
+      const dcode = `d${p[1]}`;
+      const value = Number(p[2]);
+      const k = `${vintage}:${dcode}`;
+      if (!seen.has(k) && Number.isFinite(value) && value > 0) {
+        seen.add(k);
+        out.push({ dcode, vintage, value });
+      }
+    }
   }
   return out;
 }
@@ -127,7 +135,7 @@ export async function fetchSeries({ env = process.env, sourceConfig = {} } = {})
         continue; // a single unparseable message never kills the run
       }
       const text = emailBodyToText(parsed.html || parsed.text || "");
-      const cells = parseRinMatrix(text);
+      const cells = parseRinPrices(text);
       if (!cells.length) continue; // not a snapshot with a RIN table (or format changed) → skip
       const period = snapshotDate(text) || (parsed.date && !isNaN(new Date(parsed.date)) ? new Date(parsed.date).toISOString().slice(0, 10) : null);
       if (!period) continue;
@@ -149,4 +157,4 @@ export async function fetchSeries({ env = process.env, sourceConfig = {} } = {})
   return out;
 }
 
-export const __test = { parseRinMatrix, snapshotDate };
+export const __test = { parseRinPrices, snapshotDate };
