@@ -212,6 +212,92 @@ function modalMonthBasis(rows) {
   return mean(mids);
 }
 
+// --- district breakout: the §1.3 dimension family ----------------------------------------------
+//
+// 2850's Report Detail rows carry the Iowa CROP-REPORTING DISTRICT next to the price/basis. Six
+// districts whose spread is, most weeks, the actual Iowa story (processors pulling beans in the
+// northwest while the south sits flat) — and the statewide averages above compute it and throw it away.
+// Here we keep it as a dimension FAMILY: one nearby-basis series per district under a shared prefix,
+// which formatMarketSnapshot renders as a single cross-section line rather than six separate ones.
+//
+// ⚠️ The exact district FIELD NAME on the live feed can't be seen from dev (the MARS call needs the key
+// + the Pi's IP), so this is defensive: it tries the documented names, then AUTO-DETECTS the field whose
+// values look like Iowa districts, and if neither resolves it emits nothing extra — the statewide series
+// are untouched. scripts/probe-ams-districts.mjs confirms the real field + labels on the Pi (the same
+// build-then-validate-on-the-Pi pattern as the CME and Census adapters).
+export const FAMILY_BASIS_DISTRICT = "ams:ia:basis-by-district";
+
+// Canonical Iowa crop-reporting districts → [short token, display label]. Ordered so the two-word
+// compass names are matched before bare "Central".
+const DISTRICT_PATTERNS = [
+  [/north\s*west|\bnw\b/i, ["NW", "Northwest"]],
+  [/north\s*central|\bnc\b/i, ["NC", "North Central"]],
+  [/north\s*east|\bne\b/i, ["NE", "Northeast"]],
+  [/west\s*central|\bwc\b/i, ["WC", "West Central"]],
+  [/east\s*central|\bec\b/i, ["EC", "East Central"]],
+  [/south\s*west|\bsw\b/i, ["SW", "Southwest"]],
+  [/south\s*central|\bsc\b/i, ["SC", "South Central"]],
+  [/south\s*east|\bse\b/i, ["SE", "Southeast"]],
+  [/\bcentral\b/i, ["C", "Central"]],
+];
+
+/** A value that genuinely names an Iowa district → {token, label}; else null. Strict: no slug fallback. */
+function matchDistrictStrict(raw) {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+  for (const [re, [token, label]] of DISTRICT_PATTERNS) if (re.test(s)) return { token, label };
+  return null;
+}
+
+/**
+ * Which row field carries the district. Documented names first ("district"); then auto-detect the key
+ * whose values resolve to ≥3 distinct Iowa districts across the soy rows — so the real field is found
+ * even if it's named unexpectedly, and a free-text or per-city field is never mistaken for the district
+ * dimension. Returns the field name, or null when none qualifies (→ no breakout, statewide untouched).
+ */
+function pickDistrictField(soyRows) {
+  for (const name of ["district", "District", "report_district", "Report District", "reporting_district"]) {
+    if (soyRows.some((r) => matchDistrictStrict(r?.[name]))) return name;
+  }
+  const keys = new Set();
+  for (const r of soyRows.slice(0, 80)) for (const k of Object.keys(r ?? {})) keys.add(k);
+  for (const k of keys) {
+    const tokens = new Set();
+    for (const r of soyRows) { const d = matchDistrictStrict(r?.[k]); if (d) tokens.add(d.token); }
+    if (tokens.size >= 3) return k;
+  }
+  return null;
+}
+
+/** Per-district nearby-basis series (the §1.3 family). [] when no district field resolves (fail-safe). */
+function cashGrainDistrictSeries(soyRows) {
+  const field = pickDistrictField(soyRows);
+  if (!field) return [];
+  const groups = new Map(); // token → { label, rows }
+  for (const r of soyRows) {
+    const d = matchDistrictStrict(r?.[field]);
+    if (!d) continue;
+    if (!groups.has(d.token)) groups.set(d.token, { label: d.label, rows: [] });
+    groups.get(d.token).rows.push(r);
+  }
+  const out = [];
+  for (const [token, { label, rows }] of groups) {
+    const m = new Map();
+    for (const [date, rs] of byDate(rows)) {
+      const b = modalMonthBasis(rs);
+      if (b != null) m.set(date, b);
+    }
+    if (m.size) {
+      out.push({
+        series: `${FAMILY_BASIS_DISTRICT}:${token}`,
+        meta: { label: `Iowa soybean basis — ${label}`, unit: "¢/bu", category: "soy_basis", family: FAMILY_BASIS_DISTRICT },
+        points: toPoints(m),
+      });
+    }
+  }
+  return out;
+}
+
 function cashGrainSeries(rows) {
   const soy = rows.filter((r) => /soybean/i.test(String(r.commodity ?? "")));
   if (!soy.length) return [];
@@ -240,6 +326,9 @@ function cashGrainSeries(rows) {
   if (price.size) out.push({ series: "ams:ia:cash-price", meta: { label: "Iowa cash soybean price (daily)", unit: "$/bu", category: "soy_price" }, points: toPoints(price) });
   if (basis.size) out.push({ series: "ams:ia:basis", meta: { label: "Iowa soybean basis (nearby)", unit: "¢/bu", category: "soy_basis" }, points: toPoints(basis) });
   if (basisProc.size) out.push({ series: "ams:ia:basis-processor", meta: { label: "Iowa soybean basis — processors", unit: "¢/bu", category: "soy_basis" }, points: toPoints(basisProc) });
+  // The per-district family (§1.3) — additive and fail-soft: [] when no district field resolves, so the
+  // statewide series above are never affected by it.
+  out.push(...cashGrainDistrictSeries(soy));
   return out;
 }
 
@@ -425,4 +514,4 @@ export async function fetchSeries({ env = process.env, sourceConfig = {} } = {})
   return out;
 }
 
-export const __test = { amsDate, modalMonthBasis, cashGrainSeries, feedstuffSeries, cashCrushMargin, pick };
+export const __test = { amsDate, modalMonthBasis, cashGrainSeries, feedstuffSeries, cashCrushMargin, pick, matchDistrictStrict, pickDistrictField, cashGrainDistrictSeries };

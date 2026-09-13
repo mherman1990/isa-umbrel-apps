@@ -192,6 +192,8 @@ const NON_OFFICIAL = new Set([
   "cbot_futures",
   "cme_settlements",
   "census_trade",
+  "cpc_outlook",
+  "river_stage",
 ]);
 const isOfficial = (sourceId) => !NON_OFFICIAL.has(sourceId);
 export function pickLead(members) {

@@ -68,6 +68,58 @@ discovery probe for the rest — the same build-then-validate-on-the-Pi pattern 
   and the EIA extension / EPA adapter are deliberately deferred to the probe rather than shipped as
   guesses. No new required keys for existing behavior.
 
+### Added — dimension families: Iowa basis by district (§1.3)
+
+`market_series` is `(series, period, value)`, so every adapter that received dimensioned data flattened
+it before storage — `usda_ams` pulled the 2850 rows **with** the crop-reporting district, then averaged
+the six districts into one statewide `ams:ia:basis`, throwing away the intra-state spread that is the
+actual Iowa story most weeks. This keeps the dimension without rebuilding the store:
+
+- **`market_series_meta` gains a nullable `family` column** (additive migration; the family id doubles as
+  the members' shared series-id prefix), surfaced through `marketSnapshot()`.
+- **`src/adapters/usda_ams.js`** now emits one nearby-basis series per district under
+  `ams:ia:basis-by-district:<token>` (family `ams:ia:basis-by-district`), **alongside — not replacing —**
+  the statewide series. The district field is resolved defensively (documented names, then auto-detected
+  from values that look like Iowa districts) and is **fail-safe**: if none resolves, no breakout is
+  emitted and the statewide series are untouched.
+- **`formatMarketSnapshot` gains a breakdown renderer** (`formatFamilyBlock`): a present family collapses
+  to ONE cross-section line — each district's basis, the spread, and which district is high/low — instead
+  of six separate series lines, so keeping the dimension costs the prompt a line, not a wall.
+- **`scripts/probe-ams-districts.mjs`** (new) — self-contained Pi probe to confirm the live district
+  field name + labels (the MARS call needs the key + the Pi's residential IP, so it can't be seen from dev).
+
+### Notes
+
+- Additive and fail-soft: no new keys, the `family` column migrates in place, and the district series
+  auto-populate on the next `market-refresh` once the field resolves on the Pi. `test/dimension-families.test.js`
+  locks the store column, the pure renderer, and the district extraction (including the no-field fallback).
+- The same family convention is ready for the other dimension-discarding sources (FAS destinations, §1.1's
+  contract months) — this ships the mechanism plus its first user.
+
+### Added — leading climate + river indicators (§2 rows 6–7)
+
+Two keyless government feeds that **lead** things the tool already tracks — the same cause→effect pattern
+as margin→utilization and soil-moisture→VCI:
+
+- **`src/adapters/cpc_outlook.js`** (new, row 6) — NOAA CPC **ENSO / Oceanic Niño Index** (`cpc:oni`,
+  monthly, 1950→present). Open-Meteo says what the weather IS; ONI is the seasonal anomaly the trade
+  prices months ahead — the cheapest useful prior on South American risk (La Niña → dry Argentina /
+  southern Brazil). Keyless ascii, parsed pure. (The 6–10 / 8–14-day CPC outlook grids named alongside it
+  need a corn-belt spatial reduction — deferred; they can join under the same source id later.)
+- **`src/adapters/river_stage.js`** (new, row 7) — NWS/NWPS **Mississippi river stage** at the barge-
+  corridor chokepoints (Memphis, Vicksburg, Baton Rouge, New Orleans), daily. Barge freight is already in
+  via `agtransport`, but freight is the *effect*; river stage leads it by weeks and drove the 2022/2023
+  Gulf-basis collapses. Emitted as **individual** series per gauge — different gauge datums make a
+  cross-gauge spread meaningless, so this is deliberately NOT a §1.3 family — each read against its own
+  history. NWPS observed is a ~30-day rolling window; the store accumulates the longer record.
+
+### Notes
+
+- Both keyless and reachable, so they were **verified end-to-end against the live endpoints** (ONI: 919
+  monthly points; the four gauges: 30-day daily windows) — not just unit-tested. `test/climate-river.test.js`
+  locks the pure parsers (ONI season→month mapping + phase; the hourly→daily stage reduction). Registered
+  markets-class; both auto-populate on the next `market-refresh`. No new keys.
+
 ## 1.33.0 — Market-data quality: relevance gate, latency labels, and a vintage trail
 
 Steps 1–3 of the data-pipeline-expansion plan: the quality groundwork (steps 1–2), so more pipelines

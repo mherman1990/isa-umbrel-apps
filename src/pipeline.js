@@ -854,6 +854,44 @@ function referencedSeries(now = new Date()) {
   return set;
 }
 
+/** The shared human label of a dimension family: the part of the member labels before the " — <dim>"
+ *  suffix, when they all agree ("Iowa soybean basis — NW"/"… — NE" → "Iowa soybean basis"); else "". */
+function commonLabelPrefix(labels) {
+  if (!labels.length) return "";
+  const heads = labels.map((l) => String(l ?? "").split(/\s+[—–-]\s+/)[0].trim());
+  return heads.every((h) => h && h === heads[0]) ? heads[0] : "";
+}
+
+/**
+ * Render one dimension family (§1.3) as a single cross-section line instead of N series lines: each
+ * member's dimension token + latest value, sorted high→low, with the spread and which member is high/low.
+ * That's the whole point of the family — "the six-district basis spread is the Iowa story", in one line,
+ * not six. Pure (operates on marketSnapshot() entries) and exported so it can be unit-tested directly.
+ *
+ * The member's dimension token is the tail of its series id after the family prefix
+ * (`ams:ia:basis-by-district:NW` → "NW"); the family's own count-noun comes from a `…-by-<noun>` id
+ * ("district"). Returns null for a family with fewer than two usable members (the caller then renders
+ * those members individually, so nothing is ever hidden).
+ */
+export function formatFamilyBlock(familyId, members) {
+  const usable = (members || []).filter((m) => m && m.latest && m.latest.value != null);
+  if (usable.length < 2) return null;
+  const fmt = (v) => (v == null ? "—" : Math.abs(v) >= 1000 ? Math.round(v).toLocaleString() : String(Number(Number(v).toFixed(2))));
+  const dimOf = (m) => (m.series.startsWith(familyId + ":") ? m.series.slice(familyId.length + 1) : (m.label || m.series));
+  const unit = usable.find((m) => m.unit)?.unit || "";
+  const sorted = [...usable].sort((a, b) => b.latest.value - a.latest.value);
+  const hi = sorted[0], lo = sorted[sorted.length - 1];
+  const spread = hi.latest.value - lo.latest.value;
+  const famLabel = commonLabelPrefix(usable.map((m) => m.label || "")) || familyId;
+  const nounM = /[-:]by-([a-z]+)$/i.exec(familyId);
+  const nounSingular = nounM ? nounM[1] : "member";
+  const period = usable.map((m) => m.latest.period).sort().at(-1); // newest period any member carries
+  const anyStale = usable.some((m) => m.stale);
+  const cross = sorted.map((m) => `${dimOf(m)} ${fmt(m.latest.value)}`).join(", ");
+  const u = unit ? ` ${unit}` : "";
+  return `- ${famLabel} (by ${nounSingular}): ${cross}${u} — ${fmt(spread)}${u} spread (${dimOf(hi)} high, ${dimOf(lo)} low), ${usable.length} ${nounSingular}s (${period}${anyStale ? ", STALE" : ""})`;
+}
+
 /**
  * Render the deep trend snapshot as compact, category-grouped lines. Series that are moving, at an
  * extreme, or referenced by a live signal/trigger/open expectation are shown in FULL — latest + change,
@@ -883,7 +921,19 @@ export function formatMarketSnapshot(snapshot, now = new Date()) {
   ];
   for (const [cat, list] of byCat) {
     lines.push(`# ${cat}`);
+    // §1.3 dimension families: when ≥2 members of a family are present they collapse into ONE
+    // cross-section line (formatFamilyBlock), rendered after this category's standalone series. A family
+    // with only one present member falls through and renders as an ordinary line, so nothing is hidden.
+    const famGroups = new Map();
     for (const s of list) {
+      if (!s.family) continue;
+      if (!famGroups.has(s.family)) famGroups.set(s.family, []);
+      famGroups.get(s.family).push(s);
+    }
+    const realFamilies = [...famGroups].filter(([, m]) => m.length >= 2);
+    const collapsed = new Set(realFamilies.flatMap(([, m]) => m));
+    for (const s of list) {
+      if (collapsed.has(s)) continue; // shown in its family's cross-section block below
       const staleMark = s.stale ? ", STALE" : "";
       const { full } = seriesRelevance(s, referenced);
       if (!full) {
@@ -932,6 +982,11 @@ export function formatMarketSnapshot(snapshot, now = new Date()) {
       let line = `- ${s.label}: ${parts.join("; ")}`;
       if (s.trail && s.trail.length > 1) line += ` — recent: ${s.trail.map((p) => fmt(p.value)).join(" → ")}`;
       lines.push(line);
+    }
+    // The dimension-family cross-section lines for this category (§1.3), after its standalone series.
+    for (const [familyId, members] of realFamilies) {
+      const block = formatFamilyBlock(familyId, members);
+      if (block) lines.push(block);
     }
   }
   return lines.join("\n");

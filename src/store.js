@@ -216,6 +216,10 @@ db.exec(`
     label      TEXT,
     unit       TEXT,
     category   TEXT,            -- groups series into one chart (e.g. "biofuel_feedstock")
+    family     TEXT,            -- §1.3: the dimension family this series is a member of, when it is a
+                                -- per-dimension breakout (e.g. Iowa basis split by district). The family
+                                -- id is also the members' shared series-id prefix; formatMarketSnapshot
+                                -- renders a family as ONE cross-section line instead of N series lines.
     updated_at TEXT
   );
   -- Vintage trail (§1.4). market_series keeps only the LATEST value per (series, period) — its upsert
@@ -237,13 +241,19 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_vintage_series_period ON market_series_vintage(series, period, as_of);
 `);
 
+// Additive migration (§1.3): the dimension-family column, for databases created before it existed.
+// Same idiom as the seen_items / token_usage / storylines migrations — ADD COLUMN throws if the column
+// is already present, which is exactly how we detect an already-migrated DB. Must run BEFORE the meta
+// upsert statement below is prepared, since that statement now names `family`.
+try { db.exec("ALTER TABLE market_series_meta ADD COLUMN family TEXT"); } catch { /* already migrated */ }
+
 const stmtUpsertSeriesPoint = db.prepare(
   `INSERT INTO market_series (series, period, value) VALUES (?, ?, ?)
      ON CONFLICT(series, period) DO UPDATE SET value = excluded.value`
 );
 const stmtUpsertSeriesMeta = db.prepare(
-  `INSERT INTO market_series_meta (series, label, unit, category, updated_at) VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(series) DO UPDATE SET label=excluded.label, unit=excluded.unit, category=excluded.category, updated_at=excluded.updated_at`
+  `INSERT INTO market_series_meta (series, label, unit, category, family, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(series) DO UPDATE SET label=excluded.label, unit=excluded.unit, category=excluded.category, family=excluded.family, updated_at=excluded.updated_at`
 );
 // The most recent value we have on record for (series, period) — used to decide whether an incoming
 // point is a genuine revision worth a new vintage row, or the same number re-fetched (skip it, so the
@@ -284,7 +294,7 @@ let _snapshotCache = null;
 export function saveSeriesPoints(series, meta, points) {
   const asOf = new Date().toISOString(); // one observation time for this whole refresh
   const run = db.transaction(() => {
-    stmtUpsertSeriesMeta.run(series, meta.label ?? series, meta.unit ?? "", meta.category ?? "", asOf);
+    stmtUpsertSeriesMeta.run(series, meta.label ?? series, meta.unit ?? "", meta.category ?? "", meta.family ?? "", asOf);
     for (const p of points ?? []) {
       if (p && p.period != null && p.value != null && !Number.isNaN(Number(p.value))) {
         const period = String(p.period), value = Number(p.value);
@@ -417,7 +427,7 @@ function freshnessFromPeriods(periodsAsc) {
  */
 export function marketSnapshot() {
   if (_snapshotCache) return _snapshotCache;
-  const metas = db.prepare("SELECT series, label, unit, category, updated_at FROM market_series_meta ORDER BY category, label").all();
+  const metas = db.prepare("SELECT series, label, unit, category, family, updated_at FROM market_series_meta ORDER BY category, label").all();
   const out = [];
   for (const m of metas) {
     const pts = db.prepare("SELECT period, value FROM market_series WHERE series = ? ORDER BY period").all(m.series);
@@ -527,6 +537,9 @@ export function marketSnapshot() {
 
     out.push({
       series: m.series, label: m.label, unit: m.unit, category: m.category,
+      // The dimension family (§1.3), when this series is one member of a per-dimension breakout;
+      // null for an ordinary standalone series. formatMarketSnapshot groups members by it.
+      family: m.family || null,
       latest, previous, changeAbs, changePct,
       yearAgo, yoyPct,
       min, max, avg, percentile,
