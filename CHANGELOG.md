@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased — Balance sheet + house nowcast, and groundwork for the 45Z/RFS quantitative layer
+## 1.34.0 — Demand-side pipeline expansion: balance sheet + house nowcast, dimension families, and new competitor/climate/river feeds
 
-_(Version assigned at release time from `git tag` — main runs ahead of what's deployed.)_
+_Steps 4–7 of the data-pipeline-expansion plan, plus the Brazil coverage gap (§2 row 5), the crush-capacity staleness guard + the Aug-2026 workbook refresh, and the NOPA/free-oil-stocks finding. Auto-tagged `v1.34.0` from `main` by `auto-release.yml`._
 
 Step 4 of the data-pipeline-expansion plan (§1.6 + §1.2). Stocks-to-use, crush, exports, condition and
 acreage all existed as separate scalars, but the model was never handed the **assembled supply/demand

@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-polibrief
 category: automation
 name: The Bean Brief
-version: "1.33.0"
+version: "1.34.0"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
@@ -28,7 +28,30 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  THE MARKET DATA IS NOW LABELED WITH HOW FRESH IT IS, AND ONLY THE NUMBERS ACTUALLY MOVING GET THE
+  THE APP NOW ASSEMBLES THE WHOLE U.S. SOYBEAN BALANCE SHEET INTO ONE CARRYOUT NUMBER — AND KEEPS ITS OWN
+  FORECAST THAT GETS GRADED. Supply, crush, exports and stocks used to be separate figures the app re-derived
+  on the fly; it now builds the full supply-and-demand picture once, so a market read can end in a checkable
+  carryout instead of hand-waving. It also makes its own nowcast of ending stocks by layering the observed
+  crush and export pace onto USDA's forecast, and that nowcast is scored automatically the moment the next
+  WASDE lands — so the app starts keeping its own forecast track record instead of only quoting someone else's.
+  ALSO — IOWA CASH BASIS IS NOW BROKEN OUT BY CROP-REPORTING DISTRICT, not just a single statewide average. The
+  spread between the six Iowa districts is the real story most weeks (a plant bidding up in the northwest while
+  the south sits flat), and it used to be averaged away; it now shows as one compact cross-section line.
+  ALSO — NEW COMPETITOR AND WEATHER READS THAT LEAD THE MARKET. Brazil's monthly soybean exports and how much of
+  that is going to China (the "China bought Brazil, not us" read); the El Niño / La Niña (ENSO) index, the
+  cheapest early tell on South American weather risk; and Mississippi River stage at the barge chokepoints,
+  which leads Gulf barge-freight cost by weeks and drove the 2022–2023 export-basis squeezes. Actual monthly
+  U.S. export flows (Census) are wired in too, ready to switch on with a free key.
+  ALSO — THE CRUSH-CAPACITY TABLE NOW WARNS LOUDLY IF IT GOES STALE, AND HAS BEEN REFRESHED TO THE AUGUST
+  CONSULTANT NUMBERS. That table (how much the plants can physically crush) is hand-maintained; if it silently
+  went out of date it would make plants look like they were running harder than they are. The app now flags a
+  stale table instead of trusting it, and the table is current as of the August 15, 2026 workbook — 8.577
+  million bushels/day across 69 plants.
+  Update only — no new keys required. The new competitor/weather feeds are keyless and populate on the next
+  market refresh; a couple of optional sources (the CME forward curve, U.S. Census trade) stay off until you
+  set their key or flag. No change to how briefs are made or what they cost.
+  ---
+  PREVIOUS RELEASE (1.33.0) — THE MARKET DATA IS NOW LABELED WITH HOW FRESH IT IS, AND ONLY THE NUMBERS ACTUALLY MOVING GET THE
   SPOTLIGHT. Every market figure the app reasons from now shows how many days old it is and, where a USDA
   or CFTC report is due, when the next one lands — so a three-month-old price can no longer read as if it
   were today's, and a feed that has quietly stopped is flagged as stale instead of looking like a calm
