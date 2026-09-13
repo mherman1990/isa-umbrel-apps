@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-granary
 category: finance
 name: Granary
-version: "0.6.0"
+version: "0.7.0"
 tagline: Private household planning, without financial execution
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-granary/icon.svg
 description: >-
@@ -32,14 +32,24 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  Adds gated real-data intake and a Schwab read-only connector. Both fail closed
-  and stay disabled until the owner completes a local live-readiness attestation;
-  the app still cannot trade, transfer money, place an order, or contact a model
-  provider. Records are encrypted before storage and each batch needs an explicit
-  reauthenticated commit. Also unifies the version across the package, server and
-  manifest, which previously disagreed.
+  Makes the live-readiness attestation supplyable on the device. 0.6.0 looked for it
+  inside the read-only image, at a path that cannot exist there, so real intake was
+  unreachable on the Pi rather than merely gated. Both inputs now live on the
+  persistent data volume.
 
 
-  Existing credentials and ledger data remain in the persistent data directory.
+  The field-encryption key is named by path rather than by value, so the key that
+  decrypts household records never appears in this public repository or in
+  `docker inspect` output. Both files are read per request: deleting the attestation
+  revokes intake, deleting the key revokes decryption, and neither needs a restart.
+
+
+  Also fixes an ordering bug in the ledger's correction history, where versions
+  recorded in the same millisecond could report a superseded entry as current.
+
+
+  Intake still ships disabled and stays closed until the owner supplies both files.
+  Nothing here enables trading, transfers, orders, or contact with a model provider.
+  Existing credentials and ledger data are untouched, and no migration runs.
 submitter: Matt
 submission: https://github.com/mherman1990/isa-umbrel-apps
