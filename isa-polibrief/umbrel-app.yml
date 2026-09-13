@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-polibrief
 category: automation
 name: The Bean Brief
-version: "1.35.0"
+version: "1.36.0"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
@@ -28,7 +28,20 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  THE BRAZIL SOYBEAN-EXPORT FEED NOW TELLS YOU WHEN IT'S DOWN, INSTEAD OF SHOWING OLD NUMBERS AS IF THEY WERE
+  TWO NEW DEMAND-SIDE READS ON SOYBEAN OIL — AND A CORRECTED ONE. (1) Monthly U.S. soybean-oil STOCKS and
+  PRODUCTION are now tracked, from USDA's Fats & Oils survey — the free stand-in for NOPA's oil numbers,
+  which are paywalled. Oil stocks drive the oil share of crush value, so this is the piece the crush picture
+  was missing. (2) A renewable-diesel SHARE line for soybean oil: how much of the bean oil going into biofuel
+  is going to renewable-diesel plants versus biodiesel plants — about half now, and climbing. That is the 45Z
+  demand story in one number.
+  FIX — the soybean-oil-to-biofuel demand figure was overstated and is now corrected. The app had been
+  double-counting renewable diesel in the soybean, corn and canola oil biofuel-feedstock numbers (it added
+  EIA's combined total to the renewable-diesel piece a second time), overstating soybean-oil biofuel demand by
+  about half. If the feedstock chart looked high, that is why.
+  Update only — no new keys (the EIA and NASS keys already power existing feeds). The new series populate on
+  the next market refresh; no change to how briefs are made or what they cost.
+  ---
+  PREVIOUS RELEASE (1.35.0) — THE BRAZIL SOYBEAN-EXPORT FEED NOW TELLS YOU WHEN IT'S DOWN, INSTEAD OF SHOWING OLD NUMBERS AS IF THEY WERE
   CURRENT. If the SECEX/ComexStat source can't be reached, the app now flags that market layer as unavailable
   for the run, rather than quietly leaving the last-known Brazil export and China-share figures looking like
   today's — the kind of silent staleness that could mislead a read.

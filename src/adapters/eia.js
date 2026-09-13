@@ -71,11 +71,18 @@ export async function fetchItems({ sourceConfig = {}, env = process.env }) {
 
 // ── Timeseries (v1.5 Markets charts) ────────────────────────────────────────
 // ALL lipid feedstocks consumed by the biodiesel + renewable-diesel industry — the
-// feedstock market-share picture (soy vs. its competitors). BD + RD summed per feedstock.
+// feedstock market-share picture (soy vs. its competitors), one total per feedstock.
+//
+// ⚠️ DOUBLE-COUNT FIX (confirmed on the Pi via scripts/probe-45z-sources, 2026-06). For soybean, corn and
+// canola oil, EIA's aggregate "Inputs to Biodiesel Production" code (e.g. EPOOBDSO) ALREADY includes
+// renewable diesel: EPOOBDSO 1556 MMLB = EPOOBDSOD (biodiesel plants) 790 + EPOOBDSOR (RD plants) 766. The
+// prior config summed that aggregate PLUS the standalone RD code (EPOOBDSO + EPOOBDSOR), which counted RD
+// twice and overstated soybean-oil biofuel demand by ~49%. Each of these three now uses the aggregate code
+// ALONE. The single-code feedstocks below already used their aggregate (RD included), so they were correct.
 const FEEDSTOCKS = [
-  { key: "soybean-oil", label: "Soybean oil", products: ["EPOOBDSO", "EPOOBDSOR"] },
-  { key: "corn-oil", label: "Corn oil (DCO)", products: ["EPOOBDCNO", "EPOOBDCNOR"] },
-  { key: "canola-oil", label: "Canola oil", products: ["EPOOBDCO", "EPOOBDCOR"] },
+  { key: "soybean-oil", label: "Soybean oil", products: ["EPOOBDSO"] },
+  { key: "corn-oil", label: "Corn oil (DCO)", products: ["EPOOBDCNO"] },
+  { key: "canola-oil", label: "Canola oil", products: ["EPOOBDCO"] },
   { key: "used-cooking-oil", label: "Used cooking oil", products: ["EPOOBDFSYG"] },
   { key: "tallow", label: "Tallow", products: ["EPOOBDFSTL"] },
   { key: "white-grease", label: "White grease", products: ["EPOOBDFSWG"] },
@@ -83,6 +90,21 @@ const FEEDSTOCKS = [
   { key: "other-animal-fat", label: "Other animal fats", products: ["EPOOBDAFO"] },
   { key: "other-veg-oil", label: "Other veg oils", products: ["EPOOBDVOO"] },
 ];
+
+/**
+ * Renewable-diesel share of soybean-oil biofuel demand, joined by period → percent (0.1% precision).
+ * Pure. Skips a period unless BOTH plant-type inputs are present (a missing leg would fake a 0%/100%).
+ */
+export function rdSharePoints(biodieselMap, rdMap) {
+  const out = [];
+  for (const [period, r] of rdMap) {
+    const b = biodieselMap.get(period);
+    if (b == null || r == null) continue;
+    const total = b + r;
+    if (total > 0) out.push({ period, value: Math.round((r / total) * 1000) / 10 });
+  }
+  return out.sort((a, b) => a.period.localeCompare(b.period));
+}
 
 async function productHistory(product, apiKey) {
   const q =
@@ -121,5 +143,21 @@ export async function fetchSeries({ env = process.env } = {}) {
     const points = [...merged.entries()].map(([period, value]) => ({ period, value })).sort((a, b) => a.period.localeCompare(b.period));
     if (points.length) out.push({ series: `eia:feedstock:${fs.key}`, meta: { label: fs.label, unit, category: "biofuel_feedstock" }, points });
   }
+
+  // Renewable-diesel SHARE of soybean-oil biofuel demand — the 45Z-era story: RD plants have grown from a
+  // sliver to roughly half the soybean oil the biofuel industry consumes (2026-06: RD 766 of 1556 MMLB,
+  // ~49%). Derived from the two plant-type inputs (biodiesel plants EPOOBDSOD, RD plants EPOOBDSOR).
+  try {
+    const [{ map: bd }, { map: rd }] = await Promise.all([
+      productHistory("EPOOBDSOD", apiKey),
+      productHistory("EPOOBDSOR", apiKey),
+    ]);
+    const share = rdSharePoints(bd, rd);
+    if (share.length) out.push({ series: "eia:soyoil-rd-share", meta: { label: "Soybean oil to biofuel — renewable-diesel share", unit: "%", category: "biofuel_feedstock" }, points: share });
+  } catch {
+    /* fail-soft — the share is a bonus on top of the feedstock totals */
+  }
   return out;
 }
+
+export const __test = { FEEDSTOCKS, rdSharePoints };
