@@ -72,31 +72,54 @@ if (!env.CENSUS_API_KEY) {
   }
 }
 
-// ───────────────────────────── EIA biodiesel/RD production + capacity (row 4) ─────────────────────────────
-console.log("\n=== EIA biodiesel / renewable-diesel production + capacity (needs EIA_API_KEY) ===");
+// ───────────────────────────── EIA biodiesel/RD feedstock + production + capacity (row 4) ─────────────
+// Round 1 dumped feedbiofuel's PRODUCT facet (feedstock inputs), incl. EPOOBDSO "Soybean Oil Inputs to
+// Biodiesel Production", EPOOBDSOR "…Renewable Diesel Plants", EPOOBDSOD "…Biodiesel Plants". Those inputs
+// ARE the direct 45Z demand pull on soybean oil — the piece worth a series. Round 2 pins the DATA shape
+// (unit + process split + the data-column id) so it can be built, and locates the production/capacity
+// routes for a renewable-diesel utilization (production ÷ capacity, the crush.js move for RD).
+console.log("\n=== EIA biodiesel / renewable-diesel (needs EIA_API_KEY) ===");
 if (!env.EIA_API_KEY) {
   console.log("  EIA_API_KEY not set — the feedstock series already use it, so it should be in /data/.env");
 } else {
   const k = env.EIA_API_KEY;
-  // Dump route metadata so we can locate the production/capacity sub-routes + their product codes. EIA v2
-  // returns child routes + facet options for a route; feedbiofuel is the known feedstock route.
-  const routes = [
-    ["petroleum/pnp (child routes)", `https://api.eia.gov/v2/petroleum/pnp?api_key=${k}`],
-    ["feedbiofuel facet options (product codes)", `https://api.eia.gov/v2/petroleum/pnp/feedbiofuel/facet/product?api_key=${k}`],
-  ];
-  for (const [name, url] of routes) {
-    const r = await grab(url);
-    console.log(`\n  ${name} -> HTTP ${r.status}`);
-    if (r.json?.response) {
-      const resp = r.json.response;
-      if (resp.routes) console.log(`    child routes: ${resp.routes.map((x) => `${x.id}`).join(", ")}`);
-      if (resp.facets) console.log(`    facet values (look for biodiesel/renewable-diesel PRODUCTION + CAPACITY):\n${resp.facets.slice(0, 60).map((f) => `      ${f.id}  ${f.name || ""}`).join("\n")}${resp.facets.length > 60 ? `\n      …(${resp.facets.length} total)` : ""}`);
-    } else {
-      console.log(`    ${clip(r.body || r.error)}`);
-    }
+  const V2 = "https://api.eia.gov/v2/petroleum/pnp";
+
+  // (a) feedbiofuel route metadata → the data-column id (to query /data correctly), facets, frequency.
+  console.log("\n  (a) feedbiofuel route metadata");
+  const meta = await grab(`${V2}/feedbiofuel?api_key=${k}`);
+  const mResp = meta.json?.response ?? {};
+  const dataCols = Object.keys(mResp.data ?? {});
+  console.log(`    data columns: ${dataCols.join(", ") || "(none)"}`);
+  console.log(`    facets: ${(mResp.facets ?? []).map((f) => f.id).join(", ") || "(none)"}`);
+  console.log(`    frequencies: ${(mResp.frequency ?? []).map((f) => f.id ?? f).join(", ") || "(none)"}`);
+  const col = dataCols[0] || "value";
+
+  // (b) process facet — the biodiesel-vs-renewable-diesel split we need to sum/label soy-oil feedstock.
+  console.log("\n  (b) feedbiofuel process facet (biodiesel vs renewable diesel)");
+  const proc = await grab(`${V2}/feedbiofuel/facet/process?api_key=${k}`);
+  console.log("    " + ((proc.json?.response?.facets ?? []).map((f) => `${f.id}=${f.name || f.description || ""}`).join(" | ") || `HTTP ${proc.status}`));
+
+  // (c) real DATA for soybean-oil feedstock → confirms unit + row shape in one shot.
+  console.log("\n  (c) soybean-oil feedstock data (monthly, latest few)");
+  for (const pc of ["EPOOBDSO", "EPOOBDSOR", "EPOOBDSOD"]) {
+    const d = await grab(`${V2}/feedbiofuel/data?api_key=${k}&frequency=monthly&data[0]=${col}&facets[product][]=${pc}&sort[0][column]=period&sort[0][direction]=desc&length=3`);
+    const rows = d.json?.response?.data ?? [];
+    console.log(`    ${pc}: HTTP ${d.status}, ${rows.length} rows` + (rows[0] ? ` — ${rows[0].period} ${rows[0][col]} ${rows[0].units || rows[0]["unit-name"] || ""} [process ${rows[0].process}/${rows[0]["process-name"] || ""}]` : ` ${clip(d.body, 100)}`));
+    if (rows[0] && pc === "EPOOBDSO") console.log(`       row keys: ${Object.keys(rows[0]).join(", ")}`);
   }
-  console.log("\n  → From the above, note the product codes for biodiesel/RD PRODUCTION and CAPACITY and paste them back;");
-  console.log("    the adapter will pull production ÷ capacity = renewable-diesel utilization (the crush.js move for RD).");
+
+  // (d) production + capacity routes → for RD/biodiesel utilization. Dump metadata (name + facets + cols).
+  console.log("\n  (d) production / capacity route metadata (find biodiesel+RD PRODUCTION and CAPACITY)");
+  for (const route of ["bioplfuel", "capbio", "capprod", "capfuel"]) {
+    const r = await grab(`${V2}/${route}?api_key=${k}`);
+    const resp = r.json?.response;
+    if (!resp) { console.log(`    ${route}: HTTP ${r.status} ${clip(r.body, 90)}`); continue; }
+    console.log(`    ${route}: "${resp.name || resp.description || ""}" — facets[${(resp.facets ?? []).map((f) => f.id).join(",")}] data[${Object.keys(resp.data ?? {}).join(",")}] freq[${(resp.frequency ?? []).map((f) => f.id ?? f).join("/")}]`);
+  }
+
+  console.log("\n  → Paste back: the soy-oil feedstock unit + process split (a–c), and which route/facets carry");
+  console.log("    biodiesel/RD PRODUCTION and CAPACITY (d). Then a usda_eia-style adapter pins the series.");
 }
 
 // ───────────────────────────── EPA RIN data (row 3) ─────────────────────────────

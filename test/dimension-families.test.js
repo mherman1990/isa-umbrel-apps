@@ -195,3 +195,28 @@ test("pickDistrictField finds the district under a non-standard key by its value
   // ...and nothing qualifies when no field carries district-like values.
   assert.equal(ams.__test.pickDistrictField([{ commodity: "Soybeans", avg_price: "1", city: "Ames" }]), null);
 });
+
+// Ground truth: the AMS 2850 probe (Pi, 2026-09-13) confirmed the district field is `trade_loc` with the
+// six labels below. Locking both means a regression in the pin (or a mis-tokenised label) fails here
+// rather than silently on the Pi. The `trade_loc` field on 2850 does double duty — a separate report
+// (3511) uses "trade Loc" for a state/region — so this asserts the pinned name resolves against the real
+// 2850 labels, and that all six map to the expected tokens.
+test("pickDistrictField pins trade_loc and resolves the six real 2850 districts", () => {
+  const LABELS = {
+    "North Central": "NC",
+    Northeast: "NE",
+    Northwest: "NW",
+    "South Central": "SC",
+    Southeast: "SE",
+    Southwest: "SW",
+  };
+  const rows = Object.keys(LABELS).map((d) => ({ commodity: "Soybeans", report_date: "09/12/2026", trade_loc: d, avg_price: "1" }));
+  assert.equal(ams.__test.pickDistrictField(rows), "trade_loc");
+  for (const [label, token] of Object.entries(LABELS)) {
+    assert.equal(ams.__test.matchDistrictStrict(label).token, token, `${label} → ${token}`);
+  }
+  // The pinned field wins over the auto-detect fallback: a stray district-looking value elsewhere on the
+  // row does not steal the dimension away from trade_loc.
+  const withNoise = rows.map((r) => ({ ...r, market_location_name: "Grain - Iowa", office_name: "Des Moines, IA" }));
+  assert.equal(ams.__test.pickDistrictField(withNoise), "trade_loc");
+});

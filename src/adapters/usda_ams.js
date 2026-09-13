@@ -220,15 +220,18 @@ function modalMonthBasis(rows) {
 // Here we keep it as a dimension FAMILY: one nearby-basis series per district under a shared prefix,
 // which formatMarketSnapshot renders as a single cross-section line rather than six separate ones.
 //
-// ⚠️ The exact district FIELD NAME on the live feed can't be seen from dev (the MARS call needs the key
-// + the Pi's IP), so this is defensive: it tries the documented names, then AUTO-DETECTS the field whose
-// values look like Iowa districts, and if neither resolves it emits nothing extra — the statewide series
-// are untouched. scripts/probe-ams-districts.mjs confirms the real field + labels on the Pi (the same
-// build-then-validate-on-the-Pi pattern as the CME and Census adapters).
+// CONFIRMED on the Pi (scripts/probe-ams-districts.mjs, 2026-09-13): the district lives in `trade_loc`,
+// six values — North Central, Northeast, Northwest, South Central, Southeast, Southwest (2850 uses a
+// six-region compass grid, not the full nine crop-reporting districts). pickDistrictField pins trade_loc
+// first but keeps the documented aliases and the value-based auto-detect as fallbacks, so a column rename
+// upstream degrades gracefully rather than silently dropping the family. Fail-safe throughout: if nothing
+// resolves, no breakout is emitted and the statewide series are untouched.
 export const FAMILY_BASIS_DISTRICT = "ams:ia:basis-by-district";
 
-// Canonical Iowa crop-reporting districts → [short token, display label]. Ordered so the two-word
-// compass names are matched before bare "Central".
+// Iowa district phrasings → [short token, display label]. Ordered so two-word compass names match before
+// bare "Central". 2850 emits only six of the nine districts — Northwest, North Central, Northeast,
+// Southwest, South Central, Southeast — so the West Central / East Central / bare Central patterns never
+// fire on this report; they are kept for robustness (other AMS reports, or a future 2850 change).
 const DISTRICT_PATTERNS = [
   [/north\s*west|\bnw\b/i, ["NW", "Northwest"]],
   [/north\s*central|\bnc\b/i, ["NC", "North Central"]],
@@ -250,13 +253,16 @@ function matchDistrictStrict(raw) {
 }
 
 /**
- * Which row field carries the district. Documented names first ("district"); then auto-detect the key
- * whose values resolve to ≥3 distinct Iowa districts across the soy rows — so the real field is found
- * even if it's named unexpectedly, and a free-text or per-city field is never mistaken for the district
- * dimension. Returns the field name, or null when none qualifies (→ no breakout, statewide untouched).
+ * Which row field carries the district. The confirmed field (trade_loc) first, then the documented
+ * aliases, then auto-detect the key whose values resolve to ≥3 distinct Iowa districts across the soy
+ * rows — so the real field is still found if AMS renames the column, and a free-text or per-city field is
+ * never mistaken for the district dimension. Returns the field name, or null when none qualifies (→ no
+ * breakout, statewide untouched).
  */
 function pickDistrictField(soyRows) {
-  for (const name of ["district", "District", "report_district", "Report District", "reporting_district"]) {
+  // trade_loc is 2850's confirmed district field (probe, Pi, 2026-09-13). 2850 uses snake_case while 3511
+  // uses "trade Loc" — try both, though this path only ever runs on 2850's soy rows.
+  for (const name of ["trade_loc", "trade Loc", "district", "District", "report_district", "Report District", "reporting_district"]) {
     if (soyRows.some((r) => matchDistrictStrict(r?.[name]))) return name;
   }
   const keys = new Set();
