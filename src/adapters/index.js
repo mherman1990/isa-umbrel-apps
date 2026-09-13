@@ -41,6 +41,7 @@ import * as vegscape from "./vegscape.js";
 import * as cropcasma from "./cropcasma.js";
 import * as cbot_futures from "./cbot_futures.js";
 import * as cme_settlements from "./cme_settlements.js";
+import * as census_trade from "./census_trade.js";
 import * as fas_export_sales from "./fas_export_sales.js";
 
 export const adapters = {
@@ -73,6 +74,8 @@ export const adapters = {
   // Registered but INERT until CME_SETTLEMENTS is set (see the adapter header + scripts/probe-cme-settlements.mjs):
   // returns [] with no network call while off, exactly like barchart without its key.
   [cme_settlements.id]: cme_settlements,
+  // Registered but INERT until CENSUS_API_KEY is set (see the adapter header + scripts/probe-45z-sources.mjs).
+  [census_trade.id]: census_trade,
   // ⚠️ `fas_export_sales` was listed in SOURCE_CLASS below (and in eventkey.js) long before this
   // line existed — a declared id with no module behind it, so the tool appeared to watch export
   // demand while nothing ever fetched it. Registering an id without registering the adapter is a
@@ -114,6 +117,7 @@ export const SOURCE_CLASS = {
   cropcasma: "markets",
   cbot_futures: "markets",
   cme_settlements: "markets",
+  census_trade: "markets",
 };
 export const classOf = (sourceId) => SOURCE_CLASS[sourceId] ?? "official";
 export const sourceIdsForClass = (cls) => Object.keys(SOURCE_CLASS).filter((s) => SOURCE_CLASS[s] === cls);
