@@ -40,6 +40,15 @@ services:
       # acknowledgement before it will serve non-loopback HTTP sessions, and
       # refuses to start without it. Limited to Umbrel's private app route.
       GRANARY_ALLOW_INSECURE_HTTP: "true"
+      # Real-data intake is owner-supplied and owner-revocable, so both inputs live on the
+      # persistent volume rather than in this file. The container is read_only, so /data is the
+      # only writable, persistent path available; neither file exists by default and Granary
+      # fails closed without them.
+      #
+      # The key is a path, never a value. An environment variable would put the key that decrypts
+      # household financial records into this public repository and into `docker inspect`.
+      GRANARY_LIVE_READINESS_FILE: "/data/live-readiness.local.json"
+      GRANARY_CONFIDENTIAL_FIELD_KEY_FILE: "/data/field-key"
     volumes:
       - ${APP_DATA_DIR}/data:/data
     tmpfs:
