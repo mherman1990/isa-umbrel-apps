@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — The soybean balance sheet is assembled, and the tool keeps its own scored prior
+## Unreleased — Balance sheet + house nowcast, and groundwork for the 45Z/RFS quantitative layer
 
 _(Version assigned at release time from `git tag` — main runs ahead of what's deployed.)_
 
@@ -41,6 +41,32 @@ consensus someone else published. This builds the balance sheet once and gives t
   `market-refresh`. The soybean-oil balance sheet (for 45Z/RFS) is the natural next build on this frame.
 - Tests: `test/balancesheet.test.js` — the pure assembler (identity, overlay, degradation), both
   projections, live assembly + rendering, and the house prior settling through `computeSurprises`.
+
+### Added — actual trade flows, and 45Z-source discovery (§2 rows 2–4, the 45Z/RFS layer)
+
+The 45Z/RFS quantitative layer needs three new sources; all three key-gate or publish only spreadsheets,
+so their exact codes can't be confirmed off the Pi. This lands the one that's cleanly buildable and a
+discovery probe for the rest — the same build-then-validate-on-the-Pi pattern as the CME adapter.
+
+- **`src/adapters/census_trade.js`** (new, row 2) — U.S. Census international-trade series: actual
+  monthly soybean/soy-oil **exports** (the realized side to check against FAS commitments) and **imports**
+  of the fats/oils that compete with soy oil for 45Z gallons (used cooking oil, tallow, biodiesel).
+  Key-gated (`CENSUS_API_KEY`) and **inert** until set; parses Census's array-of-arrays payload and
+  collapses per-country rows to a monthly total, skipping the all-countries aggregate. HS codes are
+  best-known and flagged for probe confirmation (UCO/DCO share the broad HS 1518 and need the HS10
+  break-outs). Registered markets-class; `test/census-trade.test.js` locks the parsing + gating.
+- **`scripts/probe-45z-sources.mjs`** (new) — self-contained Pi probe: confirms the Census field names +
+  HS codes, **discovers the EIA biodiesel/renewable-diesel production + capacity series codes** (row 4 —
+  EIA key-gates even its route metadata, so the codes must be read on the Pi; the adapter extension lands
+  once they're confirmed, to compute RD utilization = production ÷ capacity, the `crush.js` move for RD),
+  and documents that **EPA RIN data (row 3) is Excel-only** — no JSON/CSV API — so it's a dependency
+  decision (add an xlsx parser) rather than a quick adapter.
+
+### Notes
+
+- No behavior change until keys are set + the probe confirms the codes: Census is inert without its key,
+  and the EIA extension / EPA adapter are deliberately deferred to the probe rather than shipped as
+  guesses. No new required keys for existing behavior.
 
 ## 1.33.0 — Market-data quality: relevance gate, latency labels, and a vintage trail
 
