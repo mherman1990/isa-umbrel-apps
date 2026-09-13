@@ -8,9 +8,13 @@
 # TO SHIP A NEW VERSION (one repo, one tag):
 #   1. Edit code + bump: package.json, CHANGELOG.md, isa-polibrief/umbrel-app.yml (version), and
 #      isa-polibrief/docker-compose.yml (image tag) — all to the new X.Y.Z.
-#   2. Commit, then `git tag vX.Y.Z && git push origin main && git push origin vX.Y.Z`.
-#      (Pushing the tag is what triggers this build — takes ~10 min.)
-#   3. Umbrel → refresh the community store → the app tile shows an Update button.
+#   2. Merge that to main. auto-release.yml then creates the vX.Y.Z tag and CALLS this workflow to
+#      build+publish — no manual tag step (that gap left the Pi pulling a non-existent image twice).
+#   3. Umbrel → refresh the community store → the app tile shows an Update button (wait for this
+#      build to go green first — the manifest advances on merge, the image ~10 min later).
+#
+# The manual path still works unchanged: `git tag vX.Y.Z && git push origin vX.Y.Z` (or the Releases
+# UI) triggers the push:tags path below directly. auto-release.yml then no-ops (the tag already exists).
 #
 # The image is published as: ghcr.io/<owner>/polibrief:<version> (name is owner-based, not repo-based,
 # so it stays ghcr.io/mherman1990/polibrief even though this repo is isa-umbrel-apps).
@@ -22,6 +26,12 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch: # also allows manual runs from the Actions tab
+  workflow_call: # invoked by auto-release.yml once it has created the tag for a version bump on main
+    inputs:
+      version:
+        description: "X.Y.Z to tag the image with. Omit to derive it from the git tag name (v1.2.3 -> 1.2.3)."
+        required: false
+        type: string
 
 jobs:
   build:
@@ -44,7 +54,15 @@ jobs:
 
       - name: Work out the version tag
         id: version
-        run: echo "tag=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          # workflow_call passes the version explicitly; a tag push derives it from the ref name.
+          if [ -n "$INPUT_VERSION" ]; then
+            echo "tag=$INPUT_VERSION" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          fi
 
       - uses: docker/build-push-action@v6
         with:

@@ -1,0 +1,85 @@
+# auto-release.yml — turn a version bump on main into a built, published image, automatically.
+#
+# WHY THIS EXISTS. Twice the Pi dropped into a restart loop for the same reason: a release commit
+# advanced the store manifest (isa-polibrief/docker-compose.yml image tag + umbrel-app.yml version)
+# to X.Y.Z on main, but the matching `vX.Y.Z` tag — the ONLY thing that triggered build-image.yml —
+# never got pushed. So main advertised ghcr.io/<owner>/polibrief:X.Y.Z while that image did not
+# exist, and the next Umbrel store refresh pulled a 404. This closes the gap: when package.json's
+# version lands on main with no matching tag, this creates the tag and builds the image — no human
+# step left to forget.
+#
+# WHY IT CALLS build-image.yml INSTEAD OF LETTING THE NEW TAG TRIGGER IT.
+# A tag pushed by the automatic GITHUB_TOKEN does NOT start other workflow runs (GitHub's guard
+# against recursive CI). A naive "just push the tag" would therefore create the tag but never build
+# the image — the same broken end state, only harder to spot. So we push the tag for provenance AND
+# invoke build-image.yml directly as a reusable workflow (workflow_call), which runs in THIS run.
+# A useful side effect of that same guard: the token-pushed tag can't also self-trigger
+# build-image.yml's push:tags path, so there is exactly one build, never two.
+#
+# The manual path is untouched: pushing a vX.Y.Z tag yourself (Releases UI or `git push`, i.e. not
+# the Actions token) triggers build-image.yml's push:tags path directly, and this workflow then
+# no-ops because the tag already exists.
+
+name: Auto-tag & build on version bump
+
+on:
+  push:
+    branches: [main]
+    # Deliberately NO paths filter. A `paths: [package.json]` filter would be tidier, but path
+    # filtering on merge-commit pushes has enough edge cases that it could silently skip the one push
+    # that matters — a merged release — which is the exact failure this workflow exists to prevent.
+    # Running on every main push is cheap (checkout + jq + ls-remote, ~15s) and the tag-existence
+    # guard below makes a run with no version change a no-op.
+
+# Serialize so two quick pushes at the same version can't race to create the same tag.
+concurrency:
+  group: auto-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create & push the vX.Y.Z tag
+    outputs:
+      created: ${{ steps.tag.outputs.created }}
+      version: ${{ steps.tag.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create the vX.Y.Z tag if package.json's version has none yet
+        id: tag
+        run: |
+          set -euo pipefail
+          V="$(jq -r .version package.json)"
+          # Refuse anything that isn't a sane version, so a malformed package.json never tags garbage.
+          if ! printf '%s' "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$'; then
+            echo "package.json version '$V' is not X.Y.Z — skipping." >&2
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/v$V" >/dev/null 2>&1; then
+            echo "v$V already tagged — nothing to do."
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v$V" -m "Release v$V (auto-tagged from package.json on main)" "$GITHUB_SHA"
+          git push origin "v$V"
+          echo "Created and pushed tag v$V at $GITHUB_SHA"
+          echo "created=true" >> "$GITHUB_OUTPUT"
+
+  # Only runs when the tag job actually created a new tag. Reuses build-image.yml verbatim so there is
+  # one definition of how the image is built; the version is passed in (the token-pushed tag can't be
+  # relied on to trigger build-image.yml itself).
+  build:
+    needs: tag
+    if: needs.tag.outputs.created == 'true'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/build-image.yml
+    with:
+      version: ${{ needs.tag.outputs.version }}
