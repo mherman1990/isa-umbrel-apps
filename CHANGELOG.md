@@ -160,6 +160,31 @@ degraded gracefully only when the table was *missing*; a present-but-stale table
   that a fresh table (today's) is **not** false-flagged. No behavior change until the table actually goes
   stale; sourcing capacity automatically (EIA/announcements) remains the longer-term option.
 
+### Changed — refreshed crush capacity from the Aug 15 2026 Denny workbook
+
+Matt supplied the newer consultant workbook (the staleness guard's intended input). Re-imported
+`src/data/crush_capacity.json` from it: **asOf 2026-07-15 → 2026-08-15**, nameplate **8,557,000 → 8,577,000
+bu/day** across **69 plants** (e.g. ADM Decatur 310k → 320k), the High Plains/Mitchell addition 95k → 120k,
+and a couple of closure capacities that now parse. Benchmarks follow the Aug workbook's consolidation on a
+**90%** run/max rate (7,719,300 bu/day; the July version split 88%/91%). Extracted programmatically and
+verified: the plant capacities sum exactly to the workbook's stated 8,577,000 total.
+
+### Added — NOPA (§2 row 8): the free NASS oil-stocks path (NOPA itself is paywalled)
+
+Row 8 wanted NOPA's timely monthly crush + soybean-oil stocks. **NOPA distributes that report exclusively
+through Refinitiv** (the nopa.org page says so; the newsroom carries no numbers) — so it is **not available
+to this free/keyless stack**, the same way EPA RIN is spreadsheet-only. Rather than a fragile scraper, the
+plan's own note points at the free-government equivalent: **USDA NASS Fats & Oils** carries soybean-oil
+STOCKS + PRODUCTION monthly (the piece that "drives the oil share of crush value"), at a ~45-day lag vs.
+NOPA's ~15.
+
+- **`scripts/probe-nass-oil-stocks.mjs`** (new) — a self-contained Pi probe to pin the NASS QuickStats
+  vocabulary for soybean-oil stocks/production (crude vs. once-refined vs. total split across
+  class_desc/short_desc), which can't be seen from dev (QuickStats key-gates). Once confirmed, the
+  `nass:us:soyoil-stocks` / `:soyoil-production` series get added to `usda_nass` with the right filtering —
+  the same probe-then-finalize pattern as the CME/Census adapters. NOPA-proper stays deferred as a paid
+  data-access decision.
+
 ## 1.33.0 — Market-data quality: relevance gate, latency labels, and a vintage trail
 
 Steps 1–3 of the data-pipeline-expansion plan: the quality groundwork (steps 1–2), so more pipelines
