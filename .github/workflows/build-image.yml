@@ -5,13 +5,15 @@
 # code is at the root (src/, docker/, package.json…) and the store files are umbrel-app-store.yml +
 # isa-polibrief/. GITHUB_TOKEN is automatic; no secrets to configure.
 #
-# TO SHIP A NEW VERSION (one repo, one tag):
-#   1. Edit code + bump: package.json, CHANGELOG.md, isa-polibrief/umbrel-app.yml (version), and
-#      isa-polibrief/docker-compose.yml (image tag) — all to the new X.Y.Z.
-#   2. Merge that to main. auto-release.yml then creates the vX.Y.Z tag and CALLS this workflow to
-#      build+publish — no manual tag step (that gap left the Pi pulling a non-existent image twice).
-#   3. Umbrel → refresh the community store → the app tile shows an Update button (wait for this
-#      build to go green first — the manifest advances on merge, the image ~10 min later).
+# TO SHIP A NEW VERSION (two-phase, so the store never advertises an image that isn't built yet):
+#   1. Edit code + bump package.json + CHANGELOG.md, and prepend the plain-language note to
+#      isa-polibrief/umbrel-app.yml (releaseNotes). Do NOT bump umbrel-app.yml `version` or
+#      isa-polibrief/docker-compose.yml (image tag) — auto-release.yml's `advertise` job does that AFTER
+#      the image is built and pushed.
+#   2. Merge to main. auto-release.yml creates the vX.Y.Z tag, CALLS this workflow to build+publish, then
+#      commits the umbrel-app.yml version + compose image-tag bump.
+#   3. Umbrel → the app tile shows an Update button only once step 2 finishes (image already on GHCR), so
+#      updating can no longer hang on a missing image. No need to time it — the tile appears when it's safe.
 #
 # The manual path still works unchanged: `git tag vX.Y.Z && git push origin vX.Y.Z` (or the Releases
 # UI) triggers the push:tags path below directly. auto-release.yml then no-ops (the tag already exists).

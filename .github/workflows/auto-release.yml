@@ -19,6 +19,11 @@
 # The manual path is untouched: pushing a vX.Y.Z tag yourself (Releases UI or `git push`, i.e. not
 # the Actions token) triggers build-image.yml's push:tags path directly, and this workflow then
 # no-ops because the tag already exists.
+#
+# TWO-PHASE RELEASE (see the `advertise` job): a release PR bumps package.json + CHANGELOG and prepends
+# the umbrel-app.yml releaseNotes ONLY. This workflow tags + builds the image, then — and only then —
+# commits the umbrel-app.yml `version` + docker-compose.yml image-tag bump. So Umbrel never advertises a
+# version whose image isn't built yet (the "updated at 1% and hung" outage). Update whenever the tile shows it.
 
 name: Auto-tag & build on version bump
 
@@ -83,3 +88,47 @@ jobs:
     uses: ./.github/workflows/build-image.yml
     with:
       version: ${{ needs.tag.outputs.version }}
+
+  # SECOND RACE THIS CLOSES (a real outage, 2026-09-13): a release PR used to advance the Umbrel store
+  # manifest — isa-polibrief/umbrel-app.yml `version` + isa-polibrief/docker-compose.yml image tag — on
+  # merge, so Umbrel offered "update to X.Y.Z" the instant it merged, ~15 min BEFORE the image finished
+  # building. Updating in that window pulled a tag that wasn't on GHCR yet and hung the install at 1%.
+  # Fix: the release PR no longer touches those two fields (it bumps package.json + CHANGELOG and prepends
+  # the umbrel-app.yml releaseNotes only). This job advances the manifest to the built version AFTER the
+  # image is confirmed pushed — so the store never advertises an image that doesn't exist. `needs: build`
+  # means a failed build never advertises. The commit is pushed with GITHUB_TOKEN, which by GitHub's
+  # recursion guard does NOT start another workflow run (so no loop, no extra no-op build); [skip ci] is
+  # belt-and-braces on top of that.
+  advertise:
+    needs: [tag, build]
+    if: needs.tag.outputs.created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # commit the manifest bump to main
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Advance the store manifest now that the image is published
+        env:
+          V: ${{ needs.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Bump ONLY the store-facing fields to the just-built version:
+          #   - umbrel-app.yml `version:` (anchored to line start so it never touches `manifestVersion:`)
+          #   - docker-compose.yml image tag (restricted to the `image:` line that references /polibrief:,
+          #     so the example tag in the file's header comment is left alone)
+          sed -i -E 's/^version: "[^"]*"/version: "'"$V"'"/' isa-polibrief/umbrel-app.yml
+          sed -i -E '/^[[:space:]]*image:.*\/polibrief:/ s#(/polibrief:)[^[:space:]]+#\1'"$V"'#' isa-polibrief/docker-compose.yml
+          if git diff --quiet -- isa-polibrief/umbrel-app.yml isa-polibrief/docker-compose.yml; then
+            echo "Store manifest already at v$V — nothing to advertise."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add isa-polibrief/umbrel-app.yml isa-polibrief/docker-compose.yml
+          git commit -m "chore(release): advertise v$V to the Umbrel store (image published) [skip ci]"
+          git push origin HEAD:main
+          echo "Advertised v$V — Umbrel will now offer the update, and the image is already on GHCR."
