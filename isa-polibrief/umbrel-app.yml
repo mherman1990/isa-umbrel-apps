@@ -28,7 +28,13 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  RIN PRICE TRACKING FIX. The daily RIN-price reader added in 1.37.0 didn't match the real layout of the
+  RIN PRICES NOW CAPTURE ALL VINTAGES. 1.37.1 read the current-year RIN prices but missed the prior-year
+  vintages in the report's full table. This reads the complete "Daily Full RIN Update" matrix — every
+  D-code (D3–D6) across every crop-year vintage the report lists (e.g. 2024, 2025, 2026) — so the RIN
+  dataset is complete. Still requires the collector Gmail App Password (EMAIL_INTAKE_PASS). Update only —
+  no change to how briefs are made or what they cost.
+  ---
+  PREVIOUS RELEASE (1.37.1) — RIN PRICE TRACKING FIX. The daily RIN-price reader added in 1.37.0 didn't match the real layout of the
   EcoEngineers email, so it was capturing nothing. This fixes the parser to read the snapshot's actual
   inline format (D3 $x  D4 $x  D5 $x  D6 $x), confirmed against the live inbox. RIN prices (D3–D6) now fill
   in on the next market refresh. Still requires the collector Gmail App Password (EMAIL_INTAKE_PASS).
