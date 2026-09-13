@@ -1,5 +1,42 @@
 # Changelog
 
+## 1.36.0 — Soybean-oil supply & the 45Z demand pull: NASS oil stocks/production, EIA feedstock double-count fix, RD share
+
+_Finalizes the NASS + EIA halves of the §2 45Z/RFS layer from the Pi probe results (2026-09-13). Auto-tagged `v1.36.0` from `main` by `auto-release.yml`._
+
+### Fixed
+
+- **`src/adapters/eia.js`** — the biofuel-feedstock series for soybean, corn and canola oil were
+  double-counting renewable diesel. They summed EIA's aggregate "Inputs to Biodiesel Production" code (which
+  already includes RD) with the standalone RD code. Confirmed on the Pi (2026-06): `EPOOBDSO` 1556 MMLB =
+  `EPOOBDSOD` 790 (biodiesel plants) + `EPOOBDSOR` 766 (RD plants); the prior config emitted 1556 + 766 =
+  2322, overstating soybean-oil biofuel demand by ~49%. Each of the three now uses the aggregate code alone;
+  the single-code feedstocks were already correct.
+
+### Added
+
+- **`src/adapters/eia.js`** — `eia:soyoil-rd-share` (%): renewable diesel's share of soybean-oil biofuel
+  demand (RD plants ÷ total), the 45Z-era signal (RD ~half and rising). Derived from `EPOOBDSOD` +
+  `EPOOBDSOR` via the pure `rdSharePoints` helper.
+- **`src/adapters/usda_nass.js`** — `nass:us:soyoil-stocks` and `nass:us:soyoil-production` (crude, monthly,
+  million lb): USDA Fats & Oils soybean-oil stocks + production — the free stand-in for NOPA's Refinitiv-only
+  oil data. `commodity_desc` "OIL" + the exact `short_desc` confirmed on the Pi. Adds an optional per-series
+  `scale` (NASS pounds → million lb, the trade's unit).
+
+### Tests
+
+- `test/eia.test.js` (new): the RD-share transform + a guard that no feedstock re-introduces the
+  aggregate-plus-split double-count. `test/usda_nass.test.js` (new): the pounds→million-lb scale + the pinned
+  soybean-oil descriptors. Full suite: 368 pass.
+
+### Notes
+
+- No new keys — EIA + NASS already flow. New series populate on the next `market-refresh`. **Validate the
+  soybean-oil series on the Pi** (both need their key + the right IP, so they were pinned from probe output
+  rather than run from dev).
+- Next: `banyan_rin` (daily RIN prices from the Banyan email — awaiting a sample + `EMAIL_INTAKE_PASS`) and
+  Census HS trade (awaiting `CENSUS_API_KEY` on the Pi).
+
 ## 1.35.0 — Pipeline hardening: outage-visible Brazil feed, pinned AMS districts, refined probes
 
 _Post-1.34.0 follow-ups: the Codex P2 on the ComexStat adapter, the AMS district-field confirmation off the Pi, and the next-round discovery-probe refinements. Auto-tagged `v1.35.0` from `main` by `auto-release.yml`._

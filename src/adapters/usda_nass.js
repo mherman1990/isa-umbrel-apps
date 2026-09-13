@@ -106,8 +106,21 @@ const NASS_SERIES = [
     params: { commodity_desc: "CORN", statisticcat_desc: "PRICE RECEIVED", agg_level_desc: "NATIONAL", unit_desc: "$ / BU" } },
   { key: "nass:ia:corn-price", label: "Iowa avg", category: "corn_price", unit: "$/bu",
     params: { commodity_desc: "CORN", statisticcat_desc: "PRICE RECEIVED", state_alpha: "IA", unit_desc: "$ / BU" } },
+  // Soybean OIL stocks + production — NASS Fats & Oils (Oilseed Crushings) survey, MONTHLY (~45-day lag).
+  // The free stand-in for NOPA's monthly oil data, which is Refinitiv-only. commodity_desc is "OIL" with the
+  // specific oil in short_desc (confirmed on the Pi via scripts/probe-nass-oil-stocks, 2026-09-13). CRUDE is
+  // the crush output (once-refined is downstream); "ONSITE & OFFSITE" is the total (plant + warehouse) stock.
+  // Oil stocks drive the oil share of crush value. NASS reports pounds; `scale` converts to million lb (the
+  // trade's unit — and keeps the snapshot legible, since the renderer only comma-groups large numbers).
+  { key: "nass:us:soyoil-stocks", label: "U.S. soybean oil stocks (crude)", category: "soy_oil", unit: "M lb", scale: 1e-6,
+    params: { commodity_desc: "OIL", agg_level_desc: "NATIONAL", short_desc: "OIL, SOYBEAN, ONSITE & OFFSITE, CRUDE - STOCKS, MEASURED IN LB" } },
+  { key: "nass:us:soyoil-production", label: "U.S. soybean oil production (crude)", category: "soy_oil", unit: "M lb", scale: 1e-6,
+    params: { commodity_desc: "OIL", agg_level_desc: "NATIONAL", short_desc: "OIL, SOYBEAN, CRUDE - PRODUCTION, MEASURED IN LB" } },
 ];
 const MM2 = /^(0[1-9]|1[0-2])$/;
+
+/** Optional per-series unit rescale (e.g. NASS pounds → million lb). No-op when scale is falsy. */
+const applyScale = (val, scale) => (scale ? Math.round(val * scale * 10) / 10 : val);
 
 /** Returns [{ series, meta, points }] for store.saveSeriesPoints. */
 export async function fetchSeries({ env = process.env } = {}) {
@@ -130,7 +143,7 @@ export async function fetchSeries({ env = process.env } = {}) {
       if (!MM2.test(mm)) continue;
       const val = Number(String(r.Value).replace(/,/g, ""));
       if (!Number.isFinite(val)) continue; // skips "(D)"/"(NA)" suppressed values
-      pts.set(`${r.year}-${mm}`, val);
+      pts.set(`${r.year}-${mm}`, applyScale(val, s.scale));
     }
     const points = [...pts.entries()].map(([period, value]) => ({ period, value })).sort((a, b) => a.period.localeCompare(b.period));
     if (points.length) out.push({ series: s.key, meta: { label: s.label, unit: s.unit, category: s.category }, points });
@@ -177,3 +190,5 @@ export async function fetchSeries({ env = process.env } = {}) {
   }
   return out;
 }
+
+export const __test = { applyScale, NASS_SERIES };
