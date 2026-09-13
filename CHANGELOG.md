@@ -1,5 +1,47 @@
 # Changelog
 
+## Unreleased — The soybean balance sheet is assembled, and the tool keeps its own scored prior
+
+_(Version assigned at release time from `git tag` — main runs ahead of what's deployed.)_
+
+Step 4 of the data-pipeline-expansion plan (§1.6 + §1.2). Stocks-to-use, crush, exports, condition and
+acreage all existed as separate scalars, but the model was never handed the **assembled supply/demand
+identity** — so every card and signal re-derived the balance sheet from scratch, with no carryout to
+anchor a "this moves carryout by X" claim to. And the surprise machinery could only score against a
+consensus someone else published. This builds the balance sheet once and gives the tool its own prior.
+
+### Added — an assembled U.S. soybean balance sheet (§1.6)
+
+- **`src/adapters/wasde.js`** now emits the full U.S. soybean balance-sheet line as series — beginning
+  stocks, production, imports, crush, exports, seed, residual (alongside the existing ending stocks +
+  stocks-to-use) — pulled by the same extraction that already reads ending stocks/total use, each keyed
+  by release month so the vintage trail (§1.4) tracks every component's revision. Labels vary by WASDE
+  layout, so a component that doesn't match simply doesn't emit and the assembler degrades to what it
+  has, always keeping WASDE's own ending stocks as the anchor. **Validate the new components against a
+  live release on the Pi before trusting the implied carryout.**
+- **`src/balancesheet.js`** (new) assembles the identity (supply − use → ending stocks, stocks-to-use)
+  and renders a compact block into every market prompt (Ask, analyst, memos, cards), so a mechanism can
+  now terminate in a checkable carryout number instead of rhetoric.
+
+### Added — a house nowcast, scored automatically (§1.2)
+
+- The balance sheet overlays observed **run-rates** onto WASDE's own forecast — scaling WASDE crush and
+  exports by the year-over-year pace of NASS crush and FAS commitments over the same marketing-year
+  window (so seasonality cancels and WASDE stays the anchor) — to expose an **implied carryout and its
+  delta**. That implied carryout is filed as a `source:"house"` expectation for the next WASDE, so
+  `computeSurprises` scores `surprise = actual − house` the moment the release lands — a measured prior
+  that never waits on anyone else to publish a consensus, feeding the existing track record.
+- ⚠️ The overlay is a conservative, transparent **v1** and is isolated in `projectCrush` / `projectExports`
+  for tuning; it makes no adjustment unless the pace windows are complete, and the prompt labels it
+  directional. Now that it is scored, the method can be refined from measured error.
+
+### Notes
+
+- No new data sources or keys — WASDE, NASS and FAS already flow. New series auto-populate on the next
+  `market-refresh`. The soybean-oil balance sheet (for 45Z/RFS) is the natural next build on this frame.
+- Tests: `test/balancesheet.test.js` — the pure assembler (identity, overlay, degradation), both
+  projections, live assembly + rendering, and the house prior settling through `computeSurprises`.
+
 ## 1.33.0 — Market-data quality: relevance gate, latency labels, and a vintage trail
 
 Steps 1–3 of the data-pipeline-expansion plan: the quality groundwork (steps 1–2), so more pipelines

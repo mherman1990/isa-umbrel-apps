@@ -46,6 +46,27 @@ async function listReleases(limit = 6) {
 const END_STOCKS_RE = /ending\s*stocks/i;
 const USE_TOTAL_RE = /use,?\s*total|total\s*(use|disappearance)/i;
 
+// The rest of the U.S. soybean balance-sheet line, pulled by the SAME extraction mechanism as ending
+// stocks / total use above so the balance-sheet object (src/balancesheet.js) can assemble the full
+// supply/use identity and overlay observed run-rates. Each series is keyed by RELEASE month (the
+// revision-trail design), so its latest point is the current WASDE line and the vintage trail tracks
+// each month's revision. `crush` and `exports` are the load-bearing ones (they are what observed pace
+// is overlaid onto for the implied carryout); the rest are for displaying the identity.
+// ⚠️ WASDE LABELS VARY BY LAYOUT (crush appears as "Crush"/"Crushings"; some layouts combine
+// "Seed & Residual"). A regex that matches nothing for a release simply emits no point for it, and the
+// assembler degrades to the components it has — it always keeps WASDE's own ending stocks as the anchor.
+// Validate these against a live release on the Pi (market-refresh, then inspect the wasde:us:soy-* series)
+// before trusting the implied carryout.
+const SOY_COMPONENTS = [
+  { key: "begin-stocks", label: "U.S. soybean beginning stocks", re: /beginning\s*stocks/i },
+  { key: "production", label: "U.S. soybean production", re: /^\s*production\b/i },
+  { key: "imports", label: "U.S. soybean imports", re: /^\s*imports\b/i },
+  { key: "crush", label: "U.S. soybean crush (WASDE)", re: /crush/i },
+  { key: "exports", label: "U.S. soybean exports (WASDE)", re: /^\s*exports\b/i },
+  { key: "seed", label: "U.S. soybean seed use", re: /^\s*seed\b/i },
+  { key: "residual", label: "U.S. soybean residual use", re: /^\s*residual\b/i },
+];
+
 // WASDE ships as SSRS "matrix" XML: <Report Name="wasde"> → sub-reports <srNN> (one per table,
 // keyed by `sub_report_title`) → one or more <matrixK> pivot tables. The U.S. soybean balance sheet
 // lives in the "U.S. Soybeans and Products" sub-report as THREE sibling matrices — Soybeans /
@@ -182,6 +203,7 @@ export async function fetchSeries() {
   const loaded = (await Promise.allSettled(releases.map(loadRelease)))
     .filter((r) => r.status === "fulfilled").map((r) => r.value);
   const endPts = [], stuPts = [];
+  const compPts = Object.fromEntries(SOY_COMPONENTS.map((c) => [c.key, []]));
   for (const { us, period } of loaded) {
     const y = pickYear(us);
     if (!y) continue;
@@ -189,11 +211,21 @@ export async function fetchSeries() {
     const use = attr(us, y, USE_TOTAL_RE);
     if (end != null) endPts.push({ period, value: end });
     if (end != null && use) stuPts.push({ period, value: (end / use) * 100 });
+    for (const c of SOY_COMPONENTS) {
+      const v = attr(us, y, c.re);
+      if (v != null) compPts[c.key].push({ period, value: v });
+    }
   }
   const out = [];
   // U.S. ending stocks (mln bu) + stocks-to-use (%). World stocks are in MMT, so we keep them out of
   // these charts (no mixed-unit axis) — they ride along in the WASDE item summary instead.
   if (endPts.length) out.push({ series: "wasde:us:soy-endstocks", meta: { label: "U.S. soybean ending stocks", unit: "mln bu", category: "soy_balance" }, points: endPts });
   if (stuPts.length) out.push({ series: "wasde:us:soy-stocks-to-use", meta: { label: "U.S. soybean stocks-to-use", unit: "%", category: "soy_balance_stu" }, points: stuPts });
+  // The rest of the balance-sheet line (all mln bu), each keyed by release month for the revision trail.
+  // The balance-sheet object assembles the supply/use identity from these; a component absent from a
+  // given layout simply doesn't emit, and the assembler keeps ending stocks above as the anchor.
+  for (const c of SOY_COMPONENTS) {
+    if (compPts[c.key].length) out.push({ series: `wasde:us:soy-${c.key}`, meta: { label: c.label, unit: "mln bu", category: "soy_balance" }, points: compPts[c.key] });
+  }
   return out;
 }

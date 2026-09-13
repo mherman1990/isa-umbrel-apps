@@ -20,6 +20,7 @@ import { signalsText, computeSignals, SIGNAL_CHART } from "./signals.js";
 import { weatherRiskText } from "./weather.js";
 import { crushText } from "./crush.js";
 import { leadLagText } from "./leadlag.js";
+import { balanceSheetText, houseNowcasts } from "./balancesheet.js";
 import { upcomingReportsText, upcomingReports, upcomingPolicyEventsText } from "./calendar.js";
 import { fetchDocumentText } from "./summarize.js";
 import { emailBodyToText } from "./emailhtml.js";
@@ -497,6 +498,14 @@ export async function runPipeline({ edition = "am", dryRun = false, source = nul
       resolveForecasts();
     } catch (err) {
       console.log(`⚠️  Forecast resolution skipped: ${err.message}`);
+    }
+    // House nowcast: file the balance sheet's implied carryout as a scored prior for the next WASDE, so
+    // `surprise = actual − house` is computable without waiting for anyone else to publish a consensus.
+    try {
+      const h = houseNowcasts();
+      if (h.upserted) console.log(`🏠 House nowcast: soybean carryout ${h.estAvg} mln bu on file for the next WASDE`);
+    } catch (err) {
+      console.log(`⚠️  House nowcast skipped: ${err.message}`);
     }
     // Pre-report consensus in, surprises out. Extraction costs one cheap Haiku call; scoring is free.
     try {
@@ -1117,6 +1126,7 @@ export async function answerQuery(question, env, source = "ui") {
   // distinct questions are exactly the case prompt caching still pays for.
   const invariantContext =
     `=== MARKET DATA (latest value, change vs prior, recent trail) ===\n${marketBlock || "(no market data stored yet)"}\n\n` +
+    (balanceSheetText() ? `=== U.S. SOYBEAN BALANCE SHEET (assembled S&D — terminate a mechanism in "this moves carryout by X" here) ===\n${balanceSheetText()}\n\n` : "") +
     (weatherRiskText() ? `=== CROP-WEATHER READ (anomaly vs. normal → supply/price) ===\n${weatherRiskText()}\n\n` : "") +
     (crushText() ? `=== CRUSH DEMAND (capacity utilization, cause→effect with margin) ===\n${crushText()}\n\n` : "") +
     (leadLagText() ? `=== MEASURED LEAD-LAG vs. DAILY PRICE (read the caveats) ===\n${leadLagText()}\n\n` : "") +
