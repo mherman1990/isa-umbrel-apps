@@ -28,7 +28,17 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  TWO NEW DEMAND-SIDE READS ON SOYBEAN OIL — AND A CORRECTED ONE. (1) Monthly U.S. soybean-oil STOCKS and
+  DAILY RIN PRICES ARE NOW TRACKED. The app mines the daily RIN credit prices out of the EcoEngineers
+  "Carbon Markets Snapshot" email that lands in the collector inbox (the RIN data is Banyan Commodity
+  Group's) and builds a running dataset — every RIN D-code (D3, D4, D5, D6) across every crop-year vintage
+  the report shows, one point per day. D4 is the biomass-based-diesel credit tied directly to soybean-oil
+  biofuel demand; D6 is the conventional RFS credit. There is no free RIN-price feed anywhere (EPA
+  publishes only volumes; live prices are broker/paid), so the inbox is the source.
+  Requires the collector Gmail App Password (EMAIL_INTAKE_PASS) — the same key email intake uses. Until it
+  is set this stays off with no error; once set, the RIN series fill in on the next market refresh and
+  build forward daily. Update only — no change to how briefs are made or what they cost.
+  ---
+  PREVIOUS RELEASE (1.36.0) — TWO NEW DEMAND-SIDE READS ON SOYBEAN OIL — AND A CORRECTED ONE. (1) Monthly U.S. soybean-oil STOCKS and
   PRODUCTION are now tracked, from USDA's Fats & Oils survey — the free stand-in for NOPA's oil numbers,
   which are paywalled. Oil stocks drive the oil share of crush value, so this is the piece the crush picture
   was missing. (2) A renewable-diesel SHARE line for soybean oil: how much of the bean oil going into biofuel

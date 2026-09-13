@@ -1,5 +1,36 @@
 # Changelog
 
+## 1.37.0 — Daily RIN prices (Banyan, via the EcoEngineers Carbon Markets Snapshot email)
+
+_First release cut under the two-phase auto-release: the store manifest advances only after the image builds (PR #22). Auto-tagged `v1.37.0` from `main` by `auto-release.yml`._
+
+### Added
+
+- **`src/adapters/banyan_rin.js`** (new): daily RIN (RFS D-code credit) prices, mined from the EcoEngineers
+  "Carbon Markets Snapshot" email in the collector inbox — the RIN/LCFS numbers are Banyan Commodity
+  Group's (EcoEngineers' named market-data partner). Captures the full "Daily Full RIN Update" matrix —
+  **every D-code (D3/D4/D5/D6) × crop-year vintage** — as `rin:<vintage>:by-dcode:<dcode>` series (a §1.3
+  family per vintage), keyed by the snapshot's own date. D4 is the biomass-based-diesel RIN (soybean-oil
+  biofuel demand); D6 the conventional RFS credit. There is no free RIN-PRICE feed (EPA publishes
+  generation volumes only; live prices are OPIS/broker), so email is the source. Class `markets`. INERT
+  until `EMAIL_INTAKE_PASS` is set (same collector Gmail App Password as `email_intake`); deep-pulls up to
+  ~2 years of inbox history on first run, then a rolling window, so the dataset builds forward daily.
+- **`scripts/probe-rin-email.mjs`** (new): runs the actual parser against the live inbox to confirm the
+  sender/subject + matrix parse on the Pi.
+
+### Tests
+
+- `test/banyan_rin.test.js` (new): the vintage × D-code matrix parse (incl. within-row value gluing and a
+  non-standard column order), the timezone-proof snapshot date, and fail-soft on non-snapshot mail. Full
+  suite: 373 pass.
+
+### Notes
+
+- Requires `EMAIL_INTAKE_PASS` on the Pi; validate with `scripts/probe-rin-email.mjs` after deploy.
+- LCFS credits (CA/Oregon), EU ETS, and carbon-offset prices are also in that email — not captured yet; an
+  easy follow-up if wanted.
+- Still open: Census HS trade (needs `CENSUS_API_KEY` on the Pi).
+
 ## 1.36.0 — Soybean-oil supply & the 45Z demand pull: NASS oil stocks/production, EIA feedstock double-count fix, RD share
 
 _Finalizes the NASS + EIA halves of the §2 45Z/RFS layer from the Pi probe results (2026-09-13). Auto-tagged `v1.36.0` from `main` by `auto-release.yml`._
