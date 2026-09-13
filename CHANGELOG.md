@@ -96,6 +96,30 @@ actual Iowa story most weeks. This keeps the dimension without rebuilding the st
 - The same family convention is ready for the other dimension-discarding sources (FAS destinations, §1.1's
   contract months) — this ships the mechanism plus its first user.
 
+### Added — leading climate + river indicators (§2 rows 6–7)
+
+Two keyless government feeds that **lead** things the tool already tracks — the same cause→effect pattern
+as margin→utilization and soil-moisture→VCI:
+
+- **`src/adapters/cpc_outlook.js`** (new, row 6) — NOAA CPC **ENSO / Oceanic Niño Index** (`cpc:oni`,
+  monthly, 1950→present). Open-Meteo says what the weather IS; ONI is the seasonal anomaly the trade
+  prices months ahead — the cheapest useful prior on South American risk (La Niña → dry Argentina /
+  southern Brazil). Keyless ascii, parsed pure. (The 6–10 / 8–14-day CPC outlook grids named alongside it
+  need a corn-belt spatial reduction — deferred; they can join under the same source id later.)
+- **`src/adapters/river_stage.js`** (new, row 7) — NWS/NWPS **Mississippi river stage** at the barge-
+  corridor chokepoints (Memphis, Vicksburg, Baton Rouge, New Orleans), daily. Barge freight is already in
+  via `agtransport`, but freight is the *effect*; river stage leads it by weeks and drove the 2022/2023
+  Gulf-basis collapses. Emitted as **individual** series per gauge — different gauge datums make a
+  cross-gauge spread meaningless, so this is deliberately NOT a §1.3 family — each read against its own
+  history. NWPS observed is a ~30-day rolling window; the store accumulates the longer record.
+
+### Notes
+
+- Both keyless and reachable, so they were **verified end-to-end against the live endpoints** (ONI: 919
+  monthly points; the four gauges: 30-day daily windows) — not just unit-tested. `test/climate-river.test.js`
+  locks the pure parsers (ONI season→month mapping + phase; the hourly→daily stage reduction). Registered
+  markets-class; both auto-populate on the next `market-refresh`. No new keys.
+
 ## 1.33.0 — Market-data quality: relevance gate, latency labels, and a vintage trail
 
 Steps 1–3 of the data-pipeline-expansion plan: the quality groundwork (steps 1–2), so more pipelines

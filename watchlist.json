@@ -154,6 +154,16 @@
       "maxItemsPerRun": 3,
       "hullsUsdPerTon": 140,
       "_note": "Markets — DAILY CBOT settles (no key, Yahoo chart endpoint): beans/meal/oil/corn front-month + derived board crush margin + daily soy:corn ratio. ~1,256 daily points (5y) per leg. This is the first sub-monthly price series in the tool and the prerequisite for scoring any signal against a subsequent price move. KEYLESS INTERIM ahead of Barchart — series are namespaced cbot:* so both can coexist. hullsUsdPerTon is a static assumption for the board margin's hulls leg (no futures market for hulls); the Iowa CASH margin in usda_ams uses the real AMS hulls quote instead."
+    },
+    "cpc_outlook": {
+      "enabled": true,
+      "maxItemsPerRun": 2,
+      "_note": "Markets — NOAA CPC ENSO (no key): the Oceanic Niño Index (cpc:oni, monthly) — the ENSO prior on South American weather risk (La Niña → dry Argentina/southern Brazil). climate_enso chart."
+    },
+    "river_stage": {
+      "enabled": true,
+      "maxItemsPerRun": 2,
+      "_note": "Markets — NWS/NWPS Mississippi river stage (no key): daily stage at the barge-corridor chokepoints (Memphis, Vicksburg, Baton Rouge, New Orleans). Leads the agtransport barge-freight print by weeks; individual series per gauge (different datums). river_stage chart; NWPS observed is ~30d rolling, the store accumulates history."
     }
   },
   "focusAreas": [
