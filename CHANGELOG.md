@@ -120,6 +120,28 @@ as margin→utilization and soil-moisture→VCI:
   locks the pure parsers (ONI season→month mapping + phase; the hourly→daily stage reduction). Registered
   markets-class; both auto-populate on the next `market-refresh`. No new keys.
 
+### Added — Brazil soybean exports + China share (§2 row 5)
+
+`ibge_brazil` has the Brazil crop SIZE (production/area); this adds the export FLOW — the competitor-supply
+pace and the destination read the stack couldn't answer (how much of Brazil's crop China is taking, the
+"China bought Brazil, not the U.S." read).
+
+- **`src/adapters/comexstat.js`** (new) — Brazil SECEX/ComexStat (keyless): monthly soybean exports
+  (`comex:br:soy-exports`, tonnes, back to 2013), exports to China (`comex:br:soy-exports-china`), the
+  **China share** (`comex:br:soy-exports-china-share`, %), and the realized **FOB unit value**
+  (`comex:br:soy-export-price`, $/t = FOB ÷ kg). Two small queries (monthly total + China via the country
+  filter), with retry/backoff + spacing since ComexStat rate-limits rapid bursts.
+- **Verified end-to-end against the live API** — 125 monthly points, latest China share ~71%, FOB ~$450/t.
+
+### Notes / deferred (same row 5)
+
+- **Brazil FOB premium vs. Gulf** — the FOB unit value here is the Brazil half; the premium needs a U.S.
+  Gulf FOB counterpart the keyless stack doesn't yet carry, so it's deferred (noted, not guessed).
+- **CONAB monthly survey** — more timely than IBGE's ~2-point safra estimate, but its portal is a JS
+  dashboard with no confirmed data API; deferred (ibge_brazil carries production/area meanwhile).
+- Registered markets-class; `test/comexstat.test.js` locks the pure transforms (row→points, kg→tonnes,
+  FOB unit value, the China-share join, incl. the empty-string-≠-zero guard). No new keys.
+
 ## 1.33.0 — Market-data quality: relevance gate, latency labels, and a vintage trail
 
 Steps 1–3 of the data-pipeline-expansion plan: the quality groundwork (steps 1–2), so more pipelines

@@ -164,6 +164,11 @@
       "enabled": true,
       "maxItemsPerRun": 2,
       "_note": "Markets — NWS/NWPS Mississippi river stage (no key): daily stage at the barge-corridor chokepoints (Memphis, Vicksburg, Baton Rouge, New Orleans). Leads the agtransport barge-freight print by weeks; individual series per gauge (different datums). river_stage chart; NWPS observed is ~30d rolling, the store accumulates history."
+    },
+    "comexstat": {
+      "enabled": true,
+      "maxItemsPerRun": 2,
+      "_note": "Markets — Brazil SECEX/ComexStat soybean exports (no key): monthly export volume + China volume + China share + realized FOB unit value ($/t), NCM 12019000 back to 2013. The competitor-supply pace + the 'China bought Brazil' read that ibge_brazil (crop size) can't answer. brazil_exports / brazil_export_share / brazil_export_price charts."
     }
   },
   "focusAreas": [
