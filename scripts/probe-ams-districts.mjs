@@ -4,6 +4,10 @@
 // residential IP, so the exact FIELD NAME and the district LABELS can't be seen from the dev box — this
 // reads them off a live pull so the adapter's auto-detection can be confirmed (or pinned).
 //
+// ✅ CONFIRMED (Pi, 2026-09-13): the district field is `trade_loc`, six values — North Central, Northeast,
+//    Northwest, South Central, Southeast, Southwest. usda_ams now pins trade_loc (kept auto-detect as a
+//    fallback), so re-running this is a regression check, not a discovery.
+//
 // ⚠️ SELF-CONTAINED (Node built-ins only) so it runs before the image carries it. Pipe it into the app
 // container's Node (it reads the key from /data/.env):
 //

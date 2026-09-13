@@ -48,3 +48,33 @@ test("empty / missing inputs are handled", () => {
   assert.deepEqual(cx.__test.rowsToPoints(null, cx.__test.kgToTonnes), []);
   assert.deepEqual(cx.__test.chinaSharePoints([], []), []);
 });
+
+// Outage propagation (Codex #17, P2): a genuine exhausted-retry failure must escape fetchSeries/fetchItems
+// so refreshMarketSeries flags the layer unavailable / collect marks the source skipped — rather than a
+// silent [] that reads as a successful empty refresh and leaves stale Brazil values looking current.
+test("fetchSeries propagates an exhausted-retry failure (does not swallow to [])", async () => {
+  await assert.rejects(
+    () => cx.fetchSeries({ pull: async () => { throw new Error("SECEX unreachable"); } }),
+    /SECEX unreachable/
+  );
+});
+
+test("fetchItems propagates an exhausted-retry failure too", async () => {
+  await assert.rejects(
+    () => cx.fetchItems({ pull: async () => { throw new Error("SECEX unreachable"); } }),
+    /SECEX unreachable/
+  );
+});
+
+test("fetchSeries returns [] on a legitimate empty response, not on an error", async () => {
+  const out = await cx.fetchSeries({ pull: async () => ({ total: [], china: [] }) });
+  assert.deepEqual(out, []);
+});
+
+test("fetchSeries shapes the four Brazil series from pulled rows", async () => {
+  const out = await cx.fetchSeries({ pull: async () => ({ total: TOTAL, china: CHINA }) });
+  assert.deepEqual(
+    out.map((s) => s.series).sort(),
+    ["comex:br:soy-export-price", "comex:br:soy-exports", "comex:br:soy-exports-china", "comex:br:soy-exports-china-share"]
+  );
+});
