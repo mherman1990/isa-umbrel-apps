@@ -9,7 +9,7 @@
       "Analysis",
       "Cash Margin"
     ],
-    "regenerate": "Denny reissues this workbook periodically. To update: extract the .xlsx (it is a zip) and re-run this import. Capacity changes a few times a year, so a stale table degrades gracefully rather than breaking — see the utilization scorer fallback in signals.js.",
+    "regenerate": "Denny reissues this workbook periodically. To update: extract the .xlsx (it is a zip), re-run this import, and set asOf to the workbook date. Capacity changes a few times a year; crush.js capacityStaleness() now flags a stale table LOUDLY — a ⚠️ on the Crush Utilization signal plus a console warning — once asOf is >9 months old OR observed crush exceeds the realistic-max ceiling, so a stale table can no longer silently overstate utilization. If the table is missing entirely, utilizationSeries() falls back to a trailing-max relative read.",
     "verified": "Current-plant capacities sum to 8,557,000 bu/day, matching the workbook Analysis tab total of 8,557 thousand bu/day. Addition capacities sum to 2,135,000 bu/day, matching the Old-&-New-Plants stated total of 2,135."
   },
   "asOf": "2026-07-15",

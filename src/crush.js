@@ -38,6 +38,16 @@ const DATA_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "data")
 // the stored series meta), so tons ÷ 0.03 = bushels.
 const TONS_PER_BU = 0.03;
 
+// crush_capacity.json is hand-maintained — reissued from the Denny workbook only a few times a year — so
+// it can silently go stale, and a stale table UNDERSTATES nameplate, which OVERSTATES utilization: the
+// exact inversion that retired the old volume-percentile scorer (a soft market reading bullish). The old
+// code degraded gracefully only when the table was MISSING; a present-but-stale table was trusted in
+// silence. capacityStaleness() below makes that failure loud instead. Warn once the table hasn't been
+// refreshed in this many months (capacity changes ~quarterly, so ~9 months has likely missed additions):
+const STALE_AGE_MONTHS = 9;
+const MS_PER_MONTH = 30.44 * 864e5;
+let _staleWarned = false; // console-warn once per process, not on every scorer call
+
 let _cap = null;
 /** The shipped capacity table, or null when absent/unreadable (the proxy path then takes over). */
 export function loadCapacity() {
@@ -175,6 +185,42 @@ function marginPercentile() {
 
 const pct1 = (v) => `${(v * 100).toFixed(1)}%`;
 
+/**
+ * Is the hand-maintained capacity table stale? Two independent tells, either of which fires:
+ *   1. AGE — asOf older than STALE_AGE_MONTHS. Capacity is added a few times a year, so a table not
+ *      refreshed in ~9 months has probably missed a plant, which understates nameplate.
+ *   2. EMPIRICAL — observed crush reached the workbook's own realistic-max daily rate within the last
+ *      six months. Utilization here is per CALENDAR day, so hitting ~91% of nameplate every day of a
+ *      month is physically implausible (plants take downtime) UNLESS the nameplate is understated — a
+ *      basis-independent, self-checking tell that catches staleness even inside the age window.
+ * Pure given its inputs (cap + series + now injectable for tests). Returns the reasons so the caller
+ * can surface them; an absent table is NOT "stale" (that path already falls back to trailing-max).
+ * @returns {{present:boolean, stale:boolean, ageMonths:number|null, asOf:string|null, reasons:string[]}}
+ */
+export function capacityStaleness({ now = new Date(), cap = loadCapacity(), series } = {}) {
+  if (!cap) return { present: false, stale: false, ageMonths: null, asOf: null, reasons: [] };
+  const reasons = [];
+  const asOfMs = Date.parse(cap.asOf);
+  const ageMonths = Number.isFinite(asOfMs) ? Math.round((now.getTime() - asOfMs) / MS_PER_MONTH) : null;
+  if (ageMonths == null) {
+    reasons.push("the capacity table has no readable asOf date, so its freshness can't be checked");
+  } else if (ageMonths >= STALE_AGE_MONTHS) {
+    reasons.push(
+      `the capacity table was last refreshed ${ageMonths} months ago (asOf ${cap.asOf}); crush capacity is added a few times a year, so it likely understates today's nameplate and therefore OVERSTATES utilization`
+    );
+  }
+  const ceiling = cap.benchmarks?.realisticMax ?? 0.91;
+  const recent = (series ?? utilizationSeries()).filter((r) => r.basis === "nameplate").slice(-6);
+  const over = recent.filter((r) => r.utilization >= ceiling);
+  if (over.length) {
+    const worst = Math.max(...over.map((r) => r.utilization));
+    reasons.push(
+      `observed crush reached ${pct1(worst)} of nameplate within the last 6 months — at or above the ${pct1(ceiling)} realistic-max daily ceiling, which is physically implausible per calendar day unless the table is missing a plant`
+    );
+  }
+  return { present: true, stale: reasons.length > 0, ageMonths, asOf: cap.asOf, reasons };
+}
+
 /** Signal-board scorer. Shape matches the other scorers in signals.js. */
 export function crushSignal() {
   const u = crushUtilization();
@@ -205,13 +251,25 @@ export function crushSignal() {
       : u.marginDivergence === "low-margin-firm-utilization"
         ? ` ⚠️ Utilization is firm while crush margin sits in the bottom third (${u.marginPctile}th pctile) — plants running through thin margins, which is not usually sustained.`
         : "";
+  // Capacity-staleness guard: a stale hand-maintained table overstates utilization (see
+  // capacityStaleness). Fail LOUD — flag it in the signal the analyst/LLM reads, and once in the logs —
+  // rather than presenting a confidently-wrong nameplate %. Only applies to the nameplate basis; the
+  // trailing-max fallback is already a self-updating relative read.
+  const stale = u.basis === "nameplate" ? capacityStaleness() : { stale: false, reasons: [] };
+  if (stale.stale && !_staleWarned) {
+    console.warn(`⚠️  crush_capacity.json looks stale: ${stale.reasons.join("; ")}. Refresh it from the Denny workbook.`);
+    _staleWarned = true;
+  }
+  const staleWarn = stale.stale
+    ? ` ⚠️ CAPACITY TABLE MAY BE STALE — ${stale.reasons.join("; ")}. Read the utilization % as a likely OVER-estimate until crush_capacity.json is refreshed.`
+    : "";
   return {
     id: "crush_utilization",
     name: "Crush Utilization",
     direction: u.direction,
     value: Math.round(u.utilization * 1000) / 10,
     label: `${pct1(u.utilization)} (${u.z >= 0 ? "+" : ""}${u.z.toFixed(1)}σ)`,
-    detail: `U.S. soybean crush at ${basisText} in ${mon}, ${vs}.${bench && u.basis === "nameplate" ? ` For scale, the industry's ~${pct1(benchRaw)}-of-nameplate working assumption is ~${pct1(bench)} restated per calendar day (it assumes ~${opDays} operating days), and crush is seasonally lightest in late spring/summer.` : ""} ${read}${divergence}`,
+    detail: `U.S. soybean crush at ${basisText} in ${mon}, ${vs}.${bench && u.basis === "nameplate" ? ` For scale, the industry's ~${pct1(benchRaw)}-of-nameplate working assumption is ~${pct1(bench)} restated per calendar day (it assumes ~${opDays} operating days), and crush is seasonally lightest in late spring/summer.` : ""} ${read}${divergence}${staleWarn}`,
   };
 }
 
@@ -235,4 +293,4 @@ export function crushText() {
   return lines.join("\n");
 }
 
-export const __test = { daysInMonth, capacityAt, utilizationSeries, crushUtilization, marginPercentile };
+export const __test = { daysInMonth, capacityAt, utilizationSeries, crushUtilization, marginPercentile, capacityStaleness };

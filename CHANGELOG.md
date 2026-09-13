@@ -142,6 +142,24 @@ pace and the destination read the stack couldn't answer (how much of Brazil's cr
 - Registered markets-class; `test/comexstat.test.js` locks the pure transforms (row→points, kg→tonnes,
   FOB unit value, the China-share join, incl. the empty-string-≠-zero guard). No new keys.
 
+### Fixed — a loud staleness guard on the hand-maintained crush-capacity table
+
+`crush_capacity.json` is hand-maintained (reissued from the Denny workbook a few times a year) and is
+load-bearing in `crush.js`: a stale table understates nameplate, which **overstates utilization** — the
+exact inversion that retired the old volume-percentile scorer (a soft market reading bullish). The code
+degraded gracefully only when the table was *missing*; a present-but-stale table was trusted in silence.
+
+- **`crush.js` `capacityStaleness()`** (new) flags a stale table via two independent tells: **age**
+  (asOf older than ~9 months — capacity is added roughly quarterly) and a basis-independent **empirical**
+  one (observed crush at/above the workbook's own realistic-max daily ceiling is physically implausible
+  per calendar day unless a plant is missing). When it fires, the **Crush Utilization signal carries a
+  loud ⚠️** telling the analyst to read the % as an over-estimate, and a one-time **console warning** goes
+  to the logs — failing loudly instead of silently. Only applies to the nameplate basis (the trailing-max
+  fallback is already a self-updating relative read).
+- `test/crush-staleness.test.js` locks both tells, the trailing-6 window, the fallback/absent paths, and
+  that a fresh table (today's) is **not** false-flagged. No behavior change until the table actually goes
+  stale; sourcing capacity automatically (EIA/announcements) remains the longer-term option.
+
 ## 1.33.0 — Market-data quality: relevance gate, latency labels, and a vintage trail
 
 Steps 1–3 of the data-pipeline-expansion plan: the quality groundwork (steps 1–2), so more pipelines
