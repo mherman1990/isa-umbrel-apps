@@ -28,7 +28,16 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  EU ETS CARBON PRICE NOW COMES FROM A REAL FEED — AND LCFS IS CONFIRMED WORKING. Last release added LCFS
+  MARKET-DATA FEEDS NO LONGER FALSELY SHOW "NEEDS ATTENTION" ON THE SOURCES PAGE. The Sources page scored
+  every feed by how many news-style items it fetched — but the market-data feeds (Brazil trade, the RIN /
+  LCFS / EU ETS carbon prices, Mississippi river stage, ENSO, export sales, and the rest) don't produce
+  items, they produce running data series. So they all showed a misleading orange "waiting for first
+  successful run" even while their data was refreshing perfectly. They now show green from their last
+  successful data refresh, with a count of how many series each one maintains. The data itself was never
+  affected — this is purely a status-display fix. Update only — no new keys, and no change to how briefs
+  are made or what they cost.
+  ---
+  PREVIOUS RELEASE (1.37.4) — EU ETS CARBON PRICE NOW COMES FROM A REAL FEED — AND LCFS IS CONFIRMED WORKING. Last release added LCFS
   and EU ETS from the EcoEngineers "Carbon Markets Snapshot" email. On the Pi the LCFS credit prices
   (California and Oregon) parse perfectly and show as one cross-section line — but the EU ETS number in that
   email turned out to be a chart IMAGE, not text, so it could never be read from the email. This release

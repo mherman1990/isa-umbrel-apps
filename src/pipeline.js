@@ -203,7 +203,12 @@ export async function refreshMarketSeries(env = process.env) {
         store.saveSeriesPoints(s.series, s.meta, s.points);
         n++;
       }
-      if (list.length) console.log(`📈 ${adapter.label}: refreshed ${list.length} market series`);
+      if (list.length) {
+        console.log(`📈 ${adapter.label}: refreshed ${list.length} market series`);
+        // Record the successful series refresh so the /sources dot can show this adapter as healthy —
+        // separate from runs.last_success_at (the item watermark), which series-only adapters never set.
+        store.setMarketRunSuccess(adapter.id, n);
+      }
       return n;
     } catch (err) {
       console.log(`⚠️  ${adapter.label} series refresh failed: ${err.message}`);

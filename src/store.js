@@ -46,6 +46,17 @@ db.exec(`
     last_success_at TEXT NOT NULL
   );
 
+  -- Series-refresh success per adapter, SEPARATE from runs. runs.last_success_at doubles as the
+  -- item-fetch watermark (getSince reads it to resume fetching), so a series refresh must NOT write
+  -- there or it would advance a dual adapter's item cursor and silently skip items. This table lets the
+  -- /sources dot show a series-only markets adapter (comexstat, banyan_rin, eu_ets, …) as healthy from
+  -- its last successful fetchSeries, instead of a permanent 🟠 "waiting" (it never fetches items).
+  CREATE TABLE IF NOT EXISTS market_runs (
+    source_id       TEXT PRIMARY KEY,
+    last_success_at TEXT NOT NULL,
+    series_count    INTEGER NOT NULL DEFAULT 0
+  );
+
   CREATE TABLE IF NOT EXISTS briefs (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     edition    TEXT NOT NULL,
@@ -1924,6 +1935,23 @@ export function getSince(sourceId, fallbackDays = 7) {
 
 export function setLastSuccess(sourceId, iso = new Date().toISOString()) {
   stmtSetLastSuccess.run(sourceId, iso);
+}
+
+const stmtSetMarketRun = db.prepare(`
+  INSERT INTO market_runs (source_id, last_success_at, series_count) VALUES (?, ?, ?)
+  ON CONFLICT(source_id) DO UPDATE SET last_success_at = excluded.last_success_at, series_count = excluded.series_count
+`);
+/** Record that an adapter's fetchSeries succeeded (returned seriesCount series). See market_runs table. */
+export function setMarketRunSuccess(sourceId, seriesCount = 0, iso = new Date().toISOString()) {
+  stmtSetMarketRun.run(sourceId, iso, seriesCount);
+}
+/** { [sourceId]: { lastSuccess, seriesCount } } — the last successful series refresh per adapter. */
+export function getMarketRuns() {
+  const out = {};
+  for (const r of db.prepare("SELECT source_id, last_success_at, series_count FROM market_runs").all()) {
+    out[r.source_id] = { lastSuccess: r.last_success_at, seriesCount: r.series_count };
+  }
+  return out;
 }
 
 export function recordBrief(edition, filePath) {
