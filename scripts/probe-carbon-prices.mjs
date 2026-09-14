@@ -69,11 +69,11 @@ try {
     console.log(`  subject: ${parsed.subject || ""}`);
     console.log(`  date hdr: ${parsed.date || ""}   snapshotDate(body): ${period || "(none)"}`);
     console.log(`  LCFS parsed (${prices.lcfs.length}): ${prices.lcfs.map((c) => `${c.token}=${c.value}`).join("  ") || "(none)"}`);
-    console.log(`  EU-ETS parsed: ${prices.euets != null ? prices.euets : "(none)"}`);
     console.log(`  → series rows: ${__test.toSeriesRows(prices, period || "?").map((r) => r.series).join(", ") || "(none)"}`);
-    // Raw regions — always dumped, so a wrong/missing EU-ETS value is diagnosable in one run.
+    // Raw regions — always dumped. The EU ETS region confirms the number is an EMBER image (no text value),
+    // which is why EU ETS comes from eu_ets.js (CBAM Guide API) instead of the email.
     dumpFrom(text, /US\$ per Metric Ton of CO2e|State LCFS Programs/i, 600, "LCFS+EU-ETS region (600 chars)");
-    dumpFrom(text, /EU ETS Allowance/i, 200, "EU ETS region (200 chars)");
+    dumpFrom(text, /EU ETS Allowance/i, 200, "EU ETS region (200 chars) — expect NO value (it's an image)");
     dumpFrom(text, /Voluntary|Offset|Nature-?based|Tech-?based/i, 300, "Offsets region (300 chars, for a later follow-up)");
   }
 } finally {
@@ -82,7 +82,7 @@ try {
 }
 
 console.log("\n────────────────────────────────────────────────────────");
-console.log("If LCFS shows CA/OR and EU-ETS shows a sane €/t number, carbon_prices is good — it stores");
-console.log("lcfs:by-program:<STATE> (a cross-section family) + euets:allowance daily.");
-console.log("If EU-ETS is (none) or wrong, paste the 'EU ETS region' dump and the parser gets tuned.\n");
+console.log("If LCFS shows CA/OR, carbon_prices is good — it stores lcfs:by-program:<STATE> (a cross-section");
+console.log("family) daily. EU ETS is not parsed here (it's an image in the email); it comes from eu_ets.js");
+console.log("(CBAM Guide API) — validate that with the market refresh, not this probe.\n");
 process.exit(0);

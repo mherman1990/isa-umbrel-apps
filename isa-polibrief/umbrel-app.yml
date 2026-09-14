@@ -28,7 +28,17 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  LCFS AND EU ETS CARBON PRICES ARE NOW TRACKED, ALONGSIDE THE RINs. The app already mines daily RIN
+  EU ETS CARBON PRICE NOW COMES FROM A REAL FEED — AND LCFS IS CONFIRMED WORKING. Last release added LCFS
+  and EU ETS from the EcoEngineers "Carbon Markets Snapshot" email. On the Pi the LCFS credit prices
+  (California and Oregon) parse perfectly and show as one cross-section line — but the EU ETS number in that
+  email turned out to be a chart IMAGE, not text, so it could never be read from the email. This release
+  gets EU ETS from a real source instead: the European Commission's official CBAM certificate price (the
+  quarterly — weekly from 2027 — weighted average of EU ETS auction clearing prices), plus a daily
+  EU-allowance reference when one is available, via the free CBAM Guide API (no key). LCFS is unchanged and
+  still comes from the email. Attribution: Source: CBAM Guide (cbamguide.com); underlying data European
+  Commission. Update only — no new keys, and no change to how briefs are made or what they cost.
+  ---
+  PREVIOUS RELEASE (1.37.3) — LCFS AND EU ETS CARBON PRICES ARE NOW TRACKED, ALONGSIDE THE RINs. The app already mines daily RIN
   prices from the EcoEngineers "Carbon Markets Snapshot" email; it now also reads the other two
   carbon-price blocks in that same email — the state Low Carbon Fuel Standard credit prices (California
   LCFS and Oregon CFP, in US$ per tonne CO2e) and the EU ETS allowance price (in EU€ per tonne CO2e). The
