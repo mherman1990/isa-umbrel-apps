@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.37.5 — Sources page: series-only market feeds show health from their series refresh, not item coverage
+
+_The `/sources` dot and count read `runs.last_success_at` / `seen_items`, both item-based, so every series-only markets adapter (comexstat, fas_export_sales, river_stage, cpc_outlook, banyan_rin, carbon_prices, eu_ets) showed a permanent 🟠 "waiting for first successful run" / 0 all-time even while its series refreshed fine. Now the dot reflects the last successful `fetchSeries`. Auto-tagged `v1.37.5` by `auto-release.yml`._
+
+### Added
+
+- **`market_runs` table + `setMarketRunSuccess` / `getMarketRuns`** (`src/store.js`) — records the last
+  successful series refresh per adapter (timestamp + series count). **Deliberately SEPARATE from `runs`**:
+  `runs.last_success_at` doubles as the item-fetch watermark (`getSince` reads it to resume fetching), so
+  writing a series refresh there would advance a dual adapter's (fred/eia/nass/ams) item cursor and
+  silently skip items. `test/market-runs.test.js` locks that safety property.
+
+### Changed
+
+- **`src/pipeline.js`** — `refreshMarketSeries` calls `setMarketRunSuccess(adapter.id, n)` when an adapter
+  returns ≥1 series.
+- **`src/server.js`** — the `/sources` status dot now uses the more recent of the item run and the market
+  run, so a series-only markets source reads 🟢 when its series refresh recently (🟠 only when actually
+  overdue, ⚪ when off). Its "fetched" column shows the series count instead of "0 all-time". Item-fetching
+  and gated/INERT sources are unchanged (a keyed-off feed still reads 🟠 "waiting" until it produces data).
+
+### Notes
+
+- Status-display only — no data path changed. Series freshness/staleness detail still lives in the Data
+  health panel. Update only — no new keys.
+
 ## 1.37.4 — EU ETS from a real feed (CBAM/EC), LCFS confirmed on the Pi
 
 _The Pi probe (`scripts/probe-carbon-prices.mjs`) confirmed LCFS (CA/OR) parses perfectly from the EcoEngineers email, but the EU ETS number there is an EMBER **chart image** — the plain text is "EU€ per Metric Ton of CO2e (EU ETS Allowance) Source: EMBER (<link>)" with no value. So EU ETS can't come from the email. This adds a dedicated `eu_ets` adapter sourcing the European Commission's official CBAM certificate price (via the free, no-key CBAM Guide API), and removes the non-functional email-based EU-ETS parse. Auto-tagged `v1.37.4` by `auto-release.yml`._

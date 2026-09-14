@@ -706,6 +706,9 @@ function sparkline(series) {
 // ---------- dashboard sections ----------
 function sourcesSection(watchlist, openId) {
   const stats = store.getSourceStats(7);
+  // Last successful SERIES refresh per adapter (separate from item runs) — lets a series-only markets
+  // source read as healthy from its fetchSeries rather than a permanent 🟠 "waiting" (it has no items).
+  const marketRuns = store.getMarketRuns();
   // All-time fetched/relevant per source — the "value ledger" is cumulative, not just the last week.
   const allTime = {};
   for (const r of store.getAuditData().sourceCounts) allTime[r.source_id] = { total: r.total, relevant: r.relevant ?? 0 };
@@ -723,17 +726,25 @@ function sourcesSection(watchlist, openId) {
     const cfg = watchlist?.sources?.[adapter.id];
     const s = stats[adapter.id] ?? { seen: 0, relevant: 0, lastSuccess: null };
     const at = allTime[adapter.id] ?? { total: 0, relevant: 0 };
+    const mr = marketRuns[adapter.id] ?? null;
     const enabled = !(cfg && cfg.enabled === false);
+    // Effective "last successful run" = the more recent of an item fetch and a market-series refresh, so
+    // a series-only markets adapter reads as healthy from its fetchSeries (it never records an item run).
+    const successMs = Math.max(
+      s.lastSuccess ? new Date(s.lastSuccess).getTime() : 0,
+      mr?.lastSuccess ? new Date(mr.lastSuccess).getTime() : 0
+    );
+    const lastSuccess = successMs ? new Date(successMs).toISOString() : null;
     let dot, status;
     if (!enabled) {
       dot = "⚪";
       status = "turned off";
-    } else if (s.lastSuccess && Date.now() - new Date(s.lastSuccess).getTime() < 36 * 60 * 60 * 1000) {
+    } else if (lastSuccess && Date.now() - successMs < 36 * 60 * 60 * 1000) {
       dot = "🟢";
-      status = `checked ${fmtCT(s.lastSuccess)}`;
-    } else if (s.lastSuccess) {
+      status = `checked ${fmtCT(lastSuccess)}`;
+    } else if (lastSuccess) {
       dot = "🟠";
-      status = `last success ${fmtCT(s.lastSuccess)} — check the logs`;
+      status = `last success ${fmtCT(lastSuccess)} — check the logs`;
     } else {
       dot = "🟠";
       status = "waiting for first successful run";
@@ -751,7 +762,10 @@ function sourcesSection(watchlist, openId) {
     } else {
       value = `<span class="muted">coverage feed<br>(not triaged)</span>`;
     }
-    const fetched = `${s.seen}<br><span class="muted">${at.total} all-time</span>`;
+    // Series-only markets adapters have no items to count — show how many series they maintain instead.
+    const fetched = at.total === 0 && mr?.seriesCount
+      ? `${mr.seriesCount}<br><span class="muted">series</span>`
+      : `${s.seen}<br><span class="muted">${at.total} all-time</span>`;
     return `<tr><td>${dot}</td><td><strong>${esc(adapter.label)}</strong><br><span class="muted">${esc(status)}</span></td>
       <td>${fetched}</td><td>${value}</td><td>${toggle}</td></tr>`;
   };
