@@ -7,7 +7,19 @@ services:
   data_permissions:
     image: ghcr.io/mherman1990/granary@sha256:aefdd5563ef2a46453dce338cfbc8e69f601d116361a03f7adc6891eb6c18086
     user: "0:0"
-    command: ["chown", "-R", "1000:1000", "/data"]
+    # Non-recursive, deliberately. This container drops every capability except CHOWN, so it holds no
+    # DAC_OVERRIDE and cannot read or traverse a directory it does not own. `scripts/backup.ts`
+    # creates /data/backups as 0700 owned by uid 1000, so a recursive chown died on the first backup
+    # directory it met, exited 1, and left `web` stuck in Created forever through the
+    # service_completed_successfully dependency below — the app hung at 1% for anyone who took a
+    # backup and then updated.
+    #
+    # Only the volume root can arrive root-owned, and only on first install; everything beneath it is
+    # written by the app as uid 1000 already. Chowning the root alone is therefore sufficient, and it
+    # keeps both the 0700 backup directory and the dropped capability rather than trading one for the
+    # other. Adding DAC_OVERRIDE would have fixed the symptom by giving this container the ability to
+    # read every file in the volume, which is the opposite of what it is for.
+    command: ["chown", "1000:1000", "/data"]
     restart: "no"
     read_only: true
     volumes:
