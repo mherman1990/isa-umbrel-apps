@@ -1,5 +1,41 @@
 # Changelog
 
+## 1.37.4 — EU ETS from a real feed (CBAM/EC), LCFS confirmed on the Pi
+
+_The Pi probe (`scripts/probe-carbon-prices.mjs`) confirmed LCFS (CA/OR) parses perfectly from the EcoEngineers email, but the EU ETS number there is an EMBER **chart image** — the plain text is "EU€ per Metric Ton of CO2e (EU ETS Allowance) Source: EMBER (<link>)" with no value. So EU ETS can't come from the email. This adds a dedicated `eu_ets` adapter sourcing the European Commission's official CBAM certificate price (via the free, no-key CBAM Guide API), and removes the non-functional email-based EU-ETS parse. Auto-tagged `v1.37.4` by `auto-release.yml`._
+
+### Added
+
+- **`src/adapters/eu_ets.js`** — EU ETS carbon price from `https://cbamguide.com/api/cbam-price` (keyless
+  HTTP, "markets"-class, always refreshes). Emits `euets:cbam-cert` — the EC's official CBAM certificate
+  price (quarterly weighted average of EU ETS auction clearing prices, weekly from 2027; Reg (EU) 2023/956
+  Art. 22), backfilled from the API's history — and `euets:daily` (the daily EUA reference) **only when the
+  upstream flags it fresh** (`ets.stale === false`), so a frozen value is never stored as today's. Fetch
+  errors propagate so `refreshMarketSeries` records the layer unavailable. Both `€/t CO2e`, `carbon_prices`.
+  Registered in `src/adapters/index.js` + `src/eventkey.js` (enforced in sync by `test/newsrank.test.js`).
+- **`scripts/probe-eu-ets.mjs`** — keyless reachability + parse check for the CBAM Guide feed on the Pi.
+
+### Changed / Fixed
+
+- **`src/adapters/carbon_prices.js`** — now LCFS-only. Removed the `parseEuEts` / `euets:allowance` code
+  that could never populate (the email carries EU ETS only as an image). LCFS capture (CA/OR family) is
+  unchanged and Pi-confirmed. `scripts/probe-carbon-prices.mjs` still dumps the raw EU-ETS region to show
+  it is an image.
+
+### Tests
+
+- **`test/eu_ets.test.js`** — `parseCbamPrice` (certificate backfill + dedup, stale-guarded daily,
+  fail-soft) and a stubbed-fetch `fetchSeries` locking the `euets:*` keys/meta. `test/carbon_prices.test.js`
+  trimmed to LCFS-only. Full suite: 386 pass.
+
+### Notes
+
+- Source/attribution: **CBAM Guide (cbamguide.com)**; underlying data **European Commission**. If the brief
+  is ever published externally, surface that attribution wherever the EU-ETS number appears.
+- The daily EUA reference is upstream-stale as of 2026-09; `euets:cbam-cert` (official, quarterly) is the
+  reliable series, and `euets:daily` fills in automatically if the upstream daily feed goes live.
+- Still open: Census HS trade (needs `CENSUS_API_KEY`); voluntary-market offset prices (image in the email).
+
 ## 1.37.3 — Track LCFS/CFP + EU ETS carbon prices from the same EcoEngineers email
 
 _The EcoEngineers "Carbon Markets Snapshot" carries three price blocks; `banyan_rin` mines the RIN block, and this adds the other two. A new `carbon_prices` adapter reads the same inbox for the state LCFS/CFP credit prices ("US$ per Metric Ton of CO2e (State LCFS Programs)" → Oregon CFP + California LCFS) and the EU ETS allowance ("EU€ per Metric Ton of CO2e (EU ETS Allowance)"). Auto-tagged `v1.37.3` by `auto-release.yml`._

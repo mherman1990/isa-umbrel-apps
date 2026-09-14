@@ -1,28 +1,30 @@
-// carbon_prices.js — daily compliance-carbon prices (LCFS/CFP + EU ETS), mined from the same EcoEngineers
-// "Carbon Markets Snapshot" email that lands in the collector inbox (beanbrief@gmail.com).
+// carbon_prices.js — daily state LCFS/CFP credit prices, mined from the same EcoEngineers "Carbon Markets
+// Snapshot" email that lands in the collector inbox (beanbrief@gmail.com).
 //
-// WHY EMAIL. Same reason as banyan_rin: there is no free daily feed for these prices, but they arrive in
-// the inbox every trading day in the EcoEngineers Carbon Markets Snapshot (RIN/LCFS data is Banyan
-// Commodity Group's). banyan_rin already mines the RIN (RFS) block of that email; this adapter mines the
-// TWO OTHER carbon-price blocks in the same snapshot:
-//   - State LCFS programs — the California LCFS and Oregon CFP credit prices (US$ per tonne CO2e). LCFS
-//     credit value is the demand pull on low-CI fuels; it sits alongside the 45Z/RIN story for soy oil.
-//   - EU ETS — the EU carbon allowance price (EU€ per tonne CO2e), the global carbon-price benchmark.
+// WHY EMAIL. Same reason as banyan_rin: there is no free daily feed for LCFS credit prices, but they arrive
+// in the inbox every trading day in the EcoEngineers Carbon Markets Snapshot (RIN/LCFS data is Banyan
+// Commodity Group's). banyan_rin mines the RIN (RFS) block of that email; this adapter mines the
+// State LCFS Programs block:
+//   - California LCFS and Oregon CFP credit prices (US$ per tonne CO2e). LCFS credit value is the demand
+//     pull on low-CI fuels; it sits alongside the 45Z/RIN story for soy oil.
+//
+// WHY NOT EU ETS HERE. The snapshot shows an EU ETS number too, but ONLY as an EMBER chart image —
+// confirmed via scripts/probe-carbon-prices.mjs on the Pi (2026-09-14), the plain text reads
+// "EU€ per Metric Ton of CO2e (EU ETS Allowance) Source: EMBER (<link>)" with no value. So EU ETS cannot be
+// parsed from the email; it comes from a real feed instead — see src/adapters/eu_ets.js (CBAM Guide API).
 //
 // WHY A SEPARATE ADAPTER (not folded into banyan_rin). banyan_rin is specifically the RFS RIN D-code
 // credits; keeping this separate keeps each parser single-purpose and leaves the freshly-validated RIN
 // capture untouched. The cost is a second IMAP read of the same inbox on each market refresh — negligible
 // (a handful of messages, once per refresh, off the hot path). Both share emailBodyToText and snapshotDate.
 //
-// WHAT WE CAPTURE. Confirmed layout (EcoEngineers snapshot, RIN block verified 2026-09-13 via
-// scripts/probe-rin-email.mjs; LCFS/EU-ETS re-confirmed via scripts/probe-carbon-prices.mjs):
+// WHAT WE CAPTURE. Confirmed layout (EcoEngineers snapshot, via scripts/probe-carbon-prices.mjs, 2026-09-14):
 //   "US$ per Metric Ton of CO2e (State LCFS Programs)
 //      Oregon Clean Fuels Program (CFP) Credit $122.00
-//      California Low Carbon Fuel Standard (LCFS) Credit $84.50
-//    EU€ per Metric Ton of CO2e (EU ETS Allowance) … Source: EMBER"
+//      California Low Carbon Fuel Standard (LCFS) Credit $84.50"
 // LCFS programs are captured as a §1.3 family (lcfs:by-program:<STATE>) so CA/OR (and WA if it appears)
-// render as one cross-section line. EU ETS is a single series. Keyed by the snapshot's own date so the
-// dataset builds forward, one point per program per day.
+// render as one cross-section line. Keyed by the snapshot's own date so the dataset builds forward, one
+// point per program per day.
 //
 // Requires the same Gmail App Password as email_intake / banyan_rin (EMAIL_INTAKE_PASS); INERT (returns [])
 // without it.
@@ -52,24 +54,20 @@ const LCFS_PROGRAMS = [
 ];
 
 /**
- * Parse the LCFS + EU-ETS prices out of the snapshot's plain text. Pure; returns
- *   { lcfs: [{ token:"CA", label, value:84.5 }, …], euets: 60.43 | null }
- * Empty/null when a block is absent (fail-soft), so a non-snapshot email (e.g. a webinar invite) yields
- * { lcfs: [], euets: null } and is skipped by fetchSeries.
+ * Parse the LCFS prices out of the snapshot's plain text. Pure; returns
+ *   { lcfs: [{ token:"CA", label, value:84.5 }, …] }
+ * Empty when the block is absent (fail-soft), so a non-snapshot email (e.g. a webinar invite) yields
+ * { lcfs: [] } and is skipped by fetchSeries.
  *
- * LCFS: each program line is "<State> … Credit $<price>". We require the literal "Credit" between the
- * state name and the dollar amount so a stray dollar figure elsewhere can never be mistaken for a credit
- * price, and we scope the scan to the "State LCFS Programs" section so a "California" mentioned elsewhere
- * cannot leak in.
+ * Each program line is "<State> … Credit $<price>". We require the literal "Credit" between the state name
+ * and the dollar amount so a stray dollar figure elsewhere can never be mistaken for a credit price, and we
+ * scope the scan to the "State LCFS Programs" section so a "California" mentioned elsewhere cannot leak in.
  *
- * EU-ETS: a single "EU€ per Metric Ton of CO2e (EU ETS Allowance)" value. Its exact position relative to
- * the "Source: EMBER" attribution is taken defensively — the first plausible decimal price (€ optional,
- * bounded to a sane allowance range) in a short window after the anchor. If none is found the value is
- * null (fail-soft) and scripts/probe-carbon-prices.mjs dumps the raw region so the pattern can be tuned.
+ * (EU ETS is NOT parsed here — the email carries it only as an image; it comes from src/adapters/eu_ets.js.)
  */
 export function parseCarbonPrices(text) {
   const s = String(text || "").replace(/\s+/g, " ");
-  return { lcfs: parseLcfs(s), euets: parseEuEts(s) };
+  return { lcfs: parseLcfs(s) };
 }
 
 function parseLcfs(s) {
@@ -97,27 +95,9 @@ function parseLcfs(s) {
   return out;
 }
 
-function parseEuEts(s) {
-  const m = /EU ETS Allowance/i.exec(s);
-  if (!m) return null;
-  // Look only in a short window right after the anchor, and never past the next block header.
-  let win = s.slice(m.index + m[0].length, m.index + m[0].length + 160);
-  const stop = win.search(/US\$ per|Daily Full|Voluntary Market|per Metric Ton of CO2e/i);
-  if (stop >= 0) win = win.slice(0, stop);
-  // First plausible allowance price: € or EUR optional, decimal required (so "CO2e", a bare year, or an
-  // integer can't match), bounded to a sane €/t range. Accept a European comma decimal, normalized to a dot.
-  const priceRe = /(?:€|EUR)?\s*([0-9]{1,3}[.,][0-9]{1,2})/g;
-  let p;
-  while ((p = priceRe.exec(win)) !== null) {
-    const value = Number(p[1].replace(",", "."));
-    if (Number.isFinite(value) && value >= 5 && value <= 500) return value;
-  }
-  return null;
-}
-
 /**
- * Map one snapshot's parsed prices to store-ready series rows. Pure; exported for unit tests so the
- * §1.3 family key shape (lcfs:by-program:<STATE>) and the EU-ETS series are locked without needing IMAP.
+ * Map one snapshot's parsed LCFS prices to store-ready series rows. Pure; exported for unit tests so the
+ * §1.3 family key shape (lcfs:by-program:<STATE>) is locked without needing IMAP.
  */
 export function toSeriesRows(parsed, period) {
   const rows = [];
@@ -129,20 +109,12 @@ export function toSeriesRows(parsed, period) {
       value,
     });
   }
-  if (parsed.euets != null) {
-    rows.push({
-      series: "euets:allowance",
-      meta: { label: "EU ETS allowance", unit: "€/t CO2e", category: "carbon_prices" },
-      period,
-      value: parsed.euets,
-    });
-  }
   return rows;
 }
 
 function haveHistory() {
   try {
-    for (const k of ["lcfs:by-program:CA", "lcfs:by-program:OR", "euets:allowance"]) {
+    for (const k of ["lcfs:by-program:CA", "lcfs:by-program:OR"]) {
       if (store.getSeries(k).length >= BACKFILL_THRESHOLD_POINTS) return true;
     }
   } catch { /* no store yet → treat as un-backfilled */ }
@@ -204,4 +176,4 @@ export async function fetchSeries({ env = process.env, sourceConfig = {} } = {})
   return out;
 }
 
-export const __test = { parseCarbonPrices, parseLcfs, parseEuEts, toSeriesRows };
+export const __test = { parseCarbonPrices, parseLcfs, toSeriesRows };
