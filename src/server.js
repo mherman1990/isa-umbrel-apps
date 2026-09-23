@@ -123,7 +123,7 @@ let _seriesLinkCache = { at: 0, map: [] };
 const CHARTED_CATEGORIES = new Set([
   "biofuel_feedstock", "soy_price", "soy_corn_ratio", "soy_crush", "soy_balance_stu",
   "soy_condition", "veg_condition", "soil_moisture", "drought", "soy_exports", "barge_freight", "positioning",
-  "soy_futures", "soy_crush_margin", "soy_basis",
+  "soy_futures", "soy_crush_margin", "soy_basis", "soy_crush_share",
 ]);
 function seriesLinkMap() {
   if (Date.now() - _seriesLinkCache.at < 120000) return _seriesLinkCache.map; // cheap memo — metas rarely change
@@ -2222,6 +2222,8 @@ function signalsBoard() {
       let sp = null;
       if (map?.series) { try { sp = store.seriesSpark(map.series, 24); } catch { sp = null; } }
       const snap = sp ? store.marketSnapshot().find((x) => x.series === map.series) : null;
+      // A derived signal (no stored series) brings its own trail and back rows.
+      if (!sp && s.spark?.points?.length > 1) sp = s.spark;
       const f = factorOf.get(s.id);
       const rows = [];
       if (snap) {
@@ -2232,6 +2234,8 @@ function signalsBoard() {
           rows.push(`<div class="sb-row"><span>Trend</span><strong>${t}${snap.changeZ != null ? ` · last move ${snap.changeZ >= 0 ? "+" : ""}${snap.changeZ.toFixed(1)}σ` : ""}</strong></div>`);
         }
         if (sp.p10 != null) rows.push(`<div class="sb-row"><span>Normal range</span><strong>${esc(num(sp.p10))}–${esc(num(sp.p90))}</strong></div>`);
+      } else if (s.backRows) {
+        for (const [k, v] of s.backRows) rows.push(`<div class="sb-row"><span>${esc(k)}</span><strong>${esc(v)}</strong></div>`);
       }
       const back = `<div class="sig-back">
         <div class="sb-title">${esc(s.name)}</div>

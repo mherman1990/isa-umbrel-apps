@@ -344,4 +344,111 @@ export function productShareSeries() {
   return out;
 }
 
-export const __test = { daysInMonth, capacityAt, utilizationSeries, crushUtilization, marginPercentile, capacityStaleness, oilSharePoints };
+// --- Oil-share signal ----------------------------------------------------------------------------
+// The share on its own is a COMPOSITION read, and the same move means opposite things depending on
+// which leg caused it: oil share rising because oil value climbed is the renewable-diesel pull carrying
+// the crush (supportive of bean demand), but oil share rising because meal value collapsed is a meal
+// glut (bearish). So direction comes from the leg that DROVE the month's move — whichever product
+// value changed more, in percent — not from the share's level or sign. The level (percentile) rides in
+// the detail as the policy-exposure read: the higher it is, the more crush economics hang on RVO/45Z.
+// Scored from the daily BOARD legs (5y of settles); Iowa cash is weekly and too short to rank.
+const SHARE_WINDOW_DAYS = 30; // compare to ~one month back
+const SHARE_MOVE_PTS = 1.5; // share move (pts) below which the composition reads as steady
+const SHARE_FRESH_DAYS = 10; // a board point older than this is a dead feed, not a quiet market
+
+/**
+ * Pure scorer over date-aligned board legs. `now` injectable for tests.
+ * @returns {{share, prevShare, change, pctile, oilChgPct, mealChgPct, driver, direction, latest, prev, trail, count, firstPeriod, p10, p90}|null}
+ */
+function scoreOilShare(mealPts, oilPts, now = new Date()) {
+  const oil = new Map(oilPts.map((p) => [p.period, p.value]));
+  const rows = [];
+  for (const m of mealPts) {
+    const o = oil.get(m.period);
+    if (o == null || !(o > 0) || !(m.value > 0)) continue;
+    const oilVal = (o / 100) * SHARE_OIL_LB_PER_BU;
+    const mealVal = m.value * SHARE_MEAL_TON_PER_BU;
+    rows.push({ period: m.period, oilVal, mealVal, share: (oilVal / (oilVal + mealVal)) * 100 });
+  }
+  rows.sort((a, b) => (a.period < b.period ? -1 : 1));
+  if (rows.length < 60) return null; // too little history to rank or to have a month-back point
+  const latest = rows[rows.length - 1];
+  const latestMs = Date.parse(`${latest.period}T00:00:00Z`);
+  if (now.getTime() - latestMs > SHARE_FRESH_DAYS * 864e5) return null;
+  const cutoff = new Date(latestMs - SHARE_WINDOW_DAYS * 864e5).toISOString().slice(0, 10);
+  let prev = null;
+  for (const r of rows) {
+    if (r.period > cutoff) break;
+    prev = r;
+  }
+  if (!prev) return null;
+  const change = latest.share - prev.share;
+  const oilChgPct = ((latest.oilVal - prev.oilVal) / prev.oilVal) * 100;
+  const mealChgPct = ((latest.mealVal - prev.mealVal) / prev.mealVal) * 100;
+  const driver = Math.abs(oilChgPct) >= Math.abs(mealChgPct) ? "oil" : "meal";
+  const driverChg = driver === "oil" ? oilChgPct : mealChgPct;
+  const direction = Math.abs(change) < SHARE_MOVE_PTS ? "neutral" : driverChg > 0 ? "bullish" : "bearish";
+  const shares = rows.map((r) => r.share);
+  const sorted = [...shares].sort((a, b) => a - b);
+  const q = (f) => {
+    const pos = (sorted.length - 1) * f, base = Math.floor(pos), rest = pos - base;
+    return sorted[base + 1] !== undefined ? sorted[base] + rest * (sorted[base + 1] - sorted[base]) : sorted[base];
+  };
+  const pctile = Math.round((shares.filter((v) => v <= latest.share).length / shares.length) * 100);
+  const r2 = (v) => Math.round(v * 100) / 100;
+  return {
+    share: latest.share, prevShare: prev.share, change, pctile, oilChgPct, mealChgPct, driver, direction,
+    latest: latest.period, prev: prev.period,
+    trail: rows.slice(-24 * 5).filter((_, i, a) => (a.length - 1 - i) % 5 === 0).map((r) => ({ period: r.period, value: r2(r.share) })), // ~weekly, last ~6 months
+    count: rows.length, firstPeriod: rows[0].period, p10: q(0.1), p90: q(0.9),
+  };
+}
+
+/** Signal-board scorer for the oil share of crush value. Shape matches the other scorers. */
+export function oilShareSignal() {
+  let s;
+  try {
+    s = scoreOilShare(store.getSeries("cbot:zm:front"), store.getSeries("cbot:zl:front"));
+  } catch {
+    return null;
+  }
+  if (!s) return null;
+  const ord = (n) => { const x = ["th", "st", "nd", "rd"], v = n % 100; return `${n}${x[(v - 20) % 10] || x[v] || x[0]}`; };
+  const sg = (v, d = 1) => `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(d)}`;
+  const move = `${s.change >= 0 ? "▲" : "▼"}${Math.abs(s.change).toFixed(1)}pts since ${s.prev}`;
+  const legs = `oil value ${sg(s.oilChgPct)}%/bu vs. meal ${sg(s.mealChgPct)}%/bu`;
+  const read =
+    s.direction === "neutral"
+      ? "Crush composition roughly steady over the month."
+      : s.driver === "oil"
+        ? s.oilChgPct > 0
+          ? "Oil strength is driving the move — the renewable-diesel pull carrying the crush, which supports domestic bean demand."
+          : "Oil weakness is driving the move — the biofuel leg of the margin is softening, which erodes the crush pull on beans."
+        : s.mealChgPct > 0
+          ? "Meal strength is driving the move — feed/export demand for meal firming, which supports the crush."
+          : "Meal weakness is driving the move — a meal glut, not oil strength, so the higher oil share is not a demand signal.";
+  const exposure =
+    s.pctile >= 80
+      ? ` At the ${ord(s.pctile)} percentile of its range, crush economics lean unusually hard on the policy-driven oil leg (RVO/45Z) — that is where the margin's risk sits.`
+      : s.pctile <= 20
+        ? ` At the ${ord(s.pctile)} percentile of its range, meal is carrying an unusually large share of crush value.`
+        : "";
+  return {
+    id: "oil_share",
+    name: "Oil Share of Crush",
+    direction: s.direction,
+    value: Math.round(s.share * 100) / 100,
+    label: `${s.share.toFixed(1)}% oil (${sg(s.change)}pts)`,
+    detail: `Soybean oil is ${s.share.toFixed(1)}% of board crush product value (${s.latest}), ${move}, driven by ${s.driver} (${legs}). ${read}${exposure}`,
+    // The share is derived at read time (no stored series), so the card back gets its trail + rows here.
+    spark: { label: "Board oil share of crush value", unit: "%", points: s.trail, count: s.count, firstPeriod: s.firstPeriod, p10: s.p10, p90: s.p90 },
+    backRows: [
+      ["Now", `${s.share.toFixed(1)}% · ${ord(s.pctile)} pctile`],
+      ["1-month move", `${sg(s.change)}pts`],
+      ["Driver", `${s.driver} (${sg(s.driver === "oil" ? s.oilChgPct : s.mealChgPct)}%/bu)`],
+      ["Normal range", `${s.p10.toFixed(1)}–${s.p90.toFixed(1)}%`],
+    ],
+  };
+}
+
+export const __test = { daysInMonth, capacityAt, utilizationSeries, crushUtilization, marginPercentile, capacityStaleness, oilSharePoints, scoreOilShare };

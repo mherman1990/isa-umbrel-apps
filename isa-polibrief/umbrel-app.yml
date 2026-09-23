@@ -31,7 +31,9 @@ releaseNotes: >-
   NEW MARKETS CHART: HOW MUCH OF THE CRUSH IS OIL VS. MEAL. The Markets tab now charts soybean oil's and
   meal's share of the value from a crushed bushel over time (the industry "oil share"), for both the CBOT
   board and Iowa cash prices. A rising oil share is the renewable-diesel pull showing up in the crush.
-  It sits right under the crush-margin chart, has full history immediately, and exports to CSV. Update
+  It sits right under the crush-margin chart, has full history immediately, and exports to CSV. A new
+  "Oil Share of Crush" card on the signal board reads WHICH product is moving the crush: oil strength
+  driving the share up reads bullish, meal weakness driving it up reads bearish. Update
   only — no new keys, and no change to how briefs are made or what they cost.
   ---
   PREVIOUS RELEASE (1.37.5) — MARKET-DATA FEEDS NO LONGER FALSELY SHOW "NEEDS ATTENTION" ON THE SOURCES PAGE. The Sources page scored

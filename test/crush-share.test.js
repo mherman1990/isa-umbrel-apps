@@ -69,3 +69,55 @@ test("productShareSeries: board + Iowa cash oil/meal pairs that sum to 100", () 
   }
   assert.equal(s[0].points.at(-1).value, 54.76);
 });
+
+// --- the oil-share signal: direction follows the leg that DROVE the move ---------------------------
+const { scoreOilShare } = __test;
+const NOW = new Date("2026-09-22T12:00:00Z");
+// 90 daily points ending 2026-09-22; the last 30 days apply `oilEnd` / `mealEnd` as linear ramps.
+function legs({ oil0 = 50, meal0 = 330, oilEnd = oil0, mealEnd = meal0, days = 90 } = {}) {
+  const meal = [], oil = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const period = new Date(NOW.getTime() - i * 864e5).toISOString().slice(0, 10);
+    const t = i >= 30 ? 0 : (30 - i) / 30;
+    oil.push({ period, value: oil0 + (oilEnd - oil0) * t });
+    meal.push({ period, value: meal0 + (mealEnd - meal0) * t });
+  }
+  return { meal, oil };
+}
+
+test("oil-share signal: share up on OIL strength → bullish, driver oil", () => {
+  const { meal, oil } = legs({ oilEnd: 58 });
+  const s = scoreOilShare(meal, oil, NOW);
+  assert.equal(s.driver, "oil");
+  assert.ok(s.change >= 1.5, `change ${s.change}`);
+  assert.equal(s.direction, "bullish");
+});
+
+test("oil-share signal: share up because MEAL collapsed → bearish (meal glut, not oil pull)", () => {
+  const { meal, oil } = legs({ mealEnd: 280 });
+  const s = scoreOilShare(meal, oil, NOW);
+  assert.ok(s.change >= 1.5, `change ${s.change}`);
+  assert.equal(s.driver, "meal");
+  assert.equal(s.direction, "bearish");
+});
+
+test("oil-share signal: share down on OIL weakness → bearish; on MEAL strength → bullish", () => {
+  const a = legs({ oilEnd: 43 });
+  assert.equal(scoreOilShare(a.meal, a.oil, NOW).direction, "bearish");
+  const b = legs({ mealEnd: 390 });
+  const sb = scoreOilShare(b.meal, b.oil, NOW);
+  assert.equal(sb.driver, "meal");
+  assert.equal(sb.direction, "bullish");
+});
+
+test("oil-share signal: a small composition move reads neutral", () => {
+  const { meal, oil } = legs({ oilEnd: 50.5 });
+  assert.equal(scoreOilShare(meal, oil, NOW).direction, "neutral");
+});
+
+test("oil-share signal: stale or thin board history → null (kept off the board)", () => {
+  const { meal, oil } = legs();
+  assert.equal(scoreOilShare(meal, oil, new Date("2026-10-15T00:00:00Z")), null);
+  const thin = legs({ days: 40 });
+  assert.equal(scoreOilShare(thin.meal, thin.oil, NOW), null);
+});

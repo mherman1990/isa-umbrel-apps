@@ -1,8 +1,8 @@
 # Changelog
 
-## 1.38.0 — Markets: crush value share chart (oil vs. meal)
+## 1.38.0 — Markets: oil vs. meal crush value share — chart + signal-board card
 
-_A new Markets chart tracks oil's and meal's share of the product value from a crushed bushel over time — the industry "oil share" — for both the CBOT board and Iowa cash. Auto-tagged `v1.38.0` by `auto-release.yml`._
+_A new Markets chart tracks oil's and meal's share of the product value from a crushed bushel over time — the industry "oil share" — for both the CBOT board and Iowa cash, and an **Oil Share of Crush** card joins the signal board. Auto-tagged `v1.38.0` by `auto-release.yml`._
 
 ### Added
 
@@ -15,16 +15,30 @@ _A new Markets chart tracks oil's and meal's share of the product value from a c
 - **"Crush value share — oil vs. meal" chart** on `/markets` (`#chart_soy_crush_share`), directly under the
   crush-margin chart, with a working `⬇ CSV` export. `test/crush-share.test.js` locks the arithmetic,
   date alignment, and series pairing.
+- **`oil_share` signal — "Oil Share of Crush"** (`oilShareSignal()` in `src/crush.js`). Scored from the
+  daily board legs. **Direction follows the leg that DROVE the 1-month move**, not the share's sign:
+  share up on oil strength → bullish (renewable-diesel pull carrying the crush); share up because meal
+  fell → bearish (meal glut, not a demand signal); share down on oil weakness → bearish; on meal strength
+  → bullish. A move under 1.5pts reads neutral. The share's percentile rides in the detail as the
+  policy-exposure read (≥80th: the margin leans on RVO/45Z). Off the board when the board legs are
+  >10 days stale or have <60 points.
 
 ### Changed
 
+- **`src/signals.js`** — `oil_share` joins `crush_utilization` in the **Domestic crush demand** factor
+  (weight unchanged at 0.9, members averaged) — cause-side and effect-side reads on one variable, so it
+  can't double-count into the tilt. Added to `SIGNAL_SERIES` (so the Analyst/Ask prompts see what it's
+  scored from) and `SIGNAL_CHART` (card links to the new chart).
+- **`src/server.js`** — a signal with no stored series can now carry its own `spark` + `backRows`, so the
+  derived oil-share card gets a real trend back. `soy_crush_share` added to `CHARTED_CATEGORIES`.
 - **`src/server.js`** — `chartSection` and `/markets/csv` resolve a small `DERIVED_CATEGORIES` table first,
   so a chart can be computed at read time from stored legs without persisting a second copy.
 
 ### Notes
 
 - Derived at read time from series already stored and backfilled, so the chart has full history
-  immediately — no refresh or new keys needed. Not wired into the signal board or Ask/Analyst prompts.
+  immediately — no refresh or new keys needed. The new card can flip the headline tilt only through the
+  existing Domestic crush demand factor.
 
 ## 1.37.5 — Sources page: series-only market feeds show health from their series refresh, not item coverage
 
