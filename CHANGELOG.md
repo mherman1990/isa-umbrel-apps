@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.38.0 — Markets: crush value share chart (oil vs. meal)
+
+_A new Markets chart tracks oil's and meal's share of the product value from a crushed bushel over time — the industry "oil share" — for both the CBOT board and Iowa cash. Auto-tagged `v1.38.0` by `auto-release.yml`._
+
+### Added
+
+- **`productShareSeries()`** (`src/crush.js`) — oil share = oil value ÷ (oil + meal value) per bushel, at
+  the same Denny workbook yields as both margin series (reuses `CRUSH_YIELDS` from `cbot_futures.js`, so
+  the two can't drift). Meal share is the complement; hulls (~2% of value) are left out of the denominator
+  so the pair sums to 100. Board pairs `cbot:zm:front` + `cbot:zl:front`; Iowa cash pairs `ams:ia:meal` +
+  `ams:ia:oil`. Only dates carrying both legs produce a point. Ties out to the workbook's 2026-07-15 board
+  figures (meal 319.10, oil 72.9¢ → 54.76% oil share).
+- **"Crush value share — oil vs. meal" chart** on `/markets` (`#chart_soy_crush_share`), directly under the
+  crush-margin chart, with a working `⬇ CSV` export. `test/crush-share.test.js` locks the arithmetic,
+  date alignment, and series pairing.
+
+### Changed
+
+- **`src/server.js`** — `chartSection` and `/markets/csv` resolve a small `DERIVED_CATEGORIES` table first,
+  so a chart can be computed at read time from stored legs without persisting a second copy.
+
+### Notes
+
+- Derived at read time from series already stored and backfilled, so the chart has full history
+  immediately — no refresh or new keys needed. Not wired into the signal board or Ask/Analyst prompts.
+
 ## 1.37.5 — Sources page: series-only market feeds show health from their series refresh, not item coverage
 
 _The `/sources` dot and count read `runs.last_success_at` / `seen_items`, both item-based, so every series-only markets adapter (comexstat, fas_export_sales, river_stage, cpc_outlook, banyan_rin, carbon_prices, eu_ets) showed a permanent 🟠 "waiting for first successful run" / 0 all-time even while its series refreshed fine. Now the dot reflects the last successful `fetchSeries`. Auto-tagged `v1.37.5` by `auto-release.yml`._

@@ -23,6 +23,7 @@ import zlib from "node:zlib";
 import * as store from "./store.js";
 import { runPipeline, runMemo, answerQuery, loadWatchlist, saveWatchlist, generateNewsDigest, getCachedNewsDigest, extractMarketIntel, getCachedMarketIntel, generateMarketCards, getCachedMarketCards, generateStorylines, getStorylinesMeta, cachedAgeDays, STALE_PANEL_DAYS } from "./pipeline.js";
 import { computeSignals, SIGNAL_CHART } from "./signals.js";
+import { productShareSeries } from "./crush.js";
 import { groupByEvent, pickLead } from "./eventkey.js";
 import { upcomingReports, upcomingPolicyEvents } from "./calendar.js";
 import { adapters, sourceIdsForClass, classOf } from "./adapters/index.js";
@@ -2125,11 +2126,25 @@ function newsBody(notice) {
 // by uPlot (assets/bbcharts.js) into an interactive line chart with a live hover legend
 // (month + value), real time axes and gridlines. Dependency-light: uPlot is one vendored
 // static file, no build step. The `⬇ CSV` link still exports the exact numbers.
-function chartSection(category, title, desc, height = 300) {
-  const series = store
+// Derived categories (computed at read time from stored legs, no series meta of their own) resolve
+// here — the chart and the CSV export share this table so they can't disagree.
+const DERIVED_CATEGORIES = { soy_crush_share: productShareSeries };
+function categorySeries(category) {
+  const derive = DERIVED_CATEGORIES[category];
+  if (derive) {
+    try {
+      return derive().filter((s) => s.points.length);
+    } catch {
+      return [];
+    }
+  }
+  return store
     .listSeriesMeta(category)
     .map((m) => ({ label: m.label, unit: m.unit, points: store.getSeries(m.series) }))
     .filter((s) => s.points.length);
+}
+function chartSection(category, title, desc, height = 300) {
+  const series = categorySeries(category);
   if (!series.length) return "";
   const unit = series[0].unit || "";
   const id = `chart_${category}`;
@@ -2302,6 +2317,7 @@ function marketsBody(notice) {
     chartSection("biofuel_feedstock", "Biofuel feedstock demand", "Lipid feedstocks used in U.S. biodiesel + renewable diesel — soybean oil vs. the competition (corn oil, canola, used cooking oil, tallow…). Hover for the value + month.", 320),
     chartSection("soy_futures", "CBOT soybeans (daily board)", "Front-month soybean futures settle (¢/bu), daily. The price the whole signal board is actually a read ON — before this feed the newest price the tool could see was a monthly average published weeks late. Front-month continuous, so it carries a small step at each contract roll.", 280),
     chartSection("soy_crush_margin", "Crush margin — board vs. Iowa cash", "What a bushel is worth crushed, minus what it costs ($/bu). BOARD margin is computed from CBOT meal/oil/beans; IOWA CASH uses observed AMS cash quotes. Yields follow the Gordon Denny workbook (meal 0.0221 t/bu, oil 11.71 lb/bu, hulls 0.0018 t/bu). Cash normally reads above board because observed Iowa cash meal and oil run over the synthetic board-plus-basis the workbook assumes. This is the cause side of crush demand — it leads plant utilization.", 280),
+    chartSection("soy_crush_share", "Crush value share — oil vs. meal", "Soybean oil's and meal's share of the product value from a crushed bushel (%), at the same workbook yields as the margin chart (oil 11.71 lb/bu, meal 0.0221 t/bu) — the industry \"oil share\". Meal share is the complement; hulls (~2% of value) are left out so the pair sums to 100. BOARD uses CBOT front-month oil/meal; IOWA CASH uses AMS cash quotes. A rising oil share is the renewable-diesel pull showing up in the crush — it means meal is increasingly the byproduct, and plants run for oil even as meal backs up.", 280),
     chartSection("soy_basis", "Iowa soybean basis — all bids vs. processors", "Cash bid minus futures (¢/bu), nearby month. The processor line is what crush plants themselves are bidding; when it runs above the all-Iowa average, crushers are paying up to pull beans in — a demand read no other series carries. Negative basis is normal.", 260),
     chartSection("soy_price", "Soybean price received", "Iowa daily cash ($/bu, AMS) against the monthly average price received — Iowa vs. U.S.", 260),
     chartSection("soy_corn_ratio", "Soybean:corn price ratio (Iowa)", "Iowa soybean price ÷ corn price — the relative-value read behind acreage decisions. Historically ~2.3–2.5 is the rough pivot between favoring beans and corn.", 240),
@@ -3192,8 +3208,11 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
       if (req.method === "GET" && url.pathname === "/markets/csv") {
         const category = url.searchParams.get("category");
         const series = url.searchParams.get("series");
-        const metas = series ? store.listSeriesMeta().filter((m) => m.series === series) : store.listSeriesMeta(category);
-        const cols = metas.map((m) => ({ label: m.label, points: store.getSeries(m.series) }));
+        const cols = series
+          ? store.listSeriesMeta().filter((m) => m.series === series).map((m) => ({ label: m.label, points: store.getSeries(m.series) }))
+          : category in DERIVED_CATEGORIES
+            ? categorySeries(category)
+            : store.listSeriesMeta(category).map((m) => ({ label: m.label, points: store.getSeries(m.series) }));
         const periods = [...new Set(cols.flatMap((c) => c.points.map((p) => p.period)))].sort();
         const lookup = cols.map((c) => new Map(c.points.map((p) => [p.period, p.value])));
         const csvEsc = (v) => (/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));

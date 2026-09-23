@@ -31,6 +31,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import * as store from "./store.js";
+import { CRUSH_YIELDS } from "./adapters/cbot_futures.js";
 
 const DATA_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "data");
 
@@ -293,4 +294,54 @@ export function crushText() {
   return lines.join("\n");
 }
 
-export const __test = { daysInMonth, capacityAt, utilizationSeries, crushUtilization, marginPercentile, capacityStaleness };
+// --- Oil / meal share of crush product value -------------------------------------------------
+// The industry "oil share": oil's share of the (oil + meal) value a crushed bushel yields, at the same
+// workbook yields as both margin series (cbot_futures.js CRUSH_YIELDS). Meal share is its complement.
+// Hulls are left out of the denominator on purpose — they are ~2% of product value, one leg is a static
+// assumption on the board side, and the conventional ratio is oil vs. meal so the two sum to 100.
+//
+// Derived at read time from the stored product legs rather than stored as its own series: the legs are
+// already persisted (and backfilled), so the share has full history the moment this ships, and there is
+// no second copy to drift from the margin it explains. Only dates carrying BOTH legs produce a point.
+const { MEAL_TON_PER_BU: SHARE_MEAL_TON_PER_BU, OIL_LB_PER_BU: SHARE_OIL_LB_PER_BU } = CRUSH_YIELDS;
+
+/** Pure: [{period, value}] oil share (%) from date-aligned meal ($/ton) and oil (¢/lb) points. */
+function oilSharePoints(mealPts, oilPts) {
+  const oil = new Map(oilPts.map((p) => [p.period, p.value]));
+  const out = [];
+  for (const m of mealPts) {
+    const o = oil.get(m.period);
+    if (o == null || !(o > 0) || !(m.value > 0)) continue;
+    const oilVal = (o / 100) * SHARE_OIL_LB_PER_BU;
+    const mealVal = m.value * SHARE_MEAL_TON_PER_BU;
+    out.push({ period: m.period, value: Math.round((oilVal / (oilVal + mealVal)) * 10000) / 100 });
+  }
+  return out.sort((a, b) => (a.period < b.period ? -1 : 1));
+}
+
+const SHARE_SOURCES = [
+  { key: "board", label: "Board", meal: "cbot:zm:front", oil: "cbot:zl:front" },
+  { key: "cash", label: "Iowa cash", meal: "ams:ia:meal", oil: "ams:ia:oil" },
+];
+
+/**
+ * Oil and meal share of crush product value, board and Iowa cash, for the Markets chart + CSV.
+ * @returns {{label, unit, points}[]} oil/meal pairs per source that has both legs stored; [] if none
+ */
+export function productShareSeries() {
+  const out = [];
+  for (const src of SHARE_SOURCES) {
+    let oil;
+    try {
+      oil = oilSharePoints(store.getSeries(src.meal), store.getSeries(src.oil));
+    } catch {
+      continue;
+    }
+    if (!oil.length) continue;
+    out.push({ label: `${src.label} oil share`, unit: "%", points: oil });
+    out.push({ label: `${src.label} meal share`, unit: "%", points: oil.map((p) => ({ period: p.period, value: Math.round((100 - p.value) * 100) / 100 })) });
+  }
+  return out;
+}
+
+export const __test = { daysInMonth, capacityAt, utilizationSeries, crushUtilization, marginPercentile, capacityStaleness, oilSharePoints };
