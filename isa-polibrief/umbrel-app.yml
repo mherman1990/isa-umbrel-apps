@@ -28,7 +28,13 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  NEW MARKETS CHART: HOW MUCH OF THE CRUSH IS OIL VS. MEAL. The Markets tab now charts soybean oil's and
+  THE ANALYST NOTE NOW READS THE OIL-vs-MEAL SPLIT OF THE CRUSH. Along with the Oil Share signal card, the
+  Analyst Note (and Ask) now get the oil share's 1-, 3- and 12-month trend, Iowa cash vs. the board, and
+  which product drove the latest move — so the note can say how much of the crush, and of the domestic bid
+  for beans, is riding on biofuel policy. Update only — no new keys, and no extra AI cost beyond a few
+  lines of context.
+  ---
+  PREVIOUS RELEASE (1.38.0) — NEW MARKETS CHART: HOW MUCH OF THE CRUSH IS OIL VS. MEAL. The Markets tab now charts soybean oil's and
   meal's share of the value from a crushed bushel over time (the industry "oil share"), for both the CBOT
   board and Iowa cash prices. A rising oil share is the renewable-diesel pull showing up in the crush.
   It sits right under the crush-margin chart, has full history immediately, and exports to CSV. A new

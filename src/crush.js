@@ -280,10 +280,9 @@ const monthName = (m) => MON[(m || 1) - 1];
 /** Narrative for the Analyst / Ask prompts — the crush chain, cause through effect. */
 export function crushText() {
   const s = crushSignal();
-  if (!s) return "";
-  const lines = [`- ${s.name}: ${s.direction.toUpperCase()} — ${s.detail}`];
+  const lines = s ? [`- ${s.name}: ${s.direction.toUpperCase()} — ${s.detail}`] : [];
   const cap = loadCapacity();
-  if (cap) {
+  if (s && cap) {
     const ia = (cap.currentPlants ?? []).filter((p) => p.state === "IA").reduce((a, p) => a + p.buPerDay, 0);
     if (ia) {
       lines.push(
@@ -291,6 +290,10 @@ export function crushText() {
       );
     }
   }
+  // The composition of crush value — the utilization read above says HOW HARD plants run; this says
+  // WHICH product is paying for it, and so how much of bean demand rests on the policy-set oil leg.
+  const share = oilShareText();
+  if (share) lines.push(share);
   return lines.join("\n");
 }
 
@@ -360,7 +363,8 @@ const SHARE_FRESH_DAYS = 10; // a board point older than this is a dead feed, no
  * Pure scorer over date-aligned board legs. `now` injectable for tests.
  * @returns {{share, prevShare, change, pctile, oilChgPct, mealChgPct, driver, direction, latest, prev, trail, count, firstPeriod, p10, p90}|null}
  */
-function scoreOilShare(mealPts, oilPts, now = new Date()) {
+/** Date-aligned per-bushel oil/meal values + oil share (%), oldest first. */
+function shareRows(mealPts, oilPts) {
   const oil = new Map(oilPts.map((p) => [p.period, p.value]));
   const rows = [];
   for (const m of mealPts) {
@@ -370,17 +374,28 @@ function scoreOilShare(mealPts, oilPts, now = new Date()) {
     const mealVal = m.value * SHARE_MEAL_TON_PER_BU;
     rows.push({ period: m.period, oilVal, mealVal, share: (oilVal / (oilVal + mealVal)) * 100 });
   }
-  rows.sort((a, b) => (a.period < b.period ? -1 : 1));
+  return rows.sort((a, b) => (a.period < b.period ? -1 : 1));
+}
+
+/** The last row on or before `daysBack` calendar days before the latest row, or null. */
+function rowDaysBack(rows, daysBack) {
+  const latestMs = Date.parse(`${rows[rows.length - 1].period}T00:00:00Z`);
+  const cutoff = new Date(latestMs - daysBack * 864e5).toISOString().slice(0, 10);
+  let hit = null;
+  for (const r of rows) {
+    if (r.period > cutoff) break;
+    hit = r;
+  }
+  return hit;
+}
+
+function scoreOilShare(mealPts, oilPts, now = new Date()) {
+  const rows = shareRows(mealPts, oilPts);
   if (rows.length < 60) return null; // too little history to rank or to have a month-back point
   const latest = rows[rows.length - 1];
   const latestMs = Date.parse(`${latest.period}T00:00:00Z`);
   if (now.getTime() - latestMs > SHARE_FRESH_DAYS * 864e5) return null;
-  const cutoff = new Date(latestMs - SHARE_WINDOW_DAYS * 864e5).toISOString().slice(0, 10);
-  let prev = null;
-  for (const r of rows) {
-    if (r.period > cutoff) break;
-    prev = r;
-  }
+  const prev = rowDaysBack(rows, SHARE_WINDOW_DAYS);
   if (!prev) return null;
   const change = latest.share - prev.share;
   const oilChgPct = ((latest.oilVal - prev.oilVal) / prev.oilVal) * 100;
@@ -451,4 +466,48 @@ export function oilShareSignal() {
   };
 }
 
-export const __test = { daysInMonth, capacityAt, utilizationSeries, crushUtilization, marginPercentile, capacityStaleness, oilSharePoints, scoreOilShare };
+/**
+ * Oil-share context for the Analyst Note / Ask crush block: level + percentile, the 1/3/12-month
+ * trajectory (the signal card only sees one month), the 1-month driver, Iowa cash vs. board, and how
+ * to read it. Legs injectable for tests; defaults read the store. "" when the board read isn't live.
+ */
+export function oilShareText({ now = new Date(), board, cash } = {}) {
+  const get = (name) => {
+    try {
+      return store.getSeries(name);
+    } catch {
+      return [];
+    }
+  };
+  const b = board ?? { meal: get("cbot:zm:front"), oil: get("cbot:zl:front") };
+  const s = scoreOilShare(b.meal, b.oil, now);
+  if (!s) return "";
+  const rows = shareRows(b.meal, b.oil);
+  const ord = (n) => { const x = ["th", "st", "nd", "rd"], v = n % 100; return `${n}${x[(v - 20) % 10] || x[v] || x[0]}`; };
+  const sg = (v) => `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(1)}`;
+  const moves = [["1M", 30], ["3M", 91], ["12M", 365]]
+    .map(([k, d]) => {
+      const r = rowDaysBack(rows, d);
+      return r ? `${k} ${sg(s.share - r.share)}pts (from ${r.share.toFixed(1)}% on ${r.period})` : null;
+    })
+    .filter(Boolean);
+  const lines = [
+    `- Oil share of crush value (BOARD, oil ÷ (oil+meal) per bu at workbook yields; series: cbot:zl:front vs. cbot:zm:front): ${s.share.toFixed(1)}% on ${s.latest}, ${ord(s.pctile)} percentile of ${s.count} daily points since ${s.firstPeriod} (10th–90th pctile ${s.p10.toFixed(1)}–${s.p90.toFixed(1)}%). Moves: ${moves.join("; ")}. 1-month driver: ${s.driver} (oil value ${sg(s.oilChgPct)}%/bu, meal ${sg(s.mealChgPct)}%/bu).`,
+  ];
+  // Iowa cash (weekly AMS 3511) — the share plants actually face. Only quoted when recent enough to
+  // compare to the board, and against the board point nearest-before it so the gap isn't a date skew.
+  const c = cash ?? { meal: get("ams:ia:meal"), oil: get("ams:ia:oil") };
+  const cRows = shareRows(c.meal, c.oil);
+  const cLast = cRows[cRows.length - 1];
+  if (cLast && now.getTime() - Date.parse(`${cLast.period}T00:00:00Z`) <= 21 * 864e5) {
+    const bAt = rows.filter((r) => r.period <= cLast.period).pop();
+    const gap = bAt ? ` (${sg(cLast.share - bAt.share)}pts vs. board on ${bAt.period})` : "";
+    lines.push(`- Iowa CASH oil share (series: ams:ia:oil vs. ams:ia:meal): ${cLast.share.toFixed(1)}% on ${cLast.period}${gap}.`);
+  }
+  lines.push(
+    "- Reading oil share: it is COMPOSITION, not margin. Rising on oil strength = the renewable-diesel pull carrying the crush; rising because meal fell = a meal glut, not demand. The higher the share, the more of crush value — and so of the domestic bid for beans — rests on the policy-set oil leg (RVO volumes, SREs, 45Z), so size policy risk to it; meal is then the byproduct, and meal export competitiveness the release valve."
+  );
+  return lines.join("\n");
+}
+
+export const __test = { daysInMonth, capacityAt, utilizationSeries, crushUtilization, marginPercentile, capacityStaleness, oilSharePoints, scoreOilShare, shareRows, rowDaysBack };
