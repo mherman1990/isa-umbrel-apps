@@ -1188,7 +1188,7 @@ export async function answerQuery(question, env, source = "ui") {
     `=== MARKET DATA (latest value, change vs prior, recent trail) ===\n${marketBlock || "(no market data stored yet)"}\n\n` +
     (balanceSheetText() ? `=== U.S. SOYBEAN BALANCE SHEET (assembled S&D — terminate a mechanism in "this moves carryout by X" here) ===\n${balanceSheetText()}\n\n` : "") +
     (weatherRiskText() ? `=== CROP-WEATHER READ (anomaly vs. normal → supply/price) ===\n${weatherRiskText()}\n\n` : "") +
-    (crushText() ? `=== CRUSH DEMAND (capacity utilization, cause→effect with margin) ===\n${crushText()}\n\n` : "") +
+    (crushText() ? `=== CRUSH DEMAND (capacity utilization, cause→effect with margin, oil/meal composition) ===\n${crushText()}\n\n` : "") +
     (leadLagText() ? `=== MEASURED LEAD-LAG vs. DAILY PRICE (read the caveats) ===\n${leadLagText()}\n\n` : "") +
     (forecastTrackRecordText() ? `=== THIS TOOL'S OWN TRACK RECORD (past calls, scored) ===\n${forecastTrackRecordText()}\n\n` : "") +
     (surpriseText() ? `=== EXPECTATIONS vs. ACTUALS (surprise is what moves price, not the level) ===\n${surpriseText()}\n\n` : "") +
@@ -1484,7 +1484,7 @@ export async function generateMemo(presetId, env) {
     const trig = triggersText();
     signalsBlock =
       `\n\n=== MARKET SIGNAL BOARD (bull/bear read for soybean price) ===\n${sig || "(no signals computed yet)"}` +
-      `\n\n=== CRUSH DEMAND (capacity utilization, cause→effect with margin) ===\n${crushText() || "(not computable yet)"}` +
+      `\n\n=== CRUSH DEMAND (capacity utilization, cause→effect with margin, oil/meal composition) ===\n${crushText() || "(not computable yet)"}` +
       `\n\n=== MEASURED LEAD-LAG vs. DAILY PRICE (read the caveats) ===\n${leadLagText()}` +
       (forecastTrackRecordText() ? `\n\n=== YOUR OWN TRACK RECORD (past calls from this tool, scored) ===\n${forecastTrackRecordText()}` : "") +
       (surpriseText() ? `\n\n=== EXPECTATIONS vs. ACTUALS (surprise is what moves price, not the level) ===\n${surpriseText()}` : "") +

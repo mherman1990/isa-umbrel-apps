@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.39.0 — Analyst Note + Ask: oil/meal crush composition in the crush block
+
+_The Analyst Note already saw oil share as one signal-board line (1.38.0). This gives it and Ask the trajectory and context behind that line, in the CRUSH DEMAND block. Auto-tagged `v1.39.0` by `auto-release.yml`._
+
+### Added
+
+- **`oilShareText()`** (`src/crush.js`) — appended to `crushText()`, so it lands in the Analyst Note / Market
+  Pulse crush block and the Ask context:
+  - board oil share + percentile + 10th–90th range, with the **1M / 3M / 12M moves** (the signal card only
+    sees one month) and the 1-month driver decomposition (oil vs. meal value %/bu);
+  - **Iowa cash** oil share vs. the board on the nearest-before date, only when cash is ≤21 days old;
+  - a one-line reading guide (composition, not margin; the higher the share, the more crush value — and the
+    domestic bean bid — rests on the policy-set oil leg: RVO, SREs, 45Z).
+  - Names its series ids so the model can cite them. `""` when the board legs are stale or thin.
+
+### Changed
+
+- **`crushText()`** no longer returns empty when utilization isn't computable — the oil-share lines still
+  reach the prompt on their own.
+- **`src/pipeline.js`** — the block header is now "CRUSH DEMAND (capacity utilization, cause→effect with
+  margin, oil/meal composition)" in both the memo and Ask contexts.
+- `shareRows()` / `rowDaysBack()` factored out of `scoreOilShare()` (no behavior change).
+
+### Notes
+
+- Prompt-content only; no new keys, no new model calls. Adds ~3 lines (~150 tokens) to the crush block.
+
 ## 1.38.0 — Markets: oil vs. meal crush value share — chart + signal-board card
 
 _A new Markets chart tracks oil's and meal's share of the product value from a crushed bushel over time — the industry "oil share" — for both the CBOT board and Iowa cash, and an **Oil Share of Crush** card joins the signal board. Auto-tagged `v1.38.0` by `auto-release.yml`._
