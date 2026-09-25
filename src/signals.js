@@ -12,7 +12,7 @@
 
 import * as store from "./store.js";
 import { weatherSignals } from "./weather.js";
-import { crushSignal } from "./crush.js";
+import { crushSignal, oilShareSignal } from "./crush.js";
 
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const monthOf = (period) => MON[(Number(String(period).slice(5, 7)) || 1) - 1];
@@ -284,7 +284,12 @@ const FACTORS = {
     note: "Five correlated reads on one variable — belt moisture/heat stress. Averaged, not summed.",
   },
   balance_sheet: { label: "Balance sheet", weight: 1.0, members: ["stocks_to_use"], note: "Ending stocks as a share of use — the supply/demand anchor." },
-  demand_domestic: { label: "Domestic crush demand", weight: 0.9, members: ["crush_utilization"], note: "Capacity utilization — is the installed base pulling beans through." },
+  demand_domestic: {
+    label: "Domestic crush demand",
+    weight: 0.9,
+    members: ["crush_utilization", "oil_share"],
+    note: "Capacity utilization (effect) + which product leg is moving the crush (cause) — two reads on one variable, averaged.",
+  },
   demand_export: { label: "Export demand", weight: 0.9, members: ["export_pace"], note: "Weekly net sales pace vs. a year ago." },
   sa_supply: { label: "S. American supply", weight: 0.8, members: ["brazil_supply", "weather_sa"], note: "Competitor supply — correlated pair (crop size + the weather making it)." },
   positioning: { label: "Fund positioning", weight: 0.5, members: ["fund_positioning"], note: "Flow, not fundamental, and mean-reverting — deliberately half-weight." },
@@ -305,6 +310,7 @@ const SIGNAL_SERIES = {
   soy_corn_ratio: "nass:ia:soy-corn-ratio",
   seasonal: "nass:us:price (monthly seasonal averages)",
   crush_utilization: "nass:us:crush ÷ crush_capacity.json nameplate",
+  oil_share: "cbot:zl:front vs. cbot:zm:front (oil value ÷ oil+meal value per bu, workbook yields; direction = the leg that drove the 1-month move)",
   weather_us: "open_meteo:us:precip-pctile / heat-pctile",
   weather_sa: "open_meteo:sa:precip-pctile / heat-pctile",
 };
@@ -324,6 +330,8 @@ export const SIGNAL_CHART = {
   brazil_supply: { series: "ibge_brazil:soy-production", category: "" },
   soy_corn_ratio: { series: "nass:ia:soy-corn-ratio", category: "soy_corn_ratio" },
   crush_utilization: { series: "nass:us:crush", category: "soy_crush" },
+  // Derived at read time (no stored series) — the scorer carries its own spark + back rows.
+  oil_share: { series: "", category: "soy_crush_share" },
   weather_us: { series: "open_meteo:us:precip-pctile", category: "" },
   weather_sa: { series: "open_meteo:sa:precip-pctile", category: "" },
   // Both currently OFF the board (see the note above SCORERS) — mapped so they work if reinstated.
@@ -380,7 +388,7 @@ function factorTilt(signals) {
 export function computeSignals() {
   const snapshot = store.marketSnapshot();
   const m = new Map(snapshot.map((s) => [s.series, s]));
-  const signals = [...SCORERS.map((fn) => fn(m)), seasonalPrice(), crushSignal(), ...weatherSignals(m)].filter(Boolean);
+  const signals = [...SCORERS.map((fn) => fn(m)), seasonalPrice(), crushSignal(), oilShareSignal(), ...weatherSignals(m)].filter(Boolean);
   const bullish = signals.filter((s) => s.direction === "bullish").length;
   const bearish = signals.filter((s) => s.direction === "bearish").length;
   const neutral = signals.filter((s) => s.direction === "neutral").length;
