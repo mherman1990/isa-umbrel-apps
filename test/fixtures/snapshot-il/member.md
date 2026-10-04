@@ -37,7 +37,7 @@ The agency acted on this item. [1] It is at the stage its band shows. [1] It bea
 
 ### Barge freight
 
-- St. Louis: $25.95 per ton, up $0.05 from the prior week; $20.73 per ton 3-year average for the same week (week of Oct. 1, 2026) [6]
+- St. Louis harbor (Cape Girardeau – Grafton): $25.95 per ton, up $0.05 from the prior week; $20.73 per ton 3-year average for the same week (week of Oct. 1, 2026) [6]
 
 ## What to watch (through Oct. 9, 2026)
 
@@ -51,7 +51,7 @@ The agency acted on this item. [1] It is at the stage its band shows. [1] It bea
 3. USDA Agricultural Marketing Service — [USDA AMS National Grain and Oilseed Processor Feedstuff report (3511) — Illinois soybean oil and meal](https://mymarketnews.ams.usda.gov/viewReport/3511), Oct. 2, 2026 _(primary source)_
 4. CME Group — [CME Group daily settlements — November 2026 soybeans (ZS) and December 2026 corn (ZC)](https://www.cmegroup.com/markets/agriculture/oilseeds/soybean.settlements.html), Oct. 6, 2026 _(exchange of record)_
 5. USDA National Agricultural Statistics Service — [USDA NASS Agricultural Prices — Illinois soybean and corn prices received](https://quickstats.nass.usda.gov/), August 2026 _(primary source)_
-6. USDA Agricultural Marketing Service (Ag Transport) — [USDA AMS Grain Transportation Report — downbound barge freight, St. Louis](https://agtransport.usda.gov/d/7spn-fbua), Oct. 1, 2026 _(primary source)_
+6. USDA Agricultural Marketing Service (Ag Transport) — [USDA AMS Grain Transportation Report — downbound barge freight, St. Louis harbor (Cape Girardeau – Grafton)](https://agtransport.usda.gov/d/7spn-fbua), Oct. 1, 2026 _(primary source)_
 7. USDA — [USDA release calendar — October WASDE](https://www.usda.gov/oce/commodity/wasde), Oct. 9, 2026 _(agency release)_
 8. CFTC — [CFTC release calendar — CFTC Commitments of Traders](https://www.cftc.gov/MarketReports/CommitmentsofTraders/index.htm), Oct. 9, 2026 _(agency release)_
 

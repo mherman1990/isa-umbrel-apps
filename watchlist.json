@@ -113,7 +113,6 @@
     "agtransport": {
       "enabled": true,
       "maxItemsPerRun": 10,
-      "bargeLocations": ["St. Louis", "Illinois River"],
       "_note": "Markets tab — USDA Ag Transport (Socrata, no key): soybean export inspections + net export sales (FAS stand-in) + Mississippi barge freight."
     },
     "drought_monitor": {

@@ -63,6 +63,12 @@
         { "key": "in", "fips": "18", "name": "Indiana" }
       ]
     },
-    "barge": { "locations": ["Illinois River", "St. Louis"] }
+    "barge": {
+      "locations": [
+        { "segment": "Hardin – Havana", "label": "Lower Illinois River (Hardin – Havana)" },
+        { "segment": "Kingston Mines – Peoria", "label": "Illinois River, Peoria reach (Kingston Mines – Peoria)" },
+        { "segment": "Cape Girardeau –Grafton", "label": "St. Louis harbor (Cape Girardeau – Grafton)" }
+      ]
+    }
   }
 }

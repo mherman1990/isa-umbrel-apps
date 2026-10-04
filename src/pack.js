@@ -204,6 +204,38 @@ export function beltRegions() {
   return pack().markets?.cropRegions?.belt ?? [];
 }
 
+/**
+ * The barge-freight river segments a pack follows (markets.barge.locations). USDA's dataset reports $/ton
+ * per river SEGMENT ("Cape Girardeau – Grafton"), so each entry names the segment exactly as USDA does,
+ * with an optional reader-facing label. A bare string is a segment named by itself.
+ * @returns {{segment:string, label:string, slug:string, series:string}[]}
+ */
+export function bargeLocations(list = pack().markets?.barge?.locations ?? []) {
+  return list
+    .map((e) => (typeof e === "string" ? { segment: e, label: e } : { segment: e?.segment, label: e?.label ?? e?.segment }))
+    .filter((e) => e.segment)
+    .map((e) => {
+      const slug = String(e.segment).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      return { ...e, slug, series: `agtransport:barge-freight:${slug}` };
+    });
+}
+
+// The 1.40.0 watchlist default (sources.agtransport.bargeLocations). Neither name exists in USDA's segment
+// data, so an untouched copy of it in a live /data/watchlist.json is treated as "not set".
+const LEGACY_BARGE = ["st louis", "illinois river"];
+const normName = (v) => String(v ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+/**
+ * The barge segments actually in effect: the watchlist's `sources.agtransport.bargeLocations` override
+ * when it is a real choice, else the pack's. ONE resolver for the adapter, the Member Brief and
+ * /freshness, so the three never disagree about which segments are followed.
+ */
+export function effectiveBargeLocations(override) {
+  const list = Array.isArray(override) ? override : [];
+  const legacy = list.length === LEGACY_BARGE.length && list.every((o) => typeof o === "string" && LEGACY_BARGE.includes(normName(o)));
+  return bargeLocations(list.length && !legacy ? list : undefined);
+}
+
 /** Absolute path of a file the pack ships (geo layers, data files, branding). */
 export function packPath(rel) {
   const p = pack();

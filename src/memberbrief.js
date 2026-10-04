@@ -38,7 +38,7 @@ import { parseDaySpec, localClock, DAYS } from "./schedule.js";
 import { MARKETS as CFTC_MARKETS, SOURCE_URL as CFTC_URL } from "./adapters/cftc.js";
 import { saveBrief, sendMemberBriefEmail, sendOpsAlert } from "./deliver.js";
 import { wasTruncated } from "./modelcfg.js";
-import { voice, seriesKey } from "./pack.js";
+import { voice, seriesKey, effectiveBargeLocations } from "./pack.js";
 // State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
 const V = voice();
 
@@ -424,10 +424,16 @@ export function threeYearAverage(pts, period) {
   return vals.length >= 2 ? { avg: vals.reduce((a, b) => a + b, 0) / vals.length, years: vals.length } : null;
 }
 
-function addBarge(pk) {
+function addBarge(pk, bargeOverride) {
   const fact = { label: "Barge freight", lines: [], citeIds: new Set(), status: "absent" };
   const today = pk.window.today;
-  const metas = store.listSeriesMeta("barge_freight").filter((m) => m.series.startsWith("agtransport:barge-freight:"));
+  // Only the segments in effect (the watchlist override or the pack's), in that order. A segment that was
+  // followed once and later deselected keeps its stored series but never reaches the brief again.
+  const order = effectiveBargeLocations(bargeOverride).map((l) => l.series);
+  const metas = store
+    .listSeriesMeta("barge_freight")
+    .filter((m) => order.includes(m.series))
+    .sort((a, b) => order.indexOf(a.series) - order.indexOf(b.series));
   for (const m of metas) {
     const pts = series(m.series);
     if (!pts.length) continue;
@@ -488,7 +494,7 @@ function addWatch(pk) {
 }
 
 /** Assemble the whole evidence packet for one edition. Pure over the store; no network, no model. */
-export function buildMemberPacket({ now = new Date(), tz = V.tz, spec = DEFAULT_MEMBER_SPEC, lastSent = null } = {}) {
+export function buildMemberPacket({ now = new Date(), tz = V.tz, spec = DEFAULT_MEMBER_SPEC, lastSent = null, bargeOverride = undefined } = {}) {
   const window = memberWindow({ now, tz, spec, lastSent });
   const pk = newPacket(window);
   addPolicy(pk);
@@ -496,7 +502,7 @@ export function buildMemberPacket({ now = new Date(), tz = V.tz, spec = DEFAULT_
   addFund(pk, now);
   addOilShare(pk);
   addRatio(pk);
-  addBarge(pk);
+  addBarge(pk, bargeOverride);
   addWatch(pk);
   return pk;
 }
@@ -909,7 +915,7 @@ export async function runMemberBrief({ env = process.env, watchlist = null, prev
   const tz = watchlist?.briefEditions?.timezone ?? V.tz;
   const spec = typeof watchlist?.briefEditions?.member === "string" && watchlist.briefEditions.member.trim() ? watchlist.briefEditions.member : DEFAULT_MEMBER_SPEC;
   const edition = preview ? "member-preview" : "member";
-  const pk = buildMemberPacket({ now, tz, spec, lastSent: lastSent() });
+  const pk = buildMemberPacket({ now, tz, spec, lastSent: lastSent(), bargeOverride: watchlist?.sources?.agtransport?.bargeLocations });
   log(`🌾 Member Brief ${preview ? "(preview) " : ""}— window ${pk.window.fromDate} → ${pk.window.toDate}: ${pk.policy.size} policy item(s), ${pk.deadlines.length} open deadline(s), ${pk.sources.size} sources`);
 
   const unsubscribeLine = `You receive the ${V.short} Member Brief as an ${V.org} member. To unsubscribe, reply with "unsubscribe"${unsubscribeAddress(env) ? ` or write to ${unsubscribeAddress(env)}` : ""}.`;

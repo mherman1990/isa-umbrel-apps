@@ -218,3 +218,9 @@ test("a failed item fetch stays visible after a later successful series refresh;
   store.recordSourceAttempt("drought_monitor", "items", "ok", { count: 1 });
   assert.equal(run().sources.find((x) => x.id === "usda_ams").label, "USDA AMS (Iowa cash, basis & feedstuffs)");
 });
+
+test("member inputs check the barge segments actually in effect (override, else pack)", () => {
+  const keysFor = (wl) => run({ watchlist: wl }).memberInputs.find((m) => m.id === "barge_freight").rows.map((r) => r.key);
+  assert.deepEqual(keysFor({ ...live, sources: { ...live.sources, agtransport: { enabled: true, bargeLocations: ["Hardin – Havana"] } } }), ["agtransport:barge-freight:hardin-havana"]);
+  assert.equal(keysFor({ ...live, sources: { ...live.sources, agtransport: { enabled: true, bargeLocations: ["St. Louis", "Illinois River"] } } }).length, 5, "legacy default → the pack's five");
+});

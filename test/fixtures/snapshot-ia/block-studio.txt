@@ -109,8 +109,8 @@
    "label": "Barge freight",
    "series": [
     {
-     "id": "agtransport:barge-freight:st-louis",
-     "label": "Barge freight — St. Louis",
+     "id": "agtransport:barge-freight:cape-girardeau-grafton",
+     "label": "Barge freight — St. Louis harbor (Cape Girardeau – Grafton)",
      "unit": "$/ton"
     }
    ]
