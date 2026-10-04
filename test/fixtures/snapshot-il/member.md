@@ -13,6 +13,11 @@ Policy activity continued this week. [1]
 
 - **Nov. 17, 2026** — [Renewable Fuel Standard: 2027-2028 volumes (proposed rule)](https://www.federalregister.gov/d/2026-20001) [1]
 
+### EPA proposes 2027-28 RFS volumes
+**Proposed — NOT final.** _Published but not in effect. It may change substantially or never take effect._
+
+The agency acted on this item. [1] It is at the stage its band shows. [1] It bears on soybean demand. [1] The next step is not yet scheduled. [1]
+
 ## Markets
 
 ### Fund positioning

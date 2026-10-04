@@ -36,19 +36,9 @@
   "https://api.open-meteo.com/v1/forecast?latitude=-12.55&longitude=-55.71&daily=precipitation_sum,temperature_2m_max&past_days=14&forecast_days=7&timezone=auto",
   "https://api.open-meteo.com/v1/forecast?latitude=-28.26&longitude=-52.41&daily=precipitation_sum,temperature_2m_max&past_days=14&forecast_days=7&timezone=auto",
   "https://api.open-meteo.com/v1/forecast?latitude=-33.89&longitude=-60.57&daily=precipitation_sum,temperature_2m_max&past_days=14&forecast_days=7&timezone=auto",
-  "https://api.open-meteo.com/v1/forecast?latitude=40&longitude=-89&daily=precipitation_sum,temperature_2m_max&past_days=14&forecast_days=7&timezone=auto",
-  "https://api.open-meteo.com/v1/forecast?latitude=41&longitude=-91.5&daily=precipitation_sum,temperature_2m_max&past_days=14&forecast_days=7&timezone=auto",
-  "https://api.open-meteo.com/v1/forecast?latitude=41.88&longitude=-93.6&daily=precipitation_sum,temperature_2m_max&past_days=14&forecast_days=7&timezone=auto",
-  "https://api.open-meteo.com/v1/forecast?latitude=43&longitude=-95.6&daily=precipitation_sum,temperature_2m_max&past_days=14&forecast_days=7&timezone=auto",
-  "https://api.open-meteo.com/v1/forecast?latitude=44.5&longitude=-94.5&daily=precipitation_sum,temperature_2m_max&past_days=14&forecast_days=7&timezone=auto",
   "https://archive-api.open-meteo.com/v1/archive?latitude=-12.55&longitude=-55.71&start_date=2026-08-20&end_date=2026-10-01&daily=precipitation_sum,temperature_2m_max&timezone=auto",
   "https://archive-api.open-meteo.com/v1/archive?latitude=-28.26&longitude=-52.41&start_date=2026-08-20&end_date=2026-10-01&daily=precipitation_sum,temperature_2m_max&timezone=auto",
-  "https://archive-api.open-meteo.com/v1/archive?latitude=-33.89&longitude=-60.57&start_date=2026-08-20&end_date=2026-10-01&daily=precipitation_sum,temperature_2m_max&timezone=auto",
-  "https://archive-api.open-meteo.com/v1/archive?latitude=40&longitude=-89&start_date=2026-08-20&end_date=2026-10-01&daily=precipitation_sum,temperature_2m_max&timezone=auto",
-  "https://archive-api.open-meteo.com/v1/archive?latitude=41&longitude=-91.5&start_date=2026-08-20&end_date=2026-10-01&daily=precipitation_sum,temperature_2m_max&timezone=auto",
-  "https://archive-api.open-meteo.com/v1/archive?latitude=41.88&longitude=-93.6&start_date=2026-08-20&end_date=2026-10-01&daily=precipitation_sum,temperature_2m_max&timezone=auto",
-  "https://archive-api.open-meteo.com/v1/archive?latitude=43&longitude=-95.6&start_date=2026-08-20&end_date=2026-10-01&daily=precipitation_sum,temperature_2m_max&timezone=auto",
-  "https://archive-api.open-meteo.com/v1/archive?latitude=44.5&longitude=-94.5&start_date=2026-08-20&end_date=2026-10-01&daily=precipitation_sum,temperature_2m_max&timezone=auto"
+  "https://archive-api.open-meteo.com/v1/archive?latitude=-33.89&longitude=-60.57&start_date=2026-08-20&end_date=2026-10-01&daily=precipitation_sum,temperature_2m_max&timezone=auto"
  ],
  "legiscan": [
   "https://api.legiscan.com/?key=K&op=getMasterList&state=IL"

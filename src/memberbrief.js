@@ -646,6 +646,29 @@ export function normalizeDraft(d) {
   };
 }
 
+/**
+ * Does the DRAFT cover every policy item in the packet — each exactly once, all four sentences present?
+ * The schema cannot say "one entry per packet item", and the renderer skips an absent item silently, so
+ * a draft that drops an action (or all of them) would otherwise pass. Checked on the draft only: after
+ * review a deleted sentence is a legitimate gap. Returns lint-shaped failures ([] = complete).
+ */
+export function draftCompleteness(draft, pk) {
+  const out = [];
+  const n = new Map();
+  for (const p of draft.policy) n.set(p.id, (n.get(p.id) ?? 0) + 1);
+  for (const id of pk.policy.keys()) {
+    const c = n.get(id) ?? 0;
+    if (c !== 1) {
+      out.push({ path: `policy.${id}`, rule: c ? "duplicate_policy_item" : "missing_policy_item", detail: c ? `${id} appears ${c} times — write it once` : `${id} is in the packet but not in the draft — every policy item gets all four sentences` });
+      continue;
+    }
+    const p = draft.policy.find((x) => x.id === id);
+    for (const slot of ["whatChanged", "whereItStands", "whatItMeans", "next"]) if (!p[slot]?.text) out.push({ path: `policy.${id}.${slot}`, rule: "missing_policy_sentence", detail: `${id} needs its ${slot} sentence` });
+  }
+  for (const id of n.keys()) if (!pk.policy.has(id)) out.push({ path: `policy.${id}`, rule: "unknown_policy_item", detail: `${id} is not a policy item in the packet` });
+  return out;
+}
+
 /** Every sentence of a draft with a stable id, for the reviewer and for applying its decisions. */
 export function sentenceList(draft) {
   const out = [];
@@ -907,7 +930,9 @@ export async function runMemberBrief({ env = process.env, watchlist = null, prev
       const draft = normalizeDraft(await callDraft(api, draftModel, pk, priorLint));
       lastDraft = draft;
       const lint1 = lintMemberDraft(draft, pk);
-      if (!lint1.ok) {
+      const incomplete = draftCompleteness(draft, pk);
+      if (incomplete.length) lint1.failures = [...incomplete, ...lint1.failures];
+      if (!lint1.ok || incomplete.length) {
         priorLint = lint1.failures;
         failures.push({ attempt, stage: "lint", detail: `${lint1.failures.length} failure(s): ${lint1.failures.slice(0, 6).map((f) => `${f.path} ${f.rule}`).join("; ")}` });
         log(`   ✋ attempt ${attempt}: draft failed lint (${lint1.failures.length})`);

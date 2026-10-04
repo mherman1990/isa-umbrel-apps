@@ -55,7 +55,22 @@ export async function captureState({ stateKey = "ia" } = {}) {
     let text = "stub";
     if (body.output_config?.format) {
       const props = Object.keys(body.output_config.format.schema?.properties ?? {});
-      if (props.includes("update")) text = JSON.stringify({ update: [{ text: "Policy activity continued this week.", cites: ["S1"] }], policy: [], markets: { fund: [], oilShare: [], ratio: [], barge: [] } });
+      if (props.includes("update")) {
+        // Like a real draft: all four sentences for every policy item in the packet (a draft that drops
+        // one fails closed), each citing that item's own sources.
+        const shown = body.messages[0].content.map((c) => c.text).join("\n");
+        const policy = [...shown.matchAll(/^(P\d+) — band: .* — sources: (S\d+(?:, S\d+)*)$/gm)].map(([, id, src]) => {
+          const cites = src.split(", ");
+          return {
+            id,
+            whatChanged: { text: "The agency acted on this item.", cites },
+            whereItStands: { text: "It is at the stage its band shows.", cites },
+            whatItMeans: { text: "It bears on soybean demand.", cites },
+            next: { text: "The next step is not yet scheduled.", cites },
+          };
+        });
+        text = JSON.stringify({ update: [{ text: "Policy activity continued this week.", cites: ["S1"] }], policy, markets: { fund: [], oilShare: [], ratio: [], barge: [] } });
+      }
       else if (props.includes("sentences")) {
         // Like a real reviewer: one "keep" per sentence and band it was shown (an empty review fails closed).
         const shown = body.messages[0].content.map((c) => c.text).join("\n");

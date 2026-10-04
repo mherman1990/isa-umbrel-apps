@@ -89,3 +89,13 @@ test("voice, fill and seriesKey speak for the active pack", () => {
   assert.equal(seriesKey("nass", "soy-corn-ratio"), "nass:ia:soy-corn-ratio");
   assert.equal(seriesKey("nass", "crush", { scope: "us" }), "nass:us:crush");
 });
+
+test("state-weighted data lives in the state packs, not the national tier", () => {
+  const nat = resolvePack("us-national").pack;
+  const ia = resolvePack("us-ia").pack;
+  const il = resolvePack("us-il").pack;
+  assert.equal(nat.markets?.weatherRegions, undefined, "the Iowa-weighted crop-weather points are not national");
+  assert.ok(ia.markets.weatherRegions.length && ia.legislature.congressionalDelegation.hsag.length);
+  assert.equal(il.markets.weatherRegions, undefined, "Illinois inherits no Iowa weighting");
+  assert.equal(il.legislature.congressionalDelegation, undefined, "and no Iowa delegation");
+});

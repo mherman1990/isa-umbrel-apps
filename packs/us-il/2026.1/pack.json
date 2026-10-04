@@ -10,6 +10,8 @@
     "legislature.sessionNote — confirm the General Assembly calendar each session",
     "adminRules — Illinois Register (ilsos.gov) adapter (il_register) not yet written; needs a live probe of the issue index",
     "markets.ams.cashReportId — the AMS Illinois daily cash-grain report id has to be probed on MARS before it is set",
+    "markets.weatherRegions — the crop-weather composite points and weights (Iowa's are Iowa-weighted, so none are inherited); the weather signal is off until set",
+    "legislature.congressionalDelegation — Illinois members on the ag-relevant committees (hearings carry no delegation note until set)",
     "markets.ams.feedstuffTradeLoc — confirm AMS 3511 carries an Illinois trade location (the series stays empty if not)",
     "registry — no Illinois entity seed yet; geo layers via scripts/fetch-geo.mjs, roster via scripts/fetch-incumbents.mjs",
     "election.campaignFinance — off until counsel reviews the Illinois State Board of Elections data-use terms"

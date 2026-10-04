@@ -303,7 +303,7 @@
      },
      {
       "type": "text",
-      "text": "DRAFT SENTENCES TO REVIEW (tokens shown as their values):\nU1 [cites S1] Policy activity continued this week.\n\nPOLICY ITEM BANDS:\nP1: Proposed — NOT final"
+      "text": "DRAFT SENTENCES TO REVIEW (tokens shown as their values):\nU1 [cites S1] Policy activity continued this week.\nP1.whatChanged [cites S1] The agency acted on this item.\nP1.whereItStands [cites S1] It is at the stage its band shows.\nP1.whatItMeans [cites S1] It bears on soybean demand.\nP1.next [cites S1] The next step is not yet scheduled.\n\nPOLICY ITEM BANDS:\nP1: Proposed — NOT final"
      }
     ]
    }

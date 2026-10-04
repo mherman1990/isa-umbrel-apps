@@ -45,7 +45,7 @@ export async function fetchItems() {
       sourceLabel: label,
       title: `${HOME.name} drought — ${last.d1.toFixed(0)}% of the state in drought (D1+), ${last.d0.toFixed(0)}% abnormally dry or worse (week of ${last.period})`,
       summary: `U.S. Drought Monitor — share of ${HOME.name} land area by drought category (cumulative).`,
-      url: "https://droughtmonitor.unl.edu/CurrentMap/StateDroughtMonitor.aspx?IA",
+      url: `https://droughtmonitor.unl.edu/CurrentMap/StateDroughtMonitor.aspx?${HOME.key.toUpperCase()}`,
       publishedAt: new Date(last.period).toISOString(),
       jurisdiction: HOME.name,
       docType: "data",

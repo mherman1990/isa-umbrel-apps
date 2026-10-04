@@ -15,8 +15,8 @@ export const id = "open_meteo";
 export const label = "Open-Meteo (crop weather)";
 
 // Key U.S. soybean-growing regions, weighted by rough soybean output share so an anomaly where the
-// beans actually are counts more than a small area. From the pack (markets.weatherRegions; the
-// us-national default is the Corn Belt composite — a state pack may re-weight it toward itself).
+// beans actually are counts more than a small area. From the state pack (markets.weatherRegions) —
+// the weighting is the state's own, so there is no national default; none listed = no weather signal.
 const US_REGIONS = pack().markets?.weatherRegions ?? [];
 
 // Key soybean-growing regions in Brazil + Argentina (competitor supply), production-weighted.

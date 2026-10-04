@@ -51,8 +51,14 @@ Everything that made a deployment "Iowa" now lives in a versioned **state pack**
 - **LegiScan searches the pack's home state first, and always full-text.** The shared watchlist's Iowa-era state list no longer decides this; the other states it lists stay as extra coverage.
 - **A data folder belongs to one state.** The first start records the pack in `/data/.state-pack`; an existing Iowa install is recognised by its `registry.json`. Starting it under a different `STATE_PACK` is refused with an explanation. `setup --state` refuses the switch, and /setup shows it. Without this, Iowa's registry entities and channels would carry over into another state's deployment.
 
+- **Member Brief: a draft must cover every policy item in the packet**, each exactly once with all four sentences. The renderer used to skip an omitted action silently. A short draft now fails lint and the retry is told what was missing.
+- **No Iowa data leaks into another state's pack:**
+  - The crop-weather composite points (Iowa-weighted) moved from the national tier into `us-ia`; a pack without them has no weather signal, and /setup says so.
+  - The congressional delegation on hearing committees moved into the pack (`legislature.congressionalDelegation`); with none listed, hearings carry no delegation note.
+  - Drought items link to the pack state's map.
+
 ### Tests
-- 473 tests (was 450). New files: `pack.test.js`, `pack-gates.test.js` (a non-Iowa overlay switches off the Iowa adapter, hosts, campaign-finance seeding and AMS report), `setup.test.js`, and the two snapshot tests.
+- 476 tests (was 450). New files: `pack.test.js`, `pack-gates.test.js` (a non-Iowa overlay switches off the Iowa adapter, hosts, campaign-finance seeding and AMS report), `setup.test.js`, and the two snapshot tests.
 
 ### Not in this release
 - The shared data commons (MULTI_STATE.md step 9) and funding channels (step 10) wait on open questions 2 and 4.

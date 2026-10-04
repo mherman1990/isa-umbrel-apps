@@ -96,3 +96,16 @@ test("LegiScan always searches (and full-text searches) the pack's home state, w
   assert.ok(urls.some((u) => /state=NE\b/.test(u)), `home state searched: ${urls.join(" ")}`);
   assert.ok(urls.findIndex((u) => /state=NE\b/.test(u)) <= urls.findIndex((u) => /state=IA\b/.test(u)) || !urls.some((u) => /state=IA\b/.test(u)), "home state first");
 });
+
+test("drought items link to the pack state's map", async () => {
+  const drought = await import("../src/adapters/drought_monitor.js");
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify([{ validStart: "2026-09-29", d0: 20, d1: 5 }]), { status: 200, headers: { "content-type": "application/json" } });
+  try {
+    const items = await drought.fetchItems();
+    assert.match(items[0].url, /StateDroughtMonitor\.aspx\?NE$/);
+    assert.match(items[0].title, /^Nebraska drought/);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});

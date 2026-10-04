@@ -123,6 +123,9 @@ export function setupReport({ dataDir, env = process.env, envPresent = null, spe
   const seed = p.registry?.seed;
   check("Registry seed", seed && packFileExists(meta.chain, seed) ? "ok" : "warn", seed && packFileExists(meta.chain, seed) ? seed : "no registry seed in the pack — the registry starts empty");
 
+  const wx = p.markets?.weatherRegions ?? [];
+  check("Crop weather regions", wx.length ? "ok" : "warn", wx.length ? wx.map((r) => r.name).join(", ") : "none in the pack — the crop-weather signal is off");
+
   const ams = p.markets?.ams ?? {};
   check("AMS cash grain", ams.cashReportId ? "ok" : "warn", ams.cashReportId ? `report ${ams.cashReportId}` : "no verified cash-grain report — state cash price, basis and the cash crush margin are off");
 

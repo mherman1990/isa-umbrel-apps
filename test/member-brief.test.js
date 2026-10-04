@@ -416,3 +416,21 @@ test("an empty or partial review fails closed — an unreviewed sentence is neve
   assert.ok(gaps.includes("no decision on sentence U2"));
   assert.ok(gaps.includes("decision on unknown sentence X9"));
 });
+
+test("a draft that leaves out a packet policy item fails lint (the renderer would skip it silently)", async () => {
+  const drop = goodDraft();
+  drop.policy = [];
+  const { calls, restore } = stub([drop]);
+  try {
+    await assert.rejects(mb.runMemberBrief({ env: process.env, preview: true, now: NOW }), (e) => e.failedClosed && /missing_policy_item/.test(e.message));
+    assert.equal(calls.review, 0, "an incomplete draft never reaches the reviewer");
+    assert.match(JSON.stringify(calls.bodies[1].messages[0].content), /missing_policy_item/, "the retry is told what was missing");
+  } finally {
+    restore();
+  }
+  const pk = { policy: new Map([["P1", {}]]) };
+  const half = mb.normalizeDraft({ update: [], policy: [{ id: "P1", whatChanged: { text: "A.", cites: ["S1"] } }, { id: "P9", whatChanged: { text: "B.", cites: ["S1"] } }], markets: {} });
+  const rules = mb.draftCompleteness(half, pk).map((f) => `${f.path} ${f.rule}`);
+  assert.ok(rules.includes("policy.P1.next missing_policy_sentence"));
+  assert.ok(rules.includes("policy.P9 unknown_policy_item"));
+});

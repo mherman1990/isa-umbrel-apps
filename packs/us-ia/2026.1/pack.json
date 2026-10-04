@@ -29,7 +29,15 @@
     "fullTextStates": ["IA"],
     "openstatesJurisdiction": "Iowa",
     "sessionNote": "IA session Jan–Apr",
-    "chamberNames": { "upper": "Iowa Senate", "lower": "Iowa House", "legislature": "Iowa Legislature" }
+    "chamberNames": { "upper": "Iowa Senate", "lower": "Iowa House", "legislature": "Iowa Legislature" },
+    "congressionalDelegation": {
+      "hsag": ["Rep. Nunn", "Rep. Feenstra"],
+      "ssaf": ["Sen. Grassley", "Sen. Ernst"],
+      "hsap01": ["Rep. Hinson"],
+      "hswm": ["Rep. Feenstra"],
+      "ssfi": ["Sen. Grassley"],
+      "hsif": ["Rep. Miller-Meeks"]
+    }
   },
   "election": {
     "campaignFinance": {
@@ -59,6 +67,13 @@
       ]
     },
     "barge": { "locations": ["St. Louis", "Illinois River"] },
+    "weatherRegions": [
+      { "name": "Illinois", "lat": 40.0, "lon": -89.0, "w": 0.30 },
+      { "name": "Central Iowa", "lat": 41.88, "lon": -93.6, "w": 0.22 },
+      { "name": "Minnesota", "lat": 44.5, "lon": -94.5, "w": 0.18 },
+      { "name": "NW Iowa", "lat": 43.0, "lon": -95.6, "w": 0.15 },
+      { "name": "SE Iowa", "lat": 41.0, "lon": -91.5, "w": 0.15 }
+    ],
     "barchart": { "basisLocations": [{ "name": "Central Iowa", "zip": "50010" }, { "name": "NW Iowa", "zip": "51301" }] }
   }
 }
