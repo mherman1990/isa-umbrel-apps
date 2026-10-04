@@ -51,6 +51,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import * as store from "./store.js";
+import * as budget from "./budget.js";
 import { voice } from "./pack.js";
 // State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
 const V = voice();
@@ -140,6 +141,15 @@ export async function rankNewsItems(items, topics = [], env = process.env, { log
   const systemPrompt = SYSTEM_PROMPT + feedbackGuidance();
 
   for (let i = 0; i < items.length; i += BATCH_SIZE) {
+    // Ranking is discretionary (the panels allocation): re-checked before EVERY batch, so a large pass
+    // stops at its allocation, the monthly budget or the hard ceiling instead of overrunning it.
+    // Unranked items fall through unscored, exactly as on a failed batch.
+    const gate = budget.check("news_rank", { env });
+    if (!gate.ok) {
+      log(`   ⏸ news ranking paused after ${i} item(s) — ${gate.reason}`);
+      stats.budgetPaused = true;
+      break;
+    }
     const batch = items.slice(i, i + BATCH_SIZE);
     const payload = batch.map((it) => ({
       uid: it.uid,

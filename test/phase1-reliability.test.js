@@ -298,6 +298,35 @@ test("budget: a monthly budget set in Settings (watchlist) applies to checks tha
   }
 });
 
+test("budget: discretionary model work stops at its own allocation (ranking per batch, expectations, summaries)", async () => {
+  const env = { ...process.env, MONTHLY_BUDGET_USD: "10", ANTHROPIC_API_KEY: "test-key-not-used" };
+  raw.prepare("DELETE FROM token_usage").run();
+  store.recordUsage("claude-sonnet-5", "storylines", 0, 210_000); // $2.10 > the $2.00 panels allocation
+  const realFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    throw new Error("no model call may be made past the allocation");
+  };
+  try {
+    assert.equal(budget.allow("brief", { env }), true, "the essential brief is NOT stopped by the panels allocation");
+    const { rankNewsItems } = await import("../src/newsrank.js");
+    const news = [{ uid: "n-1", sourceId: "rss", title: "Soy news", summary: "x", url: "https://x.test/1", publishedAt: new Date().toISOString() }];
+    const r = await rankNewsItems(news, [], env, { log: () => {} });
+    assert.equal(r.stats.budgetPaused, true);
+    assert.equal(r.verdicts.size, 0);
+    const ex = await pipeline.extractExpectations(env);
+    assert.match(ex.paused ?? "", /allocation/);
+    const { summarizeItem } = await import("../src/summarize.js");
+    store.recordUsage("claude-sonnet-5", "query", 0, 140_000); // + $1.40 > the $1.20 Ask/summaries allocation
+    await assert.rejects(summarizeItem({ uid: "s-1", title: "t", url: "" }, env), /AI summaries are paused/);
+    assert.equal(calls, 0);
+  } finally {
+    globalThis.fetch = realFetch;
+    raw.prepare("DELETE FROM token_usage").run();
+  }
+});
+
 test("watchlist migration: adds missing source entries, never touches existing ones", () => {
   const shipped = JSON.parse(fs.readFileSync(path.join(store.PROJECT_ROOT, "watchlist.json"), "utf8"));
   const live = structuredClone(shipped);

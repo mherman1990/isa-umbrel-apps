@@ -2603,6 +2603,12 @@ const EXPECTATION_SCHEMA = {
  */
 export async function extractExpectations(env = process.env) {
   if (!env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not set in .env");
+  // Discretionary (panels allocation) — its own gate, not the essential brief's.
+  const gate = budget.check("expectations", { env });
+  if (!gate.ok) {
+    console.log(`   ⏸ expectation extraction paused — ${gate.reason}`);
+    return { stored: 0, scanned: 0, paused: gate.reason };
+  }
   const items = store.listItems({ days: 10, sourceIds: sourceIdsForClass("news"), limit: 80 });
   const withBody = items.filter((it) => emailBodyToText(it.body).length > 120);
   if (!withBody.length) return { stored: 0, scanned: 0 };

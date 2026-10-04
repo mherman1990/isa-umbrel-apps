@@ -10,6 +10,7 @@ import { thinkingOffFields } from "./modelcfg.js";
 import * as cheerio from "cheerio";
 
 import * as store from "./store.js";
+import * as budget from "./budget.js";
 import { voice } from "./pack.js";
 // State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
 const V = voice();
@@ -84,6 +85,9 @@ Be specific and neutral. If the document text is missing and you are working onl
 /** Generate a summary for one stored item (a row from store.getItemByUid). */
 export async function summarizeItem(item, env) {
   if (!env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not set in .env");
+  // On-demand summaries are discretionary (the Ask allocation): checked before the model call, like Ask.
+  const gate = budget.check("summary", { env });
+  if (!gate.ok) throw new Error(`AI summaries are paused for the month — ${gate.reason}. Cached summaries still open.`);
   const { text, note } = await fetchDocumentText(item.url);
 
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
