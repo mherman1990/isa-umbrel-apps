@@ -9,19 +9,15 @@
 
 import { fetchJSON } from "../util.js";
 import * as store from "../store.js";
+import { pack } from "../pack.js";
 
 export const id = "open_meteo";
 export const label = "Open-Meteo (crop weather)";
 
-// Key U.S. soybean-growing regions (Iowa-centric), weighted by rough soybean output share so
-// an anomaly where the beans actually are counts more than a small area.
-const US_REGIONS = [
-  { name: "Illinois", lat: 40.0, lon: -89.0, w: 0.30 },
-  { name: "Central Iowa", lat: 41.88, lon: -93.6, w: 0.22 },
-  { name: "Minnesota", lat: 44.5, lon: -94.5, w: 0.18 },
-  { name: "NW Iowa", lat: 43.0, lon: -95.6, w: 0.15 },
-  { name: "SE Iowa", lat: 41.0, lon: -91.5, w: 0.15 },
-];
+// Key U.S. soybean-growing regions, weighted by rough soybean output share so an anomaly where the
+// beans actually are counts more than a small area. From the pack (markets.weatherRegions; the
+// us-national default is the Corn Belt composite — a state pack may re-weight it toward itself).
+const US_REGIONS = pack().markets?.weatherRegions ?? [];
 
 // Key soybean-growing regions in Brazil + Argentina (competitor supply), production-weighted.
 const SA_REGIONS = [

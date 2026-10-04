@@ -14,6 +14,7 @@
 // public endpoint works without one at our low volume.
 
 import { fetchJSON } from "../util.js";
+import { pack } from "../pack.js";
 
 export const id = "agtransport";
 export const label = "USDA Ag Transport";
@@ -102,7 +103,8 @@ export async function fetchItems({ sourceConfig = {}, env = process.env } = {}) 
 // is DISCOVERED from a sample row rather than assumed, because it could not be verified from the build
 // environment; if none is found, no per-location series is written and the source records why.
 export const BARGE_DATASET = "7spn-fbua";
-export const DEFAULT_BARGE_LOCATIONS = ["St. Louis", "Illinois River"];
+// Default from the state pack (markets.barge.locations); the watchlist's sources.agtransport.bargeLocations wins.
+export const DEFAULT_BARGE_LOCATIONS = pack().markets?.barge?.locations ?? [];
 const LOCATION_COLUMN = /^(location|loc|segment|river_segment|origin|port|city|river_location)$/i;
 const norm = (v) => String(v ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 export const bargeSlug = (v) => norm(v).replace(/\s+/g, "-");

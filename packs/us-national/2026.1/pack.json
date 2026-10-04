@@ -9,6 +9,15 @@
   "prompts": {
     "readerTitle": "Chief Officer for Demand & Policy"
   },
+  "markets": {
+    "weatherRegions": [
+      { "name": "Illinois", "lat": 40.0, "lon": -89.0, "w": 0.30 },
+      { "name": "Central Iowa", "lat": 41.88, "lon": -93.6, "w": 0.22 },
+      { "name": "Minnesota", "lat": 44.5, "lon": -94.5, "w": 0.18 },
+      { "name": "NW Iowa", "lat": 43.0, "lon": -95.6, "w": 0.15 },
+      { "name": "SE Iowa", "lat": 41.0, "lon": -91.5, "w": 0.15 }
+    ]
+  },
   "provenance": {
     "primaryHosts": ["federalregister.gov", "regulations.gov", "congress.gov", "govinfo.gov", "courtlistener.com", "supremecourt.gov", "uscourts.gov", "eur-lex.europa.eu", "legiscan.com", "ecfr.gov"],
     "agencyHosts": ["epa.gov", "usda.gov", "fas.usda.gov", "ams.usda.gov", "nass.usda.gov", "fsa.usda.gov", "nrcs.usda.gov", "treasury.gov", "irs.gov", "ustr.gov", "commerce.gov", "trade.gov", "cftc.gov", "eia.gov", "energy.gov", "state.gov", "whitehouse.gov"],

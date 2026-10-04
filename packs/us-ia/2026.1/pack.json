@@ -46,6 +46,17 @@
   },
   "registry": { "seed": "registry.json", "candidates": "data/ia-candidates-2026.json" },
   "markets": {
-    "nass": { "stateAlpha": "IA" }
+    "nass": { "stateAlpha": "IA" },
+    "ams": { "cashReportId": 2850, "feedstuffReportId": 3511, "feedstuffTradeLoc": "Iowa" },
+    "cropRegions": {
+      "belt": [
+        { "key": "il", "fips": "17", "name": "Illinois" },
+        { "key": "mn", "fips": "27", "name": "Minnesota" },
+        { "key": "in", "fips": "18", "name": "Indiana" },
+        { "key": "ne", "fips": "31", "name": "Nebraska" }
+      ]
+    },
+    "barge": { "locations": ["St. Louis", "Illinois River"] },
+    "barchart": { "basisLocations": [{ "name": "Central Iowa", "zip": "50010" }, { "name": "NW Iowa", "zip": "51301" }] }
   }
 }

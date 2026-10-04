@@ -18,6 +18,7 @@ fs.writeFileSync(
     election: { campaignFinance: { enabled: false } },
     adminRules: null,
     provenance: { primaryHosts: { inherit: true, remove: ["legis.iowa.gov"], add: ["nebraskalegislature.gov"] } },
+    markets: { nass: { stateAlpha: "NE" }, ams: { cashReportId: null, feedstuffTradeLoc: null } },
     legislature: { legiscanHome: "NE", legiscanStates: ["NE"], fullTextStates: ["NE"], openstatesJurisdiction: "Nebraska", chamberNames: null },
   })
 );
@@ -25,7 +26,9 @@ fs.writeFileSync(
 const { adapters } = await import("../src/adapters/index.js");
 const { gradeEvidence } = await import("../src/provenance.js");
 const socrata = await import("../src/seed/socrata.js");
-const { voice } = await import("../src/pack.js");
+const { voice, homeRegion, seriesKey } = await import("../src/pack.js");
+const ams = await import("../src/adapters/usda_ams.js");
+const nass = await import("../src/adapters/usda_nass.js");
 
 test("a state-specific adapter is not registered under another state's pack", () => {
   assert.equal(adapters.iowa_admin_rules, undefined);
@@ -46,4 +49,32 @@ test("campaign-finance seeding refuses when the pack has it off, even with the e
 test("voice derives the article for the new state", () => {
   assert.equal(voice().aState, "a Nebraska");
   assert.equal(voice().alpha, "NE");
+});
+
+test("market adapters follow the pack's state", async () => {
+  assert.deepEqual(homeRegion(), { key: "ne", fips: "31", name: "Nebraska" });
+  assert.equal(seriesKey("ams", "basis"), "ams:ne:basis");
+  assert.equal(ams.label, "USDA AMS (Nebraska cash, basis & feedstuffs)");
+  const stateRows = nass.__test.NASS_SERIES.filter((s) => s.params.state_alpha);
+  assert.ok(stateRows.length >= 2 && stateRows.every((s) => s.params.state_alpha === "NE" && s.key.startsWith("nass:ne:")));
+  // No verified cash-grain report for this state → no request, no items (never another state's report).
+  const realFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    throw new Error("no network in tests");
+  };
+  try {
+    assert.deepEqual(await ams.fetchItems({ env: {} }), []);
+    assert.equal(calls, 0);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  // The feedstuff filter matches the state's own trade location, not Iowa's.
+  const rows = [
+    { report_date: "10/01/2026", "trade Loc": "Iowa", commodity: "Soybean Meal", avg_price: 300 },
+    { report_date: "10/01/2026", "trade Loc": "Nebraska", commodity: "Soybean Meal", avg_price: 310 },
+  ];
+  const meal = ams.__test.feedstuffSeries(rows).out.find((x) => x.series === "ams:ne:meal");
+  assert.equal(meal?.points?.[0]?.value, 310);
 });

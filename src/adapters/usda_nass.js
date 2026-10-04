@@ -7,17 +7,22 @@
 // value/period is kept so the market-signal layer can read it later.
 
 import { fetchJSON } from "../util.js";
-import { seriesKey } from "../pack.js";
+import { seriesKey, pack } from "../pack.js";
 
 export const id = "usda_nass";
 export const label = "USDA NASS (supply & price)";
 
 const BASE = "https://quickstats.nass.usda.gov/api/api_GET/";
 
-// One metric per query. Keep these few and high-signal for Iowa soy.
+// The pack's state for every state-level query (markets.nass.stateAlpha, else the pack's own state).
+const ST = pack().markets?.nass?.stateAlpha ?? pack().identity.stateAlpha;
+const ST_NAME = pack().identity.stateName;
+const st = ST.toLowerCase();
+
+// One metric per query. Keep these few and high-signal for the state's soy.
 const QUERIES = [
-  { key: "ia-price", title: "Iowa soybean price received", unit: "$/bu",
-    params: { commodity_desc: "SOYBEANS", state_alpha: "IA", statisticcat_desc: "PRICE RECEIVED" } },
+  { key: `${st}-price`, title: `${ST_NAME} soybean price received`, unit: "$/bu",
+    params: { commodity_desc: "SOYBEANS", state_alpha: ST, statisticcat_desc: "PRICE RECEIVED" } },
   { key: "us-production", title: "U.S. soybean production", unit: "bu",
     params: { commodity_desc: "SOYBEANS", agg_level_desc: "NATIONAL", statisticcat_desc: "PRODUCTION", unit_desc: "BU" } },
   { key: "us-stocks", title: "U.S. soybean stocks", unit: "bu",
@@ -58,7 +63,7 @@ export async function fetchItems({ sourceConfig = {}, env = process.env }) {
       summary: rec.short_desc || q.title,
       url: "https://quickstats.nass.usda.gov/",
       publishedAt: (rec.load_time ? new Date(rec.load_time.replace(" ", "T")) : new Date()).toISOString(),
-      jurisdiction: rec.state_alpha === "IA" ? "Iowa" : "US",
+      jurisdiction: rec.state_alpha === ST ? ST_NAME : "US",
       docType: "data",
       raw: { metric: q.key, value: rec.Value, unit: q.unit, period, shortDesc: rec.short_desc },
     });
@@ -67,23 +72,23 @@ export async function fetchItems({ sourceConfig = {}, env = process.env }) {
   // Current Iowa soybean crop condition (% good+excellent) — a member-facing "how's the crop
   // right now" read. In-season only (empty off-season → skipped).
   try {
-    const p = new URLSearchParams({ key, format: "JSON", year__GE: String(new Date().getFullYear()), commodity_desc: "SOYBEANS", statisticcat_desc: "CONDITION", state_alpha: "IA" });
+    const p = new URLSearchParams({ key, format: "JSON", year__GE: String(new Date().getFullYear()), commodity_desc: "SOYBEANS", statisticcat_desc: "CONDITION", state_alpha: ST });
     const data = await fetchJSON(`${BASE}?${p}`);
     const ge = (data.data ?? []).filter((r) => r.unit_desc === "PCT GOOD" || r.unit_desc === "PCT EXCELLENT");
     const latestWeek = ge.map((r) => r.week_ending).filter(Boolean).sort().pop();
     if (latestWeek) {
       const pct = ge.filter((r) => r.week_ending === latestWeek).reduce((a, r) => a + (Number(r.Value) || 0), 0);
       items.push({
-        uid: `${id}:ia-condition:${latestWeek}`,
+        uid: `${id}:${st}-condition:${latestWeek}`,
         sourceId: id,
         sourceLabel: label,
-        title: `Iowa soybeans ${pct}% good/excellent (week ending ${latestWeek})`,
-        summary: "USDA NASS Crop Progress — Iowa soybean condition (% good + excellent).",
+        title: `${ST_NAME} soybeans ${pct}% good/excellent (week ending ${latestWeek})`,
+        summary: `USDA NASS Crop Progress — ${ST_NAME} soybean condition (% good + excellent).`,
         url: "https://quickstats.nass.usda.gov/",
         publishedAt: new Date(latestWeek).toISOString(),
-        jurisdiction: "Iowa",
+        jurisdiction: ST_NAME,
         docType: "data",
-        raw: { metric: "ia-condition", value: pct, unit: "% G/E", period: latestWeek },
+        raw: { metric: `${st}-condition`, value: pct, unit: "% G/E", period: latestWeek },
       });
     }
   } catch {
@@ -99,14 +104,14 @@ const NASS_SERIES = [
     params: { commodity_desc: "SOYBEANS", statisticcat_desc: "CRUSHED", agg_level_desc: "NATIONAL" } },
   { key: "nass:us:price", label: "U.S. avg", category: "soy_price", unit: "$/bu",
     params: { commodity_desc: "SOYBEANS", statisticcat_desc: "PRICE RECEIVED", agg_level_desc: "NATIONAL", unit_desc: "$ / BU" } },
-  { key: seriesKey("nass", "price"), label: "Iowa avg", category: "soy_price", unit: "$/bu",
-    params: { commodity_desc: "SOYBEANS", statisticcat_desc: "PRICE RECEIVED", state_alpha: "IA", unit_desc: "$ / BU" } },
+  { key: seriesKey("nass", "price"), label: `${ST_NAME} avg`, category: "soy_price", unit: "$/bu",
+    params: { commodity_desc: "SOYBEANS", statisticcat_desc: "PRICE RECEIVED", state_alpha: ST, unit_desc: "$ / BU" } },
   { key: "nass:us:stocks", label: "U.S. soybean stocks", category: "soy_stocks", unit: "bu",
     params: { commodity_desc: "SOYBEANS", statisticcat_desc: "STOCKS", agg_level_desc: "NATIONAL", unit_desc: "BU" } },
   { key: "nass:us:corn-price", label: "U.S. avg", category: "corn_price", unit: "$/bu",
     params: { commodity_desc: "CORN", statisticcat_desc: "PRICE RECEIVED", agg_level_desc: "NATIONAL", unit_desc: "$ / BU" } },
-  { key: seriesKey("nass", "corn-price"), label: "Iowa avg", category: "corn_price", unit: "$/bu",
-    params: { commodity_desc: "CORN", statisticcat_desc: "PRICE RECEIVED", state_alpha: "IA", unit_desc: "$ / BU" } },
+  { key: seriesKey("nass", "corn-price"), label: `${ST_NAME} avg`, category: "corn_price", unit: "$/bu",
+    params: { commodity_desc: "CORN", statisticcat_desc: "PRICE RECEIVED", state_alpha: ST, unit_desc: "$ / BU" } },
   // Soybean OIL stocks + production — NASS Fats & Oils (Oilseed Crushings) survey, MONTHLY (~45-day lag).
   // The free stand-in for NOPA's monthly oil data, which is Refinitiv-only. commodity_desc is "OIL" with the
   // specific oil in short_desc (confirmed on the Pi via scripts/probe-nass-oil-stocks, 2026-09-13). CRUDE is
@@ -154,7 +159,7 @@ export async function fetchSeries({ env = process.env } = {}) {
   // (weather's fingerprint on yield). Reported per condition class per week_ending; we sum
   // PCT GOOD + PCT EXCELLENT for each week. Iowa vs. U.S. share one chart.
   const CONDITION_SCOPES = [
-    { key: seriesKey("nass", "condition"), label: "Iowa", params: { state_alpha: "IA" } },
+    { key: seriesKey("nass", "condition"), label: ST_NAME, params: { state_alpha: ST } },
     { key: "nass:us:condition", label: "U.S.", params: { agg_level_desc: "NATIONAL" } },
   ];
   for (const s of CONDITION_SCOPES) {
@@ -187,7 +192,7 @@ export async function fetchSeries({ env = process.env } = {}) {
     const ratio = iaSoy.points
       .filter((p) => cornByPeriod.get(p.period) > 0)
       .map((p) => ({ period: p.period, value: Math.round((p.value / cornByPeriod.get(p.period)) * 100) / 100 }));
-    if (ratio.length) out.push({ series: seriesKey("nass", "soy-corn-ratio"), meta: { label: "Iowa soybean:corn price ratio", unit: "ratio", category: "soy_corn_ratio" }, points: ratio });
+    if (ratio.length) out.push({ series: seriesKey("nass", "soy-corn-ratio"), meta: { label: `${ST_NAME} soybean:corn price ratio`, unit: "ratio", category: "soy_corn_ratio" }, points: ratio });
   }
   return out;
 }

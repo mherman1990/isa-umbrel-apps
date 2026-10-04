@@ -193,6 +193,17 @@ export function seriesKey(source, name, { scope = "state" } = {}) {
   return `${source}:${st}:${name}`;
 }
 
+/** The pack's own state as a crop/drought area of interest: { key: "ia", fips: "19", name: "Iowa" }. */
+export function homeRegion() {
+  const id = pack().identity;
+  return { key: id.stateAlpha.toLowerCase(), fips: id.stateFips, name: id.stateName };
+}
+
+/** The neighbouring belt states a pack follows for context (markets.cropRegions.belt). */
+export function beltRegions() {
+  return pack().markets?.cropRegions?.belt ?? [];
+}
+
 /** Absolute path of a file the pack ships (geo layers, data files, branding). */
 export function packPath(rel) {
   const p = pack();
