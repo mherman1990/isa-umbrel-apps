@@ -57,8 +57,10 @@ Everything that made a deployment "Iowa" now lives in a versioned **state pack**
   - The congressional delegation on hearing committees moved into the pack (`legislature.congressionalDelegation`); with none listed, hearings carry no delegation note.
   - Drought items link to the pack state's map.
 
+- **/freshness reads the persisted source health.** A source whose latest fetch failed shows `FAILING (n×)` with the stored error, even after a restart has cleared the log. Dry runs no longer write source health.
+
 ### Tests
-- 476 tests (was 450). New files: `pack.test.js`, `pack-gates.test.js` (a non-Iowa overlay switches off the Iowa adapter, hosts, campaign-finance seeding and AMS report), `setup.test.js`, and the two snapshot tests.
+- 478 tests (was 450). New files: `pack.test.js`, `pack-gates.test.js` (a non-Iowa overlay switches off the Iowa adapter, hosts, campaign-finance seeding and AMS report), `setup.test.js`, and the two snapshot tests.
 
 ### Not in this release
 - The shared data commons (MULTI_STATE.md step 9) and funding channels (step 10) wait on open questions 2 and 4.

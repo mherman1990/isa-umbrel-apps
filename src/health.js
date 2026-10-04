@@ -353,6 +353,15 @@ export function auditFreshness({ db, watchlist, defaultWatchlist = null, envPres
   // ---------- sources ----------
   const adapters = discoverAdapters(projectRoot);
   const itemRuns = new Map(q(db, "SELECT source_id, last_success_at FROM runs").map((r) => [r.source_id, r.last_success_at]));
+  // The persisted last outcome per source (store.recordSourceAttempt) — survives a restart, unlike the
+  // in-memory log. A source whose latest attempt (items or series) failed is reported as failing.
+  const healthBySource = new Map();
+  if (tableExists(db, "source_health")) {
+    for (const h of q(db, "SELECT * FROM source_health")) {
+      const prev = healthBySource.get(h.source_id);
+      if (!prev || h.last_attempt_at > prev.last_attempt_at) healthBySource.set(h.source_id, h);
+    }
+  }
   const seriesRuns = tableExists(db, "market_runs")
     ? new Map(q(db, "SELECT source_id, last_success_at, series_count FROM market_runs").map((r) => [r.source_id, r]))
     : new Map();
@@ -436,12 +445,14 @@ export function auditFreshness({ db, watchlist, defaultWatchlist = null, envPres
     const dataAge = newestPeriod ? nowMs - periodToMs(newestPeriod) : null;
     const it = newestItem.get(a.id) ?? null;
 
-    // Status precedence: off → no key → never fetched → stale fetch → stale data → ok.
+    const failing = healthBySource.get(a.id)?.last_outcome === "error" && healthBySource.get(a.id).consecutive_failures > 0 ? healthBySource.get(a.id) : null;
+    // Status precedence: off → no key → latest attempt failed → never fetched → stale fetch → stale data → ok.
     const fetchLimit = 2 * PIPELINE_CADENCE_H * HOUR;
     const dataLimit = exp.dataCadenceD != null ? (2 * exp.dataCadenceD + (exp.lagD ?? 0)) * DAY : null;
     let status;
     if (!enabled) status = "OFF";
     else if (!keyOk) status = "NO KEY";
+    else if (failing) status = `FAILING (${failing.consecutive_failures}× — last ok ${failing.last_ok_at ? isoShort(failing.last_ok_at) : "never"})`;
     else if (!lastFetch) status = "NEVER";
     else if (fetchAge > fetchLimit) status = "STALE (fetch)";
     else if (a.hasSeries && dataLimit != null && dataAge != null && dataAge > dataLimit) status = "STALE (data)";
@@ -449,8 +460,10 @@ export function auditFreshness({ db, watchlist, defaultWatchlist = null, envPres
     else status = "OK";
 
     const missing = lastMissing.get(a.label);
+    const h = healthBySource.get(a.id);
     const lastError =
       lastLogError(logLines, [a.label, `${a.id}:`, `${a.id} `]) ??
+      (h?.last_outcome === "error" && h.last_error ? `last attempt ${isoShort(h.last_attempt_at)} failed: ${h.last_error}` : null) ??
       (missing ? `named unavailable in the ${missing.edition} run of ${isoShort(missing.at)} (brief_runs.missing_layers)` : null);
 
     return {

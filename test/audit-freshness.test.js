@@ -197,3 +197,14 @@ function withoutPurpose(purpose) {
   db.prepare("DELETE FROM token_usage WHERE purpose = ?").run(purpose);
   return db;
 }
+
+test("a persisted source failure shows after a restart (empty log): FAILING with the stored error", () => {
+  const ok = run().sources.find((s) => s.id === "federal_register");
+  assert.equal(ok.status, "OK");
+  store.recordSourceAttempt("federal_register", "items", "error", { error: "HTTP 502 from api.federalregister.gov" });
+  const r = run({ logText: "" }).sources.find((s) => s.id === "federal_register");
+  assert.match(r.status, /^FAILING \(1×/);
+  assert.match(r.lastError, /HTTP 502 from api\.federalregister\.gov/);
+  store.recordSourceAttempt("federal_register", "items", "ok", { count: 3 });
+  assert.equal(run().sources.find((s) => s.id === "federal_register").status, "OK", "recovers on the next good fetch");
+});

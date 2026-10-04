@@ -111,3 +111,12 @@ test("happy path: applying pendings only AFTER markSeen advances the watermark a
   const r2 = await collect(SRC);
   assert.ok(!r2.items.some((i) => i.uid === item.uid), "next run does not re-process the committed item");
 });
+
+test("a dry run (commit=false) records nothing in source_health — /freshness reports real runs only", async () => {
+  const SRC = "__wm_dryhealth__";
+  registerFakeSource(SRC, "wm-dryhealth-1");
+  await collectAll({ watchlist: watchlistFor(SRC), env: {}, onlySource: SRC, commit: false });
+  assert.equal(store.listSourceHealth().find((r) => r.source_id === SRC), undefined);
+  await collect(SRC);
+  assert.ok(store.listSourceHealth().find((r) => r.source_id === SRC), "a real run still records");
+});
