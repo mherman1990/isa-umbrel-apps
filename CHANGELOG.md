@@ -59,8 +59,11 @@ Everything that made a deployment "Iowa" now lives in a versioned **state pack**
 
 - **/freshness reads the persisted source health.** A source whose latest fetch failed shows `FAILING (n×)` with the stored error, even after a restart has cleared the log. Dry runs no longer write source health.
 
+- **The monthly budget set in Settings applies everywhere.** Budget checks that weren't handed the watchlist (the panels) used to fall back to the $75 default; they now read the live watchlist. Past the hard ceiling the daily run also skips the news digest, market intel and market cards outright.
+- **/freshness under another state** leaves out adapters that belong to a different state, reads pack-driven adapter labels correctly, and keeps a failed item fetch visible even after a later successful series refresh.
+
 ### Tests
-- 478 tests (was 450). New files: `pack.test.js`, `pack-gates.test.js` (a non-Iowa overlay switches off the Iowa adapter, hosts, campaign-finance seeding and AMS report), `setup.test.js`, and the two snapshot tests.
+- 482 tests (was 450). New files: `pack.test.js`, `pack-gates.test.js` (a non-Iowa overlay switches off the Iowa adapter, hosts, campaign-finance seeding and AMS report), `setup.test.js`, and the two snapshot tests.
 
 ### Not in this release
 - The shared data commons (MULTI_STATE.md step 9) and funding channels (step 10) wait on open questions 2 and 4.

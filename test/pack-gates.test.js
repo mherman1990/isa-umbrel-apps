@@ -109,3 +109,10 @@ test("drought items link to the pack state's map", async () => {
     globalThis.fetch = realFetch;
   }
 });
+
+test("the freshness audit leaves out another state's adapter (it is not registered here)", async () => {
+  const { discoverAdapters } = await import("../src/health.js");
+  const ids = discoverAdapters(path.join(path.dirname(new URL(import.meta.url).pathname), "..")).map((a) => a.id);
+  assert.ok(!ids.includes("iowa_admin_rules"));
+  assert.ok(ids.includes("legiscan"));
+});

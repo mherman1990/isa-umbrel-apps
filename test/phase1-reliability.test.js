@@ -278,6 +278,26 @@ test("budget: the daily run fails closed at the hard ceiling before any model ca
   }
 });
 
+test("budget: a monthly budget set in Settings (watchlist) applies to checks that don't pass the watchlist", () => {
+  const wlPath = path.join(DIR, "watchlist.json");
+  const before = fs.existsSync(wlPath) ? fs.readFileSync(wlPath, "utf8") : null;
+  const wl = JSON.parse(before ?? fs.readFileSync(path.join(store.PROJECT_ROOT, "watchlist.json"), "utf8"));
+  wl.output = { ...(wl.output ?? {}), monthlyBudgetUsd: 10 };
+  fs.writeFileSync(wlPath, JSON.stringify(wl));
+  const env = {}; // no MONTHLY_BUDGET_USD — the watchlist's $10 must win over the $75 default
+  raw.prepare("DELETE FROM token_usage").run();
+  store.recordUsage("claude-sonnet-5", "query", 0, 1_200_000); // $12: past 110% of $10, far under $75
+  try {
+    assert.equal(budget.allow("news_digest", { env }), false, "panels see the configured budget");
+    assert.match(budget.check("brief", { env }).reason, /hard ceiling \(\$11\.00\)/);
+    assert.equal(budget.summary({ env }).budget, 10);
+  } finally {
+    raw.prepare("DELETE FROM token_usage").run();
+    if (before == null) fs.rmSync(wlPath);
+    else fs.writeFileSync(wlPath, before);
+  }
+});
+
 test("watchlist migration: adds missing source entries, never touches existing ones", () => {
   const shipped = JSON.parse(fs.readFileSync(path.join(store.PROJECT_ROOT, "watchlist.json"), "utf8"));
   const live = structuredClone(shipped);

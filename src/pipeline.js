@@ -517,20 +517,24 @@ export async function runPipeline({ edition = "am", dryRun = false, source = nul
     const refresh = await refreshMarketSeries(env);
     failedMarketLayers = refresh.failed;
     await runAlertsCheck(env, watchlist.output);
-    try {
-      await generateNewsDigest(env);
-    } catch (err) {
-      console.log(`⚠️  News digest skipped: ${err.message}`);
-    }
-    try {
-      await extractMarketIntel(env);
-    } catch (err) {
-      console.log(`⚠️  Market-intel extraction skipped: ${err.message}`);
-    }
-    try {
-      await generateMarketCards(env);
-    } catch (err) {
-      console.log(`⚠️  Market cards skipped: ${err.message}`);
+    // The model-backed panels: skipped outright past the hard ceiling (they gate themselves too, but
+    // "no model calls were made" must be literally true for this run).
+    if (ceiling.ok) {
+      try {
+        await generateNewsDigest(env);
+      } catch (err) {
+        console.log(`⚠️  News digest skipped: ${err.message}`);
+      }
+      try {
+        await extractMarketIntel(env);
+      } catch (err) {
+        console.log(`⚠️  Market-intel extraction skipped: ${err.message}`);
+      }
+      try {
+        await generateMarketCards(env);
+      } catch (err) {
+        console.log(`⚠️  Market cards skipped: ${err.message}`);
+      }
     }
     // Judge any forecasts whose horizon has elapsed. Pure arithmetic over stored series — no model
     // call, no cost — so it rides the heartbeat rather than needing its own schedule.

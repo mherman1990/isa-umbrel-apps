@@ -208,3 +208,13 @@ test("a persisted source failure shows after a restart (empty log): FAILING with
   store.recordSourceAttempt("federal_register", "items", "ok", { count: 3 });
   assert.equal(run().sources.find((s) => s.id === "federal_register").status, "OK", "recovers on the next good fetch");
 });
+
+test("a failed item fetch stays visible after a later successful series refresh; pack-driven labels read as at runtime", () => {
+  store.recordSourceAttempt("drought_monitor", "items", "error", { error: "HTTP 500 on items" });
+  store.recordSourceAttempt("drought_monitor", "series", "ok", { count: 4 });
+  const s = run({ logText: "" }).sources.find((x) => x.id === "drought_monitor");
+  assert.match(s.status, /^FAILING/);
+  assert.match(s.lastError, /last items attempt .* failed: HTTP 500 on items/);
+  store.recordSourceAttempt("drought_monitor", "items", "ok", { count: 1 });
+  assert.equal(run().sources.find((x) => x.id === "usda_ams").label, "USDA AMS (Iowa cash, basis & feedstuffs)");
+});

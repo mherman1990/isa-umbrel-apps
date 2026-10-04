@@ -17,10 +17,29 @@
 //
 // Configure with MONTHLY_BUDGET_USD in .env or `output.monthlyBudgetUsd` in watchlist.json (env wins).
 
+import fs from "node:fs";
+import path from "node:path";
 import * as store from "./store.js";
 
 export { DEFAULT_MONTHLY_BUDGET_USD, HARD_CEILING_RATIO, GROUPS, groupOf, monthlyBudget } from "./budgetcore.js";
 import { HARD_CEILING_RATIO, GROUPS, groupOf, monthlyBudget, spendFromRows, summarizeSpend } from "./budgetcore.js";
+
+/**
+ * The live watchlist, for callers that don't pass one: the budget set in Settings
+ * (`output.monthlyBudgetUsd`) must apply to every check, not only to callers that happen to hold the
+ * watchlist — otherwise a panel would recalculate against the $75 default and spend past a lower cap.
+ * Read-only and fail-soft (no watchlist → the env/default budget).
+ */
+function liveWatchlist() {
+  for (const f of [path.join(store.DATA_DIR, "watchlist.json"), path.join(store.PROJECT_ROOT, "watchlist.json")]) {
+    try {
+      return JSON.parse(fs.readFileSync(f, "utf8").replace(/^\uFEFF/, ""));
+    } catch {
+      /* next */
+    }
+  }
+  return null;
+}
 
 /** Month-to-date spend, total and per group. */
 export function monthToDate(now = new Date()) {
@@ -43,7 +62,7 @@ export function check(purpose, { env = process.env, watchlist = null, now = new 
   } catch {
     return { ok: true, reason: "budget unreadable — allowing" }; // never let bookkeeping block a run
   }
-  const budget = monthlyBudget(env, watchlist);
+  const budget = monthlyBudget(env, watchlist ?? liveWatchlist());
   const g = groupOf(purpose);
   const def = GROUPS[g];
   const alloc = budget * def.share;
@@ -58,5 +77,5 @@ export function check(purpose, { env = process.env, watchlist = null, now = new 
 
 /** Table for the health page / audit. */
 export function summary({ env = process.env, watchlist = null, now = new Date() } = {}) {
-  return summarizeSpend(store.monthUsageByPurpose(now), monthlyBudget(env, watchlist), now);
+  return summarizeSpend(store.monthUsageByPurpose(now), monthlyBudget(env, watchlist ?? liveWatchlist()), now);
 }

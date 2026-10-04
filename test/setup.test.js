@@ -81,3 +81,14 @@ test("a data folder is bound to its state: switching an existing folder to anoth
   assert.equal(dataDirPack(fresh), "us-il");
   assert.doesNotThrow(() => claimDataDir(fresh, "us-il"));
 });
+
+test("the CLI refuses a data folder that belongs to another state — cron runs included", async () => {
+  const { spawnSync } = await import("node:child_process");
+  const dir = tmp("bb-setup-cli-");
+  fs.writeFileSync(path.join(dir, "registry.json"), "{}"); // a pre-1.41 Iowa folder
+  const cli = path.join(path.dirname(new URL(import.meta.url).pathname), "..", "src", "index.js");
+  for (const args of [["run", "--edition", "am"], ["dry-run"], ["member-brief", "--preview"]]) {
+    const r = spawnSync(process.execPath, [cli, ...args], { env: { ...process.env, POLIBRIEF_DATA_DIR: dir, STATE_PACK: "us-il", ANTHROPIC_API_KEY: "" }, encoding: "utf8", timeout: 60_000 });
+    assert.match(r.stdout + r.stderr, /belongs to state pack us-ia, but STATE_PACK selects us-il/, `${args.join(" ")} must refuse`);
+  }
+});

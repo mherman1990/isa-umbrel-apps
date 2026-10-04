@@ -248,7 +248,13 @@ export function discoverAdapters(projectRoot = PROJECT_ROOT) {
     const text = fs.readFileSync(path.join(dir, f), "utf8");
     const id = text.match(/export const id\s*=\s*["']([^"']+)["']/)?.[1];
     if (!id) continue;
-    const label = text.match(/export const label\s*=\s*["']([^"']+)["']/)?.[1] ?? id;
+    // A state-specific adapter (export const state = "IA") does not exist under another state's pack —
+    // adapters/index.js drops it at runtime, so the audit must not report it as NEVER fetched.
+    const onlyState = text.match(/export const state\s*=\s*["']([A-Z]{2})["']/)?.[1];
+    if (onlyState && onlyState !== V.alpha) continue;
+    // Labels may be pack-driven template literals (`USDA AMS (${ST_NAME} …)`): fill the interpolation
+    // with the pack's state so the label (and the log lines matched against it) read as at runtime.
+    const label = text.match(/export const label\s*=\s*(["'`])(.+?)\1/)?.[2]?.replace(/\$\{[^}]+\}/g, V.state) ?? id;
     const hasItems = /export\s+(async\s+)?function\s+fetchItems\b/.test(text);
     const hasSeries = /export\s+(async\s+)?function\s+fetchSeries\b/.test(text);
     const registered = new RegExp(`\\[${id}\\.id\\]`).test(indexText);
@@ -355,9 +361,12 @@ export function auditFreshness({ db, watchlist, defaultWatchlist = null, envPres
   const itemRuns = new Map(q(db, "SELECT source_id, last_success_at FROM runs").map((r) => [r.source_id, r.last_success_at]));
   // The persisted last outcome per source (store.recordSourceAttempt) — survives a restart, unlike the
   // in-memory log. A source whose latest attempt (items or series) failed is reported as failing.
+  // Both kinds count: an adapter with items AND series is failing while EITHER kind's latest attempt
+  // failed (a good series refresh after a failed item fetch must not hide the item failure).
   const healthBySource = new Map();
   if (tableExists(db, "source_health")) {
     for (const h of q(db, "SELECT * FROM source_health")) {
+      if (h.last_outcome !== "error" || !(h.consecutive_failures > 0)) continue;
       const prev = healthBySource.get(h.source_id);
       if (!prev || h.last_attempt_at > prev.last_attempt_at) healthBySource.set(h.source_id, h);
     }
@@ -445,7 +454,7 @@ export function auditFreshness({ db, watchlist, defaultWatchlist = null, envPres
     const dataAge = newestPeriod ? nowMs - periodToMs(newestPeriod) : null;
     const it = newestItem.get(a.id) ?? null;
 
-    const failing = healthBySource.get(a.id)?.last_outcome === "error" && healthBySource.get(a.id).consecutive_failures > 0 ? healthBySource.get(a.id) : null;
+    const failing = healthBySource.get(a.id) ?? null; // only failing rows are kept (above)
     // Status precedence: off → no key → latest attempt failed → never fetched → stale fetch → stale data → ok.
     const fetchLimit = 2 * PIPELINE_CADENCE_H * HOUR;
     const dataLimit = exp.dataCadenceD != null ? (2 * exp.dataCadenceD + (exp.lagD ?? 0)) * DAY : null;
@@ -463,7 +472,7 @@ export function auditFreshness({ db, watchlist, defaultWatchlist = null, envPres
     const h = healthBySource.get(a.id);
     const lastError =
       lastLogError(logLines, [a.label, `${a.id}:`, `${a.id} `]) ??
-      (h?.last_outcome === "error" && h.last_error ? `last attempt ${isoShort(h.last_attempt_at)} failed: ${h.last_error}` : null) ??
+      (h?.last_error ? `last ${h.kind} attempt ${isoShort(h.last_attempt_at)} failed: ${h.last_error}` : null) ??
       (missing ? `named unavailable in the ${missing.edition} run of ${isoShort(missing.at)} (brief_runs.missing_layers)` : null);
 
     return {
