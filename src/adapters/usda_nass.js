@@ -7,6 +7,7 @@
 // value/period is kept so the market-signal layer can read it later.
 
 import { fetchJSON } from "../util.js";
+import { seriesKey } from "../pack.js";
 
 export const id = "usda_nass";
 export const label = "USDA NASS (supply & price)";
@@ -98,13 +99,13 @@ const NASS_SERIES = [
     params: { commodity_desc: "SOYBEANS", statisticcat_desc: "CRUSHED", agg_level_desc: "NATIONAL" } },
   { key: "nass:us:price", label: "U.S. avg", category: "soy_price", unit: "$/bu",
     params: { commodity_desc: "SOYBEANS", statisticcat_desc: "PRICE RECEIVED", agg_level_desc: "NATIONAL", unit_desc: "$ / BU" } },
-  { key: "nass:ia:price", label: "Iowa avg", category: "soy_price", unit: "$/bu",
+  { key: seriesKey("nass", "price"), label: "Iowa avg", category: "soy_price", unit: "$/bu",
     params: { commodity_desc: "SOYBEANS", statisticcat_desc: "PRICE RECEIVED", state_alpha: "IA", unit_desc: "$ / BU" } },
   { key: "nass:us:stocks", label: "U.S. soybean stocks", category: "soy_stocks", unit: "bu",
     params: { commodity_desc: "SOYBEANS", statisticcat_desc: "STOCKS", agg_level_desc: "NATIONAL", unit_desc: "BU" } },
   { key: "nass:us:corn-price", label: "U.S. avg", category: "corn_price", unit: "$/bu",
     params: { commodity_desc: "CORN", statisticcat_desc: "PRICE RECEIVED", agg_level_desc: "NATIONAL", unit_desc: "$ / BU" } },
-  { key: "nass:ia:corn-price", label: "Iowa avg", category: "corn_price", unit: "$/bu",
+  { key: seriesKey("nass", "corn-price"), label: "Iowa avg", category: "corn_price", unit: "$/bu",
     params: { commodity_desc: "CORN", statisticcat_desc: "PRICE RECEIVED", state_alpha: "IA", unit_desc: "$ / BU" } },
   // Soybean OIL stocks + production — NASS Fats & Oils (Oilseed Crushings) survey, MONTHLY (~45-day lag).
   // The free stand-in for NOPA's monthly oil data, which is Refinitiv-only. commodity_desc is "OIL" with the
@@ -153,7 +154,7 @@ export async function fetchSeries({ env = process.env } = {}) {
   // (weather's fingerprint on yield). Reported per condition class per week_ending; we sum
   // PCT GOOD + PCT EXCELLENT for each week. Iowa vs. U.S. share one chart.
   const CONDITION_SCOPES = [
-    { key: "nass:ia:condition", label: "Iowa", params: { state_alpha: "IA" } },
+    { key: seriesKey("nass", "condition"), label: "Iowa", params: { state_alpha: "IA" } },
     { key: "nass:us:condition", label: "U.S.", params: { agg_level_desc: "NATIONAL" } },
   ];
   for (const s of CONDITION_SCOPES) {
@@ -179,14 +180,14 @@ export async function fetchSeries({ env = process.env } = {}) {
   // Computed: the soybean-to-corn price ratio (Iowa) — a classic relative-value / acreage
   // read farmers watch (roughly ~2.3–2.5 is the historical planting-decision pivot). Derived
   // from the two Iowa price series above, matched on shared months. No extra API call.
-  const iaSoy = out.find((s) => s.series === "nass:ia:price");
-  const iaCorn = out.find((s) => s.series === "nass:ia:corn-price");
+  const iaSoy = out.find((s) => s.series === seriesKey("nass", "price"));
+  const iaCorn = out.find((s) => s.series === seriesKey("nass", "corn-price"));
   if (iaSoy && iaCorn) {
     const cornByPeriod = new Map(iaCorn.points.map((p) => [p.period, p.value]));
     const ratio = iaSoy.points
       .filter((p) => cornByPeriod.get(p.period) > 0)
       .map((p) => ({ period: p.period, value: Math.round((p.value / cornByPeriod.get(p.period)) * 100) / 100 }));
-    if (ratio.length) out.push({ series: "nass:ia:soy-corn-ratio", meta: { label: "Iowa soybean:corn price ratio", unit: "ratio", category: "soy_corn_ratio" }, points: ratio });
+    if (ratio.length) out.push({ series: seriesKey("nass", "soy-corn-ratio"), meta: { label: "Iowa soybean:corn price ratio", unit: "ratio", category: "soy_corn_ratio" }, points: ratio });
   }
   return out;
 }

@@ -32,7 +32,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { summarizeSpend, monthlyBudget } from "./budgetcore.js";
 import { calendarCoverage } from "./calendar.js";
-import { voice } from "./pack.js";
+import { voice, seriesKey } from "./pack.js";
 // State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
 const V = voice();
 
@@ -107,14 +107,14 @@ export const MEMBER_BRIEF_INPUTS = [
   {
     id: "oil_share",
     label: "Oil share of crush",
-    series: ["cme:zl:front", "cme:zm:front", "ams:ia:oil", "ams:ia:meal"],
+    series: ["cme:zl:front", "cme:zm:front", seriesKey("ams", "oil"), seriesKey("ams", "meal")],
     maxAgeD: 7,
     need: `member-facing: CME settlements first, USDA AMS ${V.state} cash second — never the Yahoo board legs`,
   },
   {
     id: "soy_corn_ratio",
     label: "Soy:corn price ratio",
-    series: ["cme:zs:*-11 ÷ cme:zc:*-12", "nass:ia:soy-corn-ratio"],
+    series: ["cme:zs:*-11 ÷ cme:zc:*-12", seriesKey("nass", "soy-corn-ratio")],
     maxAgeD: 4,
     need: `new-crop Nov/Dec needs CME_SETTLEMENTS on (no backfill — history starts the day it is set); NASS ${V.state} monthly is dated context`,
   },
@@ -147,19 +147,19 @@ const TRUNCATION_RATIO = 0.98;
 // the freshness of these series.
 const SIGNAL_INPUTS = [
   "nass:us:condition",
-  "vegscape:ia:vci",
-  "cropcasma:ia:rootzone-sm",
-  "drought_monitor:ia:d1",
+  seriesKey("vegscape", "vci"),
+  seriesKey("cropcasma", "rootzone-sm"),
+  seriesKey("drought_monitor", "d1"),
   "agtransport:soy-net-export-sales",
   "wasde:us:soy-stocks-to-use",
   "cftc:soybeans:mm-net",
   "ibge_brazil:soy-production",
-  "nass:ia:soy-corn-ratio",
+  seriesKey("nass", "soy-corn-ratio"),
   "nass:us:crush",
   "open_meteo:us:precip-pctile",
   "open_meteo:sa:precip-pctile",
 ];
-const CRUSH_INPUTS = ["cbot:zs:front", "cbot:zm:front", "cbot:zl:front", "cbot:crush:board-margin", "ams:ia:meal", "ams:ia:oil", "ams:ia:cash-crush-margin", "nass:us:crush"];
+const CRUSH_INPUTS = ["cbot:zs:front", "cbot:zm:front", "cbot:zl:front", "cbot:crush:board-margin", seriesKey("ams", "meal"), seriesKey("ams", "oil"), seriesKey("ams", "cash-crush-margin"), "nass:us:crush"];
 
 // ---------------------------------------------------------------------------------------------
 // Small, defensive DB helpers — the audit must run on any DB vintage, so every query tolerates a

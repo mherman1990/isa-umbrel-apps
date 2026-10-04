@@ -38,7 +38,7 @@ import { parseDaySpec, localClock, DAYS } from "./schedule.js";
 import { MARKETS as CFTC_MARKETS, SOURCE_URL as CFTC_URL } from "./adapters/cftc.js";
 import { saveBrief, sendMemberBriefEmail, sendOpsAlert } from "./deliver.js";
 import { wasTruncated } from "./modelcfg.js";
-import { voice } from "./pack.js";
+import { voice, seriesKey } from "./pack.js";
 // State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
 const V = voice();
 
@@ -329,8 +329,8 @@ function addOilShare(pk) {
     },
     {
       basis: `${V.state} cash soybean oil and meal, USDA AMS National Grain & Oilseed Processor Feedstuff report`,
-      meal: series("ams:ia:meal"),
-      oil: series("ams:ia:oil"),
+      meal: series(seriesKey("ams", "meal")),
+      oil: series(seriesKey("ams", "oil")),
       allow: 10,
       source: { title: `USDA AMS National Grain and Oilseed Processor Feedstuff report (3511) — ${V.state} soybean oil and meal`, publisher: "USDA Agricultural Marketing Service", url: "https://mymarketnews.ams.usda.gov/viewReport/3511", tier: "primary_source", tierLabel: "primary source" },
     },
@@ -396,7 +396,7 @@ function addRatio(pk) {
     for (const t of ["NEWCROP", "CONTRACTS", "ASOF"]) pk.token(`RATIO_${t}`, "", true);
   }
   // Context, always dated: NASS Iowa prices received (monthly, published with a lag).
-  const ia = series("nass:ia:soy-corn-ratio");
+  const ia = series(seriesKey("nass", "soy-corn-ratio"));
   if (ia.length) {
     const l = ia[ia.length - 1];
     const cite = pk.addSource({ kind: "series", title: `USDA NASS Agricultural Prices — ${V.state} soybean and corn prices received`, publisher: "USDA National Agricultural Statistics Service", url: "https://quickstats.nass.usda.gov/", date: l.period, tier: "primary_source", tierLabel: "primary source", text: `${V.state} ratio ${fmt2(l.value)} for ${l.period}` });

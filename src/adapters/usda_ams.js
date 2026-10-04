@@ -29,6 +29,7 @@
 
 import { fetchJSON, sleep } from "../util.js";
 import * as store from "../store.js";
+import { seriesKey } from "../pack.js";
 
 export const id = "usda_ams";
 export const label = "USDA AMS (Iowa cash, basis & feedstuffs)";
@@ -226,7 +227,7 @@ function modalMonthBasis(rows) {
 // first but keeps the documented aliases and the value-based auto-detect as fallbacks, so a column rename
 // upstream degrades gracefully rather than silently dropping the family. Fail-safe throughout: if nothing
 // resolves, no breakout is emitted and the statewide series are untouched.
-export const FAMILY_BASIS_DISTRICT = "ams:ia:basis-by-district";
+export const FAMILY_BASIS_DISTRICT = seriesKey("ams", "basis-by-district");
 
 // Iowa district phrasings → [short token, display label]. Ordered so two-word compass names match before
 // bare "Central". 2850 emits only six of the nine districts — Northwest, North Central, Northeast,
@@ -329,9 +330,9 @@ function cashGrainSeries(rows) {
   // series) rather than a chart of its own — same unit, and the daily-cash-vs-monthly-received
   // contrast is the useful comparison. The two basis series get their own chart because they are
   // ¢/bu and would wreck a $/bu axis.
-  if (price.size) out.push({ series: "ams:ia:cash-price", meta: { label: "Iowa cash soybean price (daily)", unit: "$/bu", category: "soy_price" }, points: toPoints(price) });
-  if (basis.size) out.push({ series: "ams:ia:basis", meta: { label: "Iowa soybean basis (nearby)", unit: "¢/bu", category: "soy_basis" }, points: toPoints(basis) });
-  if (basisProc.size) out.push({ series: "ams:ia:basis-processor", meta: { label: "Iowa soybean basis — processors", unit: "¢/bu", category: "soy_basis" }, points: toPoints(basisProc) });
+  if (price.size) out.push({ series: seriesKey("ams", "cash-price"), meta: { label: "Iowa cash soybean price (daily)", unit: "$/bu", category: "soy_price" }, points: toPoints(price) });
+  if (basis.size) out.push({ series: seriesKey("ams", "basis"), meta: { label: "Iowa soybean basis (nearby)", unit: "¢/bu", category: "soy_basis" }, points: toPoints(basis) });
+  if (basisProc.size) out.push({ series: seriesKey("ams", "basis-processor"), meta: { label: "Iowa soybean basis — processors", unit: "¢/bu", category: "soy_basis" }, points: toPoints(basisProc) });
   // The per-district family (§1.3) — additive and fail-soft: [] when no district field resolves, so the
   // statewide series above are never affected by it.
   out.push(...cashGrainDistrictSeries(soy));
@@ -363,10 +364,10 @@ function feedstuffSeries(rows) {
   const hullsPellet = pull("Soybean Hulls", isPellet);
 
   const out = [];
-  if (meal.size) out.push({ series: "ams:ia:meal", meta: { label: "Iowa cash soybean meal (46.5–48%)", unit: "$/ton", category: "soy_products_cash" }, points: toPoints(meal) });
-  if (oil.size) out.push({ series: "ams:ia:oil", meta: { label: "Iowa cash soybean oil", unit: "¢/lb", category: "soy_products_cash" }, points: toPoints(oil) });
-  if (hullsLoose.size) out.push({ series: "ams:ia:hulls-loose", meta: { label: "Iowa soybean hulls (loose)", unit: "$/ton", category: "soy_products_cash" }, points: toPoints(hullsLoose) });
-  if (hullsPellet.size) out.push({ series: "ams:ia:hulls-pellet", meta: { label: "Iowa soybean hulls (pellets)", unit: "$/ton", category: "soy_products_cash" }, points: toPoints(hullsPellet) });
+  if (meal.size) out.push({ series: seriesKey("ams", "meal"), meta: { label: "Iowa cash soybean meal (46.5–48%)", unit: "$/ton", category: "soy_products_cash" }, points: toPoints(meal) });
+  if (oil.size) out.push({ series: seriesKey("ams", "oil"), meta: { label: "Iowa cash soybean oil", unit: "¢/lb", category: "soy_products_cash" }, points: toPoints(oil) });
+  if (hullsLoose.size) out.push({ series: seriesKey("ams", "hulls-loose"), meta: { label: "Iowa soybean hulls (loose)", unit: "$/ton", category: "soy_products_cash" }, points: toPoints(hullsLoose) });
+  if (hullsPellet.size) out.push({ series: seriesKey("ams", "hulls-pellet"), meta: { label: "Iowa soybean hulls (pellets)", unit: "$/ton", category: "soy_products_cash" }, points: toPoints(hullsPellet) });
   return { out, meal, oil, hullsLoose, hullsPellet };
 }
 
@@ -406,7 +407,7 @@ function feedstuffSeries(rows) {
 function cashCrushMargin({ meal, oil, hullsLoose, hullsPellet }, cashPricePoints) {
   const beans = new Map();
   try {
-    for (const p of store.getSeries("ams:ia:cash-price")) beans.set(p.period, p.value);
+    for (const p of store.getSeries(seriesKey("ams", "cash-price"))) beans.set(p.period, p.value);
   } catch {
     /* no store yet → this run's fetch is all we have */
   }
@@ -483,21 +484,21 @@ export async function fetchSeries({ env = process.env, sourceConfig = {} } = {})
   const out = [];
   let cashPricePoints = [];
   try {
-    const deep = !skipBackfill && needsBackfill("ams:ia:cash-price");
+    const deep = !skipBackfill && needsBackfill(seriesKey("ams", "cash-price"));
     if (deep) console.log(`   ${label}: first run for Iowa cash/basis — backfilling 2850 in ${BACKFILL_CHUNK_DAYS}-day chunks (one time)`);
     const rows = deep
       ? await sectionHistory(CASH_GRAIN, "Report Detail", env)
       : await section(CASH_GRAIN, "Report Detail", env, window);
     const s = cashGrainSeries(rows);
     out.push(...s);
-    cashPricePoints = s.find((x) => x.series === "ams:ia:cash-price")?.points ?? [];
+    cashPricePoints = s.find((x) => x.series === seriesKey("ams", "cash-price"))?.points ?? [];
   } catch (err) {
     console.log(`⚠️  ${label}: cash grain (2850) series failed — ${err.message}`);
   }
   try {
     // Also deep-pull when the MARGIN is thin even though the legs are populated — that's the
     // second-run case where 2850 backfilled after 3511 had already passed its threshold.
-    const deep = !skipBackfill && (needsBackfill("ams:ia:meal") || needsBackfill("ams:ia:cash-crush-margin"));
+    const deep = !skipBackfill && (needsBackfill(seriesKey("ams", "meal")) || needsBackfill(seriesKey("ams", "cash-crush-margin")));
     if (deep) console.log(`   ${label}: backfilling 3511 in ${BACKFILL_CHUNK_DAYS}-day chunks (one time)`);
     const rows = deep
       ? await sectionHistory(FEEDSTUFF, "Report Detail", env)
@@ -508,7 +509,7 @@ export async function fetchSeries({ env = process.env, sourceConfig = {} } = {})
       const margin = cashCrushMargin(legs, cashPricePoints);
       if (margin.size) {
         out.push({
-          series: "ams:ia:cash-crush-margin",
+          series: seriesKey("ams", "cash-crush-margin"),
           meta: { label: "Iowa cash crush margin", unit: "$/bu", category: "soy_crush_margin" },
           points: toPoints(margin),
         });

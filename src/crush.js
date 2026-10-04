@@ -32,7 +32,7 @@ import { fileURLToPath } from "node:url";
 
 import * as store from "./store.js";
 import { CRUSH_YIELDS } from "./adapters/cbot_futures.js";
-import { voice } from "./pack.js";
+import { voice, seriesKey } from "./pack.js";
 // State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
 const V = voice();
 
@@ -173,7 +173,7 @@ export function crushUtilization() {
 
 /** Percentile of the newest crush-margin reading within its own history, preferring Iowa cash. */
 function marginPercentile() {
-  for (const name of ["ams:ia:cash-crush-margin", "cbot:crush:board-margin"]) {
+  for (const name of [seriesKey("ams", "cash-crush-margin"), "cbot:crush:board-margin"]) {
     let pts = [];
     try {
       pts = store.getSeries(name);
@@ -280,6 +280,8 @@ export function crushSignal() {
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const monthName = (m) => MON[(m || 1) - 1];
 
+const ordinal = (n) => n + ([, "st", "nd", "rd"][(n % 100 >> 3) ^ 1 && n % 10] || "th");
+
 /** Narrative for the Analyst / Ask prompts — the crush chain, cause through effect. */
 export function crushText() {
   const s = crushSignal();
@@ -287,10 +289,16 @@ export function crushText() {
   const lines = [`- ${s.name}: ${s.direction.toUpperCase()} — ${s.detail}`];
   const cap = loadCapacity();
   if (cap) {
-    const ia = (cap.currentPlants ?? []).filter((p) => p.state === "IA").reduce((a, p) => a + p.buPerDay, 0);
-    if (ia) {
+    // The home state's share and rank come from the national plant table — not asserted.
+    const byState = new Map();
+    for (const p of cap.currentPlants ?? []) byState.set(p.state, (byState.get(p.state) ?? 0) + (p.buPerDay ?? 0));
+    const home = byState.get(V.alpha) ?? 0;
+    if (home) {
+      const rank = [...byState.values()].filter((v) => v > home).length + 1;
+      const rankText = rank === 1 ? "the largest of any state" : `the ${ordinal(rank)}-largest state`;
+      const tail = rank === 1 ? ` — so national crush economics land disproportionately on ${V.state} basis` : "";
       lines.push(
-        `- Iowa holds ${(ia / 1e6).toFixed(2)}M bu/day of the ${(cap.currentTotalBuPerDay / 1e6).toFixed(2)}M bu/day U.S. installed base (${((ia / cap.currentTotalBuPerDay) * 100).toFixed(0)}%), the largest of any state — so national crush economics land disproportionately on Iowa basis.`
+        `- ${V.state} holds ${(home / 1e6).toFixed(2)}M bu/day of the ${(cap.currentTotalBuPerDay / 1e6).toFixed(2)}M bu/day U.S. installed base (${((home / cap.currentTotalBuPerDay) * 100).toFixed(0)}%), ${rankText}${tail}.`
       );
     }
   }
@@ -324,7 +332,7 @@ export function oilSharePoints(mealPts, oilPts) {
 
 const SHARE_SOURCES = [
   { key: "board", label: "Board", meal: "cbot:zm:front", oil: "cbot:zl:front" },
-  { key: "cash", label: `${V.state} cash`, meal: "ams:ia:meal", oil: "ams:ia:oil" },
+  { key: "cash", label: `${V.state} cash`, meal: seriesKey("ams", "meal"), oil: seriesKey("ams", "oil") },
 ];
 
 /**
