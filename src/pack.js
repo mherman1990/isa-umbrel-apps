@@ -204,6 +204,22 @@ export function beltRegions() {
   return pack().markets?.cropRegions?.belt ?? [];
 }
 
+/**
+ * The barge-freight river segments a pack follows (markets.barge.locations). USDA's dataset reports $/ton
+ * per river SEGMENT ("Cape Girardeau – Grafton"), so each entry names the segment exactly as USDA does,
+ * with an optional reader-facing label. A bare string is a segment named by itself.
+ * @returns {{segment:string, label:string, slug:string, series:string}[]}
+ */
+export function bargeLocations(list = pack().markets?.barge?.locations ?? []) {
+  return list
+    .map((e) => (typeof e === "string" ? { segment: e, label: e } : { segment: e?.segment, label: e?.label ?? e?.segment }))
+    .filter((e) => e.segment)
+    .map((e) => {
+      const slug = String(e.segment).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      return { ...e, slug, series: `agtransport:barge-freight:${slug}` };
+    });
+}
+
 /** Absolute path of a file the pack ships (geo layers, data files, branding). */
 export function packPath(rel) {
   const p = pack();

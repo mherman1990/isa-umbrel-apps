@@ -380,18 +380,30 @@ test("CFTC: falls back to the name-only query when Socrata rejects the code colu
   assert.deepEqual(cftc.MARKETS.map((m) => m.key), ["soybeans", "soymeal", "soyoil"]);
 });
 
-test("barge: location column discovered, rows grouped per wanted location, $/ton", () => {
-  assert.equal(ag.findLocationColumn({ date: "x", location: "St. Louis", price_per_ton: "1" }), "location");
-  assert.equal(ag.findLocationColumn({ date: "x", river_segment: "Illinois River" }), "river_segment");
+test("barge: USDA's river-segment column, exact segment matching, pack labels, legacy names ignored", () => {
+  // The real shape of 7spn-fbua (verified on the Pi 2026-10-04): one row per river SEGMENT per week.
+  const real = { date: "2026-09-29T00:00:00.000", month: "September", year: "2026", river_system_location: "La Crosse – Minneapolis", price_per_ton: "51.84125" };
+  assert.equal(ag.findLocationColumn(real), "river_system_location");
   assert.equal(ag.findLocationColumn({ date: "x", price_per_ton: "1" }), null);
-  const out = ag.bargeSeriesFromRows([
-    { date: "2026-10-01T00:00:00.000", loc: "ST. LOUIS", v: "28.5" },
-    { date: "2026-10-01T00:00:00.000", loc: "Illinois River", v: "31" },
-    { date: "2026-10-01T00:00:00.000", loc: "Cincinnati", v: "20" },
-  ]);
-  assert.deepEqual(out.map((s) => s.series).sort(), ["agtransport:barge-freight:illinois-river", "agtransport:barge-freight:st-louis"]);
-  assert.equal(out[0].meta.unit, "$/ton");
-  assert.equal(out[0].meta.family, "agtransport:barge-freight");
+  const rows = [
+    { date: "2026-09-29T00:00:00.000", loc: "Dubuque – Genoa", v: "50.75" },
+    { date: "2026-09-29T00:00:00.000", loc: "Cape Girardeau –Grafton", v: "21.4" }, // USDA's own spacing
+    { date: "2026-09-29T00:00:00.000", loc: "Hardin – Havana", v: "24.1" },
+    { date: "2026-09-29T00:00:00.000", loc: "La Crosse – Minneapolis", v: "51.84" }, // not followed
+  ];
+  const wanted = ag.wantedSegments(undefined); // the Iowa pack's segments
+  assert.deepEqual(wanted.map((w) => w.segment), ["Dubuque – Genoa", "Keithsburg – Savanna", "Winfield – Canton", "Cape Girardeau –Grafton", "Hardin – Havana"]);
+  const out = ag.bargeSeriesFromRows(rows, wanted);
+  assert.deepEqual(out.map((s) => s.series).sort(), ["agtransport:barge-freight:cape-girardeau-grafton", "agtransport:barge-freight:dubuque-genoa", "agtransport:barge-freight:hardin-havana"]);
+  const stl = out.find((s) => s.series.endsWith("cape-girardeau-grafton"));
+  assert.equal(stl.meta.label, "Barge freight — St. Louis harbor benchmark (Cape Girardeau – Grafton)");
+  assert.equal(stl.meta.unit, "$/ton");
+  assert.equal(stl.meta.family, "agtransport:barge-freight");
+  // Exact, not substring: a wanted "Grafton" must not pick up "Cape Girardeau – Grafton".
+  assert.deepEqual(ag.bargeSeriesFromRows(rows, ["Grafton"]), []);
+  // The 1.40.0 watchlist default names rows that do not exist — an untouched copy falls back to the pack.
+  assert.equal(ag.wantedSegments(["St. Louis", "Illinois River"]).length, 5);
+  assert.deepEqual(ag.wantedSegments(["Hardin – Havana"]).map((w) => w.segment), ["Hardin – Havana"], "a real override still wins");
 });
 
 test("3-year same-week average needs at least two prior years", () => {

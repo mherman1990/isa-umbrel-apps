@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.41.1 — Barge freight by river segment (the Member Brief's barge lines now fill in)
+
+The 1.40.0 Member Brief asked USDA's barge dataset (Ag Transport `7spn-fbua`) for "St. Louis" and "Illinois River". Those names don't exist in it. The dataset reports $/ton per river **segment** in `river_system_location` (26 segments, checked against the live data). Every per-location lookup therefore came back empty, and the brief said "not updated this cycle".
+
+- **Segments from the state pack** (`markets.barge.locations`): USDA's exact segment name plus a reader-facing label. Iowa follows its own Mississippi reaches plus two benchmarks:
+  - Dubuque – Genoa
+  - Keithsburg – Savanna (Quad Cities)
+  - Winfield – Canton (SE Iowa)
+  - Cape Girardeau – Grafton (St. Louis harbor benchmark)
+  - Hardin – Havana (lower Illinois River benchmark)
+- **Exact matching**, ignoring case and dash style. A loose substring match would let "Grafton" pick up the wrong reach.
+- **Old names ignored:** the 1.40.0 watchlist default (`["St. Louis", "Illinois River"]`) is ignored when found untouched in a live watchlist, and has been removed from the shipped `watchlist.json`. A real override still wins.
+- **Member Brief** lists the barge lines in the pack's order. `/freshness` checks the pack's segments, and the Markets chart caption explains that the all-segment average mixes reaches priced very differently.
+- **Illinois pilot pack** follows Hardin – Havana, Kingston Mines – Peoria and the St. Louis harbor.
+
+Update only — no new keys. The new series fill in on the next refresh (or `node src/index.js market-refresh`).
+
 ## 1.41.0 — State packs: the Bean Brief can run for another state without a fork
 
 Everything that made a deployment "Iowa" now lives in a versioned **state pack** (`packs/<id>/<version>/pack.json`). Iowa ships as `us-ia`, extending a federal base tier `us-national`. `STATE_PACK` (default `us-ia`) picks the pack. Design: `docs/MULTI_STATE.md`.

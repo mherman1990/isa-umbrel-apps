@@ -66,7 +66,15 @@
         { "key": "ne", "fips": "31", "name": "Nebraska" }
       ]
     },
-    "barge": { "locations": ["St. Louis", "Illinois River"] },
+    "barge": {
+      "locations": [
+        { "segment": "Dubuque – Genoa", "label": "Upper Mississippi, NE Iowa (Dubuque – Genoa)" },
+        { "segment": "Keithsburg – Savanna", "label": "Mississippi, Quad Cities reach (Keithsburg – Savanna)" },
+        { "segment": "Winfield – Canton", "label": "Mississippi, SE Iowa reach (Winfield – Canton)" },
+        { "segment": "Cape Girardeau –Grafton", "label": "St. Louis harbor benchmark (Cape Girardeau – Grafton)" },
+        { "segment": "Hardin – Havana", "label": "Lower Illinois River benchmark (Hardin – Havana)" }
+      ]
+    },
     "weatherRegions": [
       { "name": "Illinois", "lat": 40.0, "lon": -89.0, "w": 0.30 },
       { "name": "Central Iowa", "lat": 41.88, "lon": -93.6, "w": 0.22 },

@@ -32,7 +32,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { summarizeSpend, monthlyBudget } from "./budgetcore.js";
 import { calendarCoverage } from "./calendar.js";
-import { pack, voice, seriesKey } from "./pack.js";
+import { pack, voice, seriesKey, bargeLocations } from "./pack.js";
 // State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
 const V = voice();
 
@@ -75,7 +75,7 @@ export const SOURCE_EXPECTATIONS = {
   fas_export_sales: { required: ["FAS_API_KEY"], prefixes: ["fas"], dataCadenceD: 7, lagD: 7, note: "ESR, Thu release for prior week" },
   open_meteo: { required: [], prefixes: ["open_meteo"], dataCadenceD: 1, lagD: 1, note: "one point per run (ERA5 ~5d behind)" },
   usda_ams: { required: ["USDA_AMS_API_KEY"], prefixes: ["ams"], dataCadenceD: 1, lagD: 3, note: "2850 daily cash/basis; 3511 weekly feedstuffs" },
-  agtransport: { required: [], optional: ["AGTRANSPORT_APP_TOKEN"], prefixes: ["agtransport"], dataCadenceD: 7, lagD: 7, note: "GTR weekly; barge-freight = avg price_per_ton across ALL locations" },
+  agtransport: { required: [], optional: ["AGTRANSPORT_APP_TOKEN"], prefixes: ["agtransport"], dataCadenceD: 7, lagD: 7, note: "GTR weekly; per-segment barge freight from the state pack; agtransport:barge-freight is the all-segment average (mixes very different price levels)" },
   drought_monitor: { required: [], prefixes: ["drought_monitor"], dataCadenceD: 7, lagD: 5 },
   ibge_brazil: { required: [], prefixes: ["ibge_brazil"], dataCadenceD: 31, lagD: 60, note: "LSPA by crop year" },
   fred: { required: ["FRED_API_KEY"], prefixes: ["fred"], dataCadenceD: 7, lagD: 5, note: "weekly ending Friday" },
@@ -121,9 +121,9 @@ export const MEMBER_BRIEF_INPUTS = [
   {
     id: "barge_freight",
     label: "Barge freight by location",
-    series: ["agtransport:barge-freight:st-louis", "agtransport:barge-freight:illinois-river"],
+    series: bargeLocations().map((l) => l.series),
     maxAgeD: 14,
-    need: "per-location $/ton (1.40.0); 3-yr same-week average computed at render",
+    need: "per-river-segment $/ton from the state pack (markets.barge.locations); 3-yr same-week average computed at render",
   },
 ];
 

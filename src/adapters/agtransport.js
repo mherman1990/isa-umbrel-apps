@@ -14,7 +14,7 @@
 // public endpoint works without one at our low volume.
 
 import { fetchJSON } from "../util.js";
-import { pack } from "../pack.js";
+import { pack, bargeLocations } from "../pack.js";
 
 export const id = "agtransport";
 export const label = "USDA Ag Transport";
@@ -98,14 +98,19 @@ export async function fetchItems({ sourceConfig = {}, env = process.env } = {}) 
   return items;
 }
 
-// ---- barge freight BY LOCATION (1.40.0) ---------------------------------------------------------
-// The Member Brief quotes barge freight at named river locations, in $/ton. The location column's name
-// is DISCOVERED from a sample row rather than assumed, because it could not be verified from the build
-// environment; if none is found, no per-location series is written and the source records why.
+// ---- barge freight BY RIVER SEGMENT (1.40.0; segments 1.41.1) --------------------------------------
+// The Member Brief quotes barge freight in $/ton. USDA's dataset 7spn-fbua reports it per river SEGMENT
+// in `river_system_location` — "Cape Girardeau – Grafton", "Dubuque – Genoa"… (26 segments, verified on
+// the Pi 2026-10-04). It has NO "St. Louis" or "Illinois River" rows: those are the Grain Transportation
+// Report's headline rate points, which this dataset does not carry. The segments come from the state pack
+// (markets.barge.locations: USDA's exact segment name + a reader label) and match EXACTLY (case and dash
+// style ignored) — a loose substring match would let "Grafton" pick up the wrong reach.
 export const BARGE_DATASET = "7spn-fbua";
-// Default from the state pack (markets.barge.locations); the watchlist's sources.agtransport.bargeLocations wins.
 export const DEFAULT_BARGE_LOCATIONS = pack().markets?.barge?.locations ?? [];
-const LOCATION_COLUMN = /^(location|loc|segment|river_segment|origin|port|city|river_location)$/i;
+// The 1.40.0 watchlist default. Neither name exists in the dataset, so an untouched copy of it in a live
+// /data/watchlist.json is treated as "not set" and the pack's segments apply.
+const LEGACY_LOCATIONS = ["st louis", "illinois river"];
+const LOCATION_COLUMN = /^(river_system_location|location|loc|segment|river_segment|origin|port|city|river_location)$/i;
 const norm = (v) => String(v ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 export const bargeSlug = (v) => norm(v).replace(/\s+/g, "-");
 
@@ -116,22 +121,27 @@ export function findLocationColumn(row) {
   return keys.find((k) => LOCATION_COLUMN.test(k)) ?? keys.find((k) => /location|segment/i.test(k)) ?? null;
 }
 
-/** Group rows of {date, loc, v} into one series per WANTED location. Exported for tests. */
-export function bargeSeriesFromRows(rows, wanted = DEFAULT_BARGE_LOCATIONS) {
-  const want = wanted.map((w) => ({ label: w, n: norm(w) }));
-  const byLoc = new Map();
+/** The segments to fetch: the watchlist's override unless it is the untouched 1.40.0 default, else the pack's. */
+export function wantedSegments(override) {
+  const legacy = Array.isArray(override) && override.length === LEGACY_LOCATIONS.length && override.every((o) => typeof o === "string" && LEGACY_LOCATIONS.includes(norm(o)));
+  return bargeLocations(Array.isArray(override) && override.length && !legacy ? override : DEFAULT_BARGE_LOCATIONS);
+}
+
+/** Group rows of {date, loc, v} into one series per WANTED segment (exact match). Exported for tests. */
+export function bargeSeriesFromRows(rows, wanted = bargeLocations(DEFAULT_BARGE_LOCATIONS)) {
+  const want = (wanted.length && typeof wanted[0] === "string" ? bargeLocations(wanted) : wanted).map((w) => ({ ...w, n: norm(w.segment) }));
+  const bySeg = new Map();
   for (const r of rows ?? []) {
     const v = Number(r.v);
     if (!r.date || !Number.isFinite(v)) continue;
-    const loc = norm(r.loc);
-    const hit = want.find((w) => loc === w.n || loc.includes(w.n));
+    const hit = want.find((w) => norm(r.loc) === w.n);
     if (!hit) continue;
-    if (!byLoc.has(hit.label)) byLoc.set(hit.label, new Map());
-    byLoc.get(hit.label).set(String(r.date).slice(0, 10), v); // one value per date per location
+    if (!bySeg.has(hit.series)) bySeg.set(hit.series, { hit, m: new Map() });
+    bySeg.get(hit.series).m.set(String(r.date).slice(0, 10), v); // one value per date per segment
   }
-  return [...byLoc].map(([label, m]) => ({
-    series: `${id}:barge-freight:${bargeSlug(label)}`,
-    meta: { label: `Barge freight — ${label}`, unit: "$/ton", category: "barge_freight", family: `${id}:barge-freight` },
+  return [...bySeg.values()].map(({ hit, m }) => ({
+    series: hit.series,
+    meta: { label: `Barge freight — ${hit.label}`, unit: "$/ton", category: "barge_freight", family: `${id}:barge-freight` },
     points: [...m].map(([period, value]) => ({ period, value })).sort((a, b) => a.period.localeCompare(b.period)),
   }));
 }
@@ -161,9 +171,10 @@ export async function fetchSeries({ env = process.env, sourceConfig = {} } = {})
     if (pts.length) out.push({ series: `${id}:${s.key}`, meta: { label: s.label, unit: s.unit, category: s.category }, points: pts });
   }
   try {
-    const wanted = Array.isArray(sourceConfig.bargeLocations) && sourceConfig.bargeLocations.length ? sourceConfig.bargeLocations : DEFAULT_BARGE_LOCATIONS;
+    const wanted = wantedSegments(sourceConfig.bargeLocations);
     const byLoc = await fetchBargeByLocation(env, wanted);
-    if (!byLoc.length) errors.push(`barge by location: none of ${wanted.join(", ")} found in ${BARGE_DATASET}`);
+    const missing = wanted.filter((w) => !byLoc.some((s) => s.series === w.series)).map((w) => w.segment);
+    if (missing.length) errors.push(`barge by segment: ${missing.join(", ")} not found in ${BARGE_DATASET} (river_system_location)`);
     out.push(...byLoc);
   } catch (err) {
     errors.push(`barge by location: ${err.message}`);
