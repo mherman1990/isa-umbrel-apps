@@ -9,7 +9,77 @@
 
 ## 1. Where Iowa is wired in today
 
-INVENTORY_PLACEHOLDER
+Audited 2026-10-04 across `src/`, `scripts/`, `watchlist.json`, `registry.json`, `isa-polibrief/` and the README.
+
+### 1.1 Scale
+
+| Pattern | Count |
+|---|---|
+| "Iowa" / "iowa", all in-scope files | **800 occurrences in 68 files** |
+| …in `.js` / `.mjs` code | 297 in 52 files |
+| …in data | 235 in `ia-candidates-2026.json`, 34 in `registry.json` |
+| `:ia:` series keys | **86 in 16 files** |
+| `"IA"` literals | **58 in 11 files** |
+| `America/Chicago` | 23 |
+
+Iowa is also encoded in 13 of 45 test files. Your estimate of ~235 occurrences in ~58 files was the right order of magnitude for the code alone.
+
+### 1.2 By category
+
+| Category | Where (representative) | Becomes |
+|---|---|---|
+| Identity & branding | logo + `--isa-*` palette (server.js:250-254, 497); email colours (deliver.js:22-63); RSS title; user-agent "Iowa Soybean Association" (util.js:20, summarize.js:35); Studio footer; umbrel-app.yml; README | `identity.*`, `identity.branding.*` |
+| Prompt voice | "Iowa soybean farmers" / "an Iowa corn/soybean operation" in triage, newsrank, brief, packets, policycards, policy-domain/review/synthesis prompts, curriculum, 11 places in pipeline.js, memberbrief.js:543-569 | `prompts.voice`, `prompts.operation` |
+| Local score boost | "Iowa" as a relevance term (score.js:20) | `identity.stateName` |
+| NASS | `state_alpha:"IA"` (usda_nass.js:19, 69, 102, 108, 156); keys `nass:ia:*`; ratio built from literal keys (182-189) | `markets.nass.stateAlpha` + `seriesKey()` |
+| AMS | report **2850 = Iowa Daily Cash Grain Bids** (usda_ams.js:37); 3511 filtered to `trade Loc == "Iowa"` (343); six-district grid (235-245); `ams:ia:*` keys | `markets.ams.{cashReportId, feedstuffTradeLoc, districts}` |
+| Crop/drought regions | `IOWA_FIPS="19"` (drought_monitor.js:17); `IA` FIPS probe (cropcasma.js:32); AOIs (vegscape.js:32-38); Open-Meteo US regions, 52% Iowa weight (open_meteo.js:16-24); Barchart basis zips (barchart.js:29-30) | `markets.cropRegions`, `weather.usRegions`, `geo.homeFips` |
+| Legislature | LegiScan defaults `["IA"]` (legiscan.js:116, 120); watchlist states / fullTextStates; OpenStates `jurisdiction="Iowa"` (seed/openstates.js:29) | `legislature.*` |
+| Admin rules | `iowa_admin_rules.js`, a legis.iowa.gov scraper with Iowa-specific selectors (lines 23-61) | `adminRules.adapter` (one adapter per state) |
+| Election | Socrata `data.iowa.gov` gated by Iowa Code §68B.32A(7) (seed/socrata.js:20-30); FEC `state=IA` (seed/fec.js:29); `ia-candidates-2026.json`; `ia-incumbents.json` from openstates `ia.csv` | `election.*` (off by default) |
+| Geo / map | 5 Iowa GeoJSON files + `district-hucs.json`; `fetch-geo.mjs` (`GEOID LIKE '19%'`, IOWA_BBOX); map centre; facilities filtered to IA (bbmap.js:157); `canonOffice` strips "Iowa " | `geo.*` |
+| Registry | 18 of 44 seed entities (delegation, statewide officers, parties, county parties, IA agency feeds) | `registry.seed` |
+| Congressional delegation | committee member whitelist `iowa:` + `iowaMembers` (congress_hearings.js:33-45, 156, 180) | `delegation.byCommittee` |
+| Crush | national table, but crush.js:287-290 says the home state is "the largest of any state" | `markets.crushPlants.filterState`; fix the sentence |
+| Calendars | Iowa filing / primary / legislature dates in `policy_events.2026.json` | `calendars.policyEvents` |
+| Provenance hosts | legis.iowa.gov, iowaagriculture.gov, iowadnr.gov, iasoybeans.com (provenance.js:52-116) | `provenance.*` |
+| Focus areas | `iowa-water-land` (watchlist.json) | `focusAreas` override |
+| Timezone | `America/Chicago` hard-coded in 23 places. **pipeline.js:1890, 1956, 2075 and server.js:44-46, 2118 ignore the watchlist timezone** | `identity.timezone` |
+| Delivery / UI copy | "ISA Policy Brief —" subject; chart captions ("Iowa soybean basis", "Iowa drought coverage"); LRD "Iowa" bucket (server.js:2468-2481); every RSS / intake item stamped "Iowa" (rss.js:57, email_intake.js:91) | `identity.*` interpolation |
+| Not Iowa-specific | river gauges (lower Mississippi), barge locations, condition triggers, the USDA report calendar | shared / `us-national` |
+
+### 1.3 What would *break* (not just mislabel) in another state
+
+- **Consumers that read `:ia:` keys by literal name:**
+  - signals.js:34, 51, 71, 96, 238 and the `SIGNAL_SERIES` / `SIGNAL_CHART` tables
+  - crush.js:173, 324
+  - leadlag.js:68-71 (its exclusion list would stop matching, so another state's cash series would be wrongly tested as predictors)
+  - memberbrief.js:329-330, 396
+  - health.js
+  - usda_ams.js:409, 486-500
+  - usda_nass.js:182-189
+  - vegscape.js:195, cropcasma.js:147
+- **Adapters that fetch Iowa data and label it as the configured state:** AMS 2850, 3511's `/^iowa$/`, `IOWA_FIPS`, Crop-CASMA's FIPS probe, the VegScape AOIs, NASS `"IA"`, and Barchart's Iowa zip codes. Worse than missing data.
+- **`iowa_admin_rules.js`:** can't be reused at all; it fails soft to `[]`.
+- **Map join:** `buildMapData` (server.js:1803-1815) keys districts with **no state filter**, so two states' legislators would collide. bbmap.js:157 hides every non-IA facility.
+- **Jurisdiction grouping:** a non-Iowa home state's bills land under "Other states" (server.js:2468-2481).
+- **Seeders:** fec.js:29, socrata.js:20, openstates.js:29, fetch-incumbents.mjs:15 and fetch-geo.mjs are hard-coded to Iowa.
+
+### 1.4 Iowa-only data files
+
+| File | Size | Content |
+|---|---|---|
+| `geo/huc8.geojson` | 419 KB | HUC8 watersheds |
+| `geo/house.geojson` | 93 KB | House districts |
+| `geo/senate.geojson` | 62 KB | Senate districts |
+| `geo/counties.geojson` | 38 KB | counties |
+| `geo/congress.geojson` | 12 KB | congressional districts |
+| `ia-candidates-2026.json` | 71 KB | 2026 candidates |
+| `ia-incumbents.json` | 17 KB | incumbents |
+| `district-hucs.json` | 11 KB | district ↔ watershed overlap |
+| ISA logo, app icon | — | branding |
+
+`registry.json` and `policy_events.2026.json` are mixed Iowa and federal. `crush_capacity.json` and `facilities.json` are national and stay shared.
 
 ---
 
