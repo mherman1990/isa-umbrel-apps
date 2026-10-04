@@ -306,7 +306,7 @@ export function crushText() {
 const { MEAL_TON_PER_BU: SHARE_MEAL_TON_PER_BU, OIL_LB_PER_BU: SHARE_OIL_LB_PER_BU } = CRUSH_YIELDS;
 
 /** Pure: [{period, value}] oil share (%) from date-aligned meal ($/ton) and oil (¢/lb) points. */
-function oilSharePoints(mealPts, oilPts) {
+export function oilSharePoints(mealPts, oilPts) {
   const oil = new Map(oilPts.map((p) => [p.period, p.value]));
   const out = [];
   for (const m of mealPts) {

@@ -226,6 +226,47 @@ export async function sendMemoEmail(markdown, edition, env, watchlist) {
 }
 
 /**
+ * The ISA Member Brief → members. Recipients go in BCC — members must never see each other's addresses —
+ * and the visible To is the sending account itself. A List-Unsubscribe header (mailto) is set so mail
+ * clients show their own unsubscribe button, alongside the line in the footer.
+ * @returns {boolean} false when SMTP is not configured (the brief is still saved)
+ */
+export async function sendMemberBriefEmail({ markdown, subject, recipients, env = process.env, unsubscribeTo = "" }) {
+  if (!(env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS) || !recipients?.length) return false;
+  const { default: nodemailer } = await import("nodemailer");
+  const transport = nodemailer.createTransport({
+    host: env.SMTP_HOST,
+    port: Number(env.SMTP_PORT || 587),
+    secure: Number(env.SMTP_PORT || 587) === 465,
+    auth: { user: env.SMTP_USER, pass: env.SMTP_PASS },
+  });
+  const from = env.SMTP_FROM && env.SMTP_FROM.includes(env.SMTP_USER) ? env.SMTP_FROM : env.SMTP_USER;
+  const message = {
+    from,
+    to: env.SMTP_USER,
+    bcc: recipients,
+    replyTo: env.MEMBER_BRIEF_REPLY_TO || undefined,
+    subject,
+    text: markdown,
+    html: markdownToEmailHtml(markdown, subject),
+  };
+  if (unsubscribeTo) message.list = { unsubscribe: { url: `mailto:${unsubscribeTo}?subject=unsubscribe`, comment: "Unsubscribe from the ISA Member Brief" } };
+  await transport.sendMail(message);
+  return true;
+}
+
+/**
+ * An operational alert to the staff (not members): ALERT_EMAIL_TO, else BRIEF_EMAIL_TO. Used when the
+ * Member Brief fails closed. Returns false when there is nowhere to send it.
+ */
+export async function sendOpsAlert(subject, text, env = process.env) {
+  const to = (env.ALERT_EMAIL_TO || env.BRIEF_EMAIL_TO || "").trim();
+  if (!(env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS && to)) return false;
+  await sendMarkdownEmail({ markdown: text, subject, to, env });
+  return true;
+}
+
+/**
  * Farmer-facing render → FARMER_BRIEF_TO (comma-separated). Returns false (skips)
  * when no farmer recipients or SMTP are configured — the render is still saved/web.
  */

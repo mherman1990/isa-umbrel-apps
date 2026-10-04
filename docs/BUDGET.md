@@ -19,13 +19,13 @@ The estimates assume the default schedule: AM + PM daily, storylines AM only, Me
 
 | Group | What's in it | Est. $/mo | Allocation | Policy |
 |---|---|---|---|---|
-| **Member Brief** | Sonnet draft (~18k in / 2.5k out), Opus 5.5 review at high effort (~22k in / ~3.5k out incl. thinking), one retry on ~25% of editions, previews | ~$4–5 | **$12.00** (16%) | essential |
+| **Member Brief** | Sonnet draft (~10k in / ~2.5k out ≈ $0.045), Opus 5.5 review at high effort (~12k in / ~3k out ≈ $0.11), one retry on some editions, previews — ≈ $0.15 typical, $0.31 worst case per edition | ~$2.5–3.5 | **$12.00** (16%) | essential |
 | **Daily policy brief** | triage, evidence packets, policy cards + review | ~$9 | **$21.00** (28%) | essential |
 | **Cached panels** | signal cards (2×/day, thinking at medium effort), storylines (AM; now 9k cap), digest, intel, news ranking, expectations | ~$10 | **$15.00** (20%) | discretionary |
 | **Analysis** | Analyst Note + theses + Challenger, weekly/monthly/education memos | ~$4 (≈$8 with a weekly Analyst Note) | **$15.00** (20%) | discretionary |
 | **Ask box + summaries** | ~$0.03 per question | ~$3 | **$9.00** (12%) | discretionary |
 | Reserve | — | — | $3.00 (4%) | — |
-| **Total** | | **≈ $30–35** | **$75.00** | |
+| **Total** | | **≈ $28–33** | **$75.00** | |
 
 ### How the extra headroom was spent
 

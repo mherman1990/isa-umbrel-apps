@@ -44,12 +44,16 @@ const SERIES = [
   },
   {
     key: "barge-freight",
-    label: "Mississippi barge freight",
+    // ⚠️ RELABELLED 1.40.0: this is avg(price_per_ton) across EVERY reported location on each date — a
+    // cross-river average, not "Mississippi" freight at any point a farmer ships from (Phase 0 audit
+    // §4.3). Kept for chart continuity and alerts; the per-location series below are what the Member
+    // Brief quotes.
+    label: "Barge freight — average of all reported locations",
     unit: "$/ton",
     category: "barge_freight",
     dataset: "7spn-fbua",
     sql: `SELECT date, avg(price_per_ton) AS v WHERE date >= '${SINCE}' GROUP BY date ORDER BY date LIMIT 5000`,
-    headline: (v, p) => `Mississippi barge freight: $${v.toFixed(2)}/ton (${p})`,
+    headline: (v, p) => `Barge freight (all-location average): $${v.toFixed(2)}/ton (${p})`,
   },
 ];
 
@@ -93,17 +97,78 @@ export async function fetchItems({ sourceConfig = {}, env = process.env } = {}) 
   return items;
 }
 
+// ---- barge freight BY LOCATION (1.40.0) ---------------------------------------------------------
+// The Member Brief quotes barge freight at named river locations, in $/ton. The location column's name
+// is DISCOVERED from a sample row rather than assumed, because it could not be verified from the build
+// environment; if none is found, no per-location series is written and the source records why.
+export const BARGE_DATASET = "7spn-fbua";
+export const DEFAULT_BARGE_LOCATIONS = ["St. Louis", "Illinois River"];
+const LOCATION_COLUMN = /^(location|loc|segment|river_segment|origin|port|city|river_location)$/i;
+const norm = (v) => String(v ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+export const bargeSlug = (v) => norm(v).replace(/\s+/g, "-");
+
+/** The column that names a location, from one sample row (or null). Exported for tests. */
+export function findLocationColumn(row) {
+  if (!row || typeof row !== "object") return null;
+  const keys = Object.keys(row);
+  return keys.find((k) => LOCATION_COLUMN.test(k)) ?? keys.find((k) => /location|segment/i.test(k)) ?? null;
+}
+
+/** Group rows of {date, loc, v} into one series per WANTED location. Exported for tests. */
+export function bargeSeriesFromRows(rows, wanted = DEFAULT_BARGE_LOCATIONS) {
+  const want = wanted.map((w) => ({ label: w, n: norm(w) }));
+  const byLoc = new Map();
+  for (const r of rows ?? []) {
+    const v = Number(r.v);
+    if (!r.date || !Number.isFinite(v)) continue;
+    const loc = norm(r.loc);
+    const hit = want.find((w) => loc === w.n || loc.includes(w.n));
+    if (!hit) continue;
+    if (!byLoc.has(hit.label)) byLoc.set(hit.label, new Map());
+    byLoc.get(hit.label).set(String(r.date).slice(0, 10), v); // one value per date per location
+  }
+  return [...byLoc].map(([label, m]) => ({
+    series: `${id}:barge-freight:${bargeSlug(label)}`,
+    meta: { label: `Barge freight — ${label}`, unit: "$/ton", category: "barge_freight", family: `${id}:barge-freight` },
+    points: [...m].map(([period, value]) => ({ period, value })).sort((a, b) => a.period.localeCompare(b.period)),
+  }));
+}
+
+async function fetchBargeByLocation(env, wanted) {
+  const tok = env.AGTRANSPORT_APP_TOKEN ? `&$$app_token=${encodeURIComponent(env.AGTRANSPORT_APP_TOKEN)}` : "";
+  const sample = await fetchJSON(`${BASE}/${BARGE_DATASET}.json?$limit=1${tok}`);
+  const col = findLocationColumn(Array.isArray(sample) ? sample[0] : null);
+  if (!col) throw new Error(`barge dataset ${BARGE_DATASET} has no recognisable location column (columns: ${Object.keys(sample?.[0] ?? {}).join(", ") || "none"})`);
+  const sql = `SELECT date, ${col} AS loc, avg(price_per_ton) AS v WHERE date >= '${SINCE}' GROUP BY date, ${col} ORDER BY date LIMIT 50000`;
+  const rows = await fetchJSON(`${BASE}/${BARGE_DATASET}.json?$query=${encodeURIComponent(sql)}${tok}`);
+  return bargeSeriesFromRows(rows, wanted);
+}
+
 /** Returns [{ series, meta:{label,unit,category}, points }] for store.saveSeriesPoints. */
-export async function fetchSeries({ env = process.env } = {}) {
+export async function fetchSeries({ env = process.env, sourceConfig = {} } = {}) {
   const out = [];
+  const errors = [];
   for (const s of SERIES) {
     let pts;
     try {
       pts = await fetchAgg(s, env);
-    } catch {
+    } catch (err) {
+      errors.push(`${s.key}: ${err.message}`);
       continue;
     }
     if (pts.length) out.push({ series: `${id}:${s.key}`, meta: { label: s.label, unit: s.unit, category: s.category }, points: pts });
   }
+  try {
+    const wanted = Array.isArray(sourceConfig.bargeLocations) && sourceConfig.bargeLocations.length ? sourceConfig.bargeLocations : DEFAULT_BARGE_LOCATIONS;
+    const byLoc = await fetchBargeByLocation(env, wanted);
+    if (!byLoc.length) errors.push(`barge by location: none of ${wanted.join(", ")} found in ${BARGE_DATASET}`);
+    out.push(...byLoc);
+  } catch (err) {
+    errors.push(`barge by location: ${err.message}`);
+  }
+  // Partial failures used to vanish (`catch { continue }`). Log them; throw only when NOTHING came back,
+  // so the source_health row records an error instead of a quiet "empty".
+  if (errors.length) console.log(`⚠️  ${label}: ${errors.join("; ")}`);
+  if (!out.length && errors.length) throw new Error(errors.join("; "));
   return out;
 }

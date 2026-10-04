@@ -25,7 +25,8 @@ import * as panels from "./panels.js";
 import * as budgetMod from "./budget.js";
 import { auditFreshness, envPresence, fmtAge } from "./health.js";
 import Database from "better-sqlite3";
-import { seedRan, dueEditions, localClock, needsRefreshFirst } from "./schedule.js";
+import { seedRan, dueEditions, localClock, needsRefreshFirst, parseDaySpec } from "./schedule.js";
+import { runMemberBrief, DEFAULT_MEMBER_SPEC, memberRecipients } from "./memberbrief.js";
 import { migrateWatchlistSources, runPipeline, runMemo, answerQuery, loadWatchlist, saveWatchlist, generateNewsDigest, getCachedNewsDigest, extractMarketIntel, getCachedMarketIntel, generateMarketCards, getCachedMarketCards, generateStorylines, getStorylinesMeta, cachedAgeDays, STALE_PANEL_DAYS } from "./pipeline.js";
 import { computeSignals, SIGNAL_CHART } from "./signals.js";
 import { productShareSeries } from "./crush.js";
@@ -504,7 +505,7 @@ ${body}
 </body></html>`;
 }
 
-const SAFE_BRIEF_NAME = /^\d{4}-\d{2}-\d{2}-(am|pm|weekly|monthly|farmer|education|analyst|pulse)(-farmer)?\.md$/;
+const SAFE_BRIEF_NAME = /^\d{4}-\d{2}-\d{2}-(am|pm|weekly|monthly|farmer|education|analyst|pulse|member)(-farmer|-preview|-draft|-preview-draft)?\.md$/;
 
 // ---------- run management ----------
 let runInProgress = false;
@@ -559,6 +560,7 @@ async function triggerRun(edition, { trigger = "manual" } = {}) {
   // and widening this to the memos would be exactly the refactor of existing run types the design
   // constraint rules out.
   const isMemo = ["weekly", "monthly", "education", "analyst"].includes(edition);
+  const isMember = edition === "member" || edition === "member-preview";
   let runId = null;
   if (!isMemo) {
     try {
@@ -572,9 +574,21 @@ async function triggerRun(edition, { trigger = "manual" } = {}) {
     try {
       // Reports run on the day's refreshed data, never yesterday's: if no AM/PM pipeline run has completed
       // OK today, run the refresh first (collect → series → panels → triage), then the report.
-      if (isMemo) await ensureTodaysRefresh();
+      if (isMemo || isMember) await ensureTodaysRefresh();
       if (isMemo) await runMemo(edition, process.env);
-      else await runPipeline({ edition, env: process.env, runId });
+      else if (isMember) {
+        if (runId) {
+          store.setCurrentRunId(runId); // the refresh gate's own run cleared the ambient id
+          store.setRunStage(runId, edition === "member-preview" ? "previewing member brief" : "member brief");
+        }
+        let wl = null;
+        try {
+          wl = loadWatchlist();
+        } catch {
+          /* defaults */
+        }
+        await runMemberBrief({ env: process.env, watchlist: wl, preview: edition === "member-preview" });
+      } else await runPipeline({ edition, env: process.env, runId });
       if (runId) store.finishBriefRun(runId, { status: "ok" });
       return null;
     } catch (err) {
@@ -1013,6 +1027,21 @@ function settingsSection(watchlist, openId) {
         })
         .join("")}
     </div>
+    <div class="kicker">🌾 ISA Member Brief <span class="muted" style="font-weight:400">— farmer-member edition; fails closed rather than send an unsupported claim</span></div>
+    <div class="toolbar">
+      <label class="muted">schedule <input type="text" name="memberSchedule" value="${esc(typeof ed.member === "string" ? ed.member : DEFAULT_MEMBER_SPEC)}" placeholder="Mon,Wed,Fri 06:45 — or off" style="width:190px"></label>
+      <span class="muted" style="font-size:.85em">Runs after the morning data refresh has completed; type <code>off</code> to stop it.</span>
+    </div>
+    <label class="muted" style="display:block;margin-top:4px">member recipients (comma-separated; sent BCC)<br>
+      <textarea name="memberBriefTo" rows="2" style="width:100%;max-width:640px"${process.env.MEMBER_BRIEF_TO ? ' placeholder="also: MEMBER_BRIEF_TO in .env"' : ""}>${esc(out.memberBriefTo ?? "")}</textarea></label>
+    <p class="muted" style="font-size:.82em;margin:2px 0 8px">${(() => {
+      try {
+        const n = memberRecipients(process.env, watchlist).length;
+        return n ? `${n} recipient${n === 1 ? "" : "s"} configured (this box + MEMBER_BRIEF_TO + /data/member-list.txt).` : "No recipients yet — the brief is generated and saved, not emailed.";
+      } catch {
+        return "";
+      }
+    })()}</p>
     <div class="kicker">Where each report goes <span class="muted" style="font-weight:400">— one address per report, so each can land in its own Teams channel</span></div>
     <p class="muted" style="margin:2px 0 6px;font-size:.85em">A Teams channel has its own email address (channel → ⋯ → Get email address). Leave a box blank to use the default below. Saved in watchlist.json on this machine — not in the public repo.</p>
     <div class="sched-grid">
@@ -1446,6 +1475,10 @@ function homeBody(notice, openId = null, search = null) {
         .replace(/-(am|pm)$/, (m) => m.replace("-", " · ").toUpperCase())
         .replace(/-weekly$/, " · 📚 WEEKLY")
         .replace(/-monthly$/, " · 🗓️ MONTHLY")
+        .replace(/-member-preview-draft$/, " · ⛔ MEMBER BRIEF PREVIEW (failed closed)")
+        .replace(/-member-draft$/, " · ⛔ MEMBER BRIEF (NOT SENT — failed closed)")
+        .replace(/-member-preview$/, " · 🔍 MEMBER BRIEF PREVIEW")
+        .replace(/-member$/, " · 🌾 MEMBER BRIEF")
         .replace(/-farmer$/, " · 🌾 FARMER")
         .replace(/-education$/, " · 🎓 EDUCATION")
         .replace(/-analyst$/, " · 🔭 ANALYST")
@@ -1507,6 +1540,10 @@ ${homeCalendar()}
     <div class="report">
       <form method="post" action="/run"><input type="hidden" name="edition" value="analyst"><button class="ghost">🔭 Analyst Note</button></form>
       <span class="muted rdesc">Internal deep dive: connects policy to the market mechanism and looks around the corner, naming the reports that would confirm or kill each read.</span>
+    </div>
+    <div class="report">
+      <form method="post" action="/run"><input type="hidden" name="edition" value="member-preview"><button class="ghost">🔍 Preview Member Brief</button></form>
+      <span class="muted rdesc">Builds the farmer-member edition exactly as it would be sent — evidence packet, lint, adversarial review — and saves it. Never emails anyone.</span>
     </div>
     <div class="report">
       <form method="post" action="/run"><input type="hidden" name="edition" value="education"><button class="ghost">🎓 Market-education brief</button></form>
@@ -2387,7 +2424,7 @@ function marketsBody(notice) {
     chartSection("soy_crush_share", "Crush value share — oil vs. meal", "Soybean oil's and meal's share of the product value from a crushed bushel (%), at the same workbook yields as the margin chart (oil 11.71 lb/bu, meal 0.0221 t/bu) — the industry \"oil share\". Meal share is the complement; hulls (~2% of value) are left out so the pair sums to 100. BOARD uses CBOT front-month oil/meal; IOWA CASH uses AMS cash quotes. A rising oil share is the renewable-diesel pull showing up in the crush — it means meal is increasingly the byproduct, and plants run for oil even as meal backs up.", 280),
     chartSection("soy_basis", "Iowa soybean basis — all bids vs. processors", "Cash bid minus futures (¢/bu), nearby month. The processor line is what crush plants themselves are bidding; when it runs above the all-Iowa average, crushers are paying up to pull beans in — a demand read no other series carries. Negative basis is normal.", 260),
     chartSection("soy_price", "Soybean price received", "Iowa daily cash ($/bu, AMS) against the monthly average price received — Iowa vs. U.S.", 260),
-    chartSection("soy_corn_ratio", "Soybean:corn price ratio (Iowa)", "Iowa soybean price ÷ corn price — the relative-value read behind acreage decisions. Historically ~2.3–2.5 is the rough pivot between favoring beans and corn.", 240),
+    chartSection("soy_corn_ratio", "Soybean:corn price ratio", "NASS Iowa prices received (monthly) and the CBOT nearby futures ratio (daily). Soybean price ÷ corn price — the relative-value read behind acreage decisions. Historically ~2.3–2.5 is the rough pivot between favoring beans and corn.", 240),
     chartSection("soy_crush", "U.S. soybean crush", "Monthly crush — the domestic-demand engine, near record highs on renewable-diesel demand.", 260),
     chartSection("soy_balance_stu", "U.S. soybean stocks-to-use (WASDE)", "Ending stocks as a share of total use — the tightness ratio that drives price. Roughly: below ~8% is tight (supportive), above ~15% is ample (a drag).", 240),
     chartSection("soy_condition", "Soybean crop condition", "In-season % rated good or excellent (USDA Crop Progress) — Iowa vs. U.S. Weather's fingerprint on this year's yield potential.", 260),
@@ -2395,8 +2432,8 @@ function marketsBody(notice) {
     chartSection("soil_moisture", "Root-zone soil moisture (satellite)", "Weekly Crop-CASMA / NASA SMAP volumetric soil moisture (m³/m³) — Iowa root-zone + surface, plus the core belt's root zone. The water available to the crop's roots: a cause-side stress read that leads the vegetation and condition reports.", 260),
     chartSection("drought", "Iowa drought coverage", "Share of Iowa land area in drought (D1+) and abnormally dry or worse (D0+), from the weekly U.S. Drought Monitor — a fast read on Corn Belt crop stress.", 260),
     chartSection("soy_exports", "Soybean exports (weekly)", "Weekly export activity in metric tons — inspections (actual loadings) vs. net sales (forward bookings). An export-pace / China-demand read; net sales also stands in for the (currently offline) FAS report.", 280),
-    chartSection("barge_freight", "Mississippi barge freight", "Cost to move grain down the Mississippi ($/ton) — a driver of the Gulf export basis, and so of what Iowa elevators can bid.", 240),
-    chartSection("positioning", "Fund positioning (CFTC)", "CBOT soybean managed-money net position — how the funds are leaning. Extremes can unwind fast.", 240),
+    chartSection("barge_freight", "Barge freight by location", "Cost to move grain down-river ($/ton) at named locations (St. Louis, Illinois River — set in watchlist sources.agtransport.bargeLocations), plus the average of all reported locations. A driver of the Gulf export basis, and so of what Iowa elevators can bid.", 240),
+    chartSection("positioning", "Fund positioning (CFTC)", "CBOT managed-money net position for soybeans, soybean meal and soybean oil (contracts) — how the funds are leaning. Extremes can unwind fast.", 240),
   ].filter(Boolean).join('<hr style="border:none;border-top:1px solid var(--isa-blue-40);margin:18px 0">');
   // Load uPlot + our renderer only on this page, after the chart blobs are in the DOM.
   const chartAssets = charts
@@ -3493,7 +3530,9 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
       // ----- actions -----
       if (req.method === "POST" && url.pathname === "/run") {
         const form = await readForm(req);
-        let edition = ["am", "pm", "auto", "weekly", "monthly", "farmer", "education", "analyst", "pulse"].includes(form.get("edition")) ? form.get("edition") : "auto";
+        // `farmer` and `pulse` were removed in 1.40.0: neither is a memo preset, so triggerRun ran the FULL
+        // policy pipeline under that name (Phase 0 audit §4.2). `member` sends; `member-preview` never does.
+        let edition = ["am", "pm", "auto", "weekly", "monthly", "education", "analyst", "member", "member-preview"].includes(form.get("edition")) ? form.get("edition") : "auto";
         // The single "Run policy brief now" button posts edition="auto"; resolve it to the
         // am or pm slot by time of day so a manual run lines up with (and doesn't clobber)
         // the scheduled editions. The scheduler still fires am + pm on their own times.
@@ -3814,7 +3853,27 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
               watchlist.briefEditions[edition] = `${day} ${time}`;
             }
           }
+          // Member Brief schedule ("Mon,Wed,Fri 06:45", "off") and recipients.
+          const memberSchedule = form.get("memberSchedule");
+          if (memberSchedule != null) {
+            const v = String(memberSchedule).trim();
+            if (/^off$/i.test(v)) watchlist.briefEditions.member = "off";
+            else {
+              const spec = parseDaySpec(v);
+              if (!spec) throw new Error(`Member Brief schedule "${v}" isn't valid — use days and a time, e.g. "Mon,Wed,Fri 06:45", or "off".`);
+              checkTime("Member Brief", spec.time);
+              watchlist.briefEditions.member = `${spec.days.join(",")} ${spec.time}`;
+            }
+          }
           watchlist.output ??= {};
+          const memberTo = form.get("memberBriefTo");
+          if (memberTo != null) {
+            const list = String(memberTo).split(/[,;\s]+/).map((x) => x.trim()).filter(Boolean);
+            const bad = list.filter((x) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x));
+            if (bad.length) throw new Error(`Member recipients: ${bad.map((b) => `"${b}"`).join(", ")} ${bad.length === 1 ? "doesn't" : "don't"} look like email addresses.`);
+            if (list.length) watchlist.output.memberBriefTo = list.join(", ");
+            else delete watchlist.output.memberBriefTo;
+          }
           // Per-edition recipients — this is what sends the market-education brief to its own Teams
           // channel. Blank clears the override (back to the default BRIEF_EMAIL_TO).
           for (const [edition] of MEMO_EDITIONS) {
@@ -4055,9 +4114,13 @@ function startScheduler() {
         timezone
       );
       for (const k of attempted) ran.add(k);
-      const { date, due } = dueEditions(editions, now, ran, DAY_SCHEDULED.map(([e]) => e));
+      // The Member Brief is scheduled by default (Mon,Wed,Fri 06:45) unless set to "off". It sends only
+      // when recipients are configured; otherwise it is generated and saved.
+      const withMember = { member: DEFAULT_MEMBER_SPEC, ...editions };
+      const dayIds = [...DAY_SCHEDULED.map(([e]) => e), ...(withMember.member === "off" ? [] : ["member"])];
+      const { date, due } = dueEditions(withMember, now, ran, dayIds);
       for (const edition of due) {
-        console.log(`\n⏰ Scheduled ${edition} (${editions[edition]} ${timezone})`);
+        console.log(`\n⏰ Scheduled ${edition} (${withMember[edition]} ${timezone})`);
         const problem = await triggerRun(edition, { trigger: "schedule" });
         // A "busy" bounce stays eligible so a later tick picks it up once the run frees — no dropped brief.
         if (problem === RUN_BUSY_MESSAGE) {

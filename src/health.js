@@ -99,28 +99,28 @@ export const MEMBER_BRIEF_INPUTS = [
     label: "Fund positioning (CFTC managed money)",
     series: ["cftc:soybeans:mm-net", "cftc:soymeal:mm-net", "cftc:soyoil:mm-net"],
     maxAgeD: 11, // last Friday's release, as of the prior Tuesday
-    need: "meal + oil series do not exist (adapter fetches SOYBEANS only); 52-wk percentile and wk/wk live only in the item text, not the series",
+    need: "wk/wk and 52-wk percentile computed from the stored series at render (1.40.0)",
   },
   {
     id: "oil_share",
     label: "Oil share of crush",
-    series: ["cbot:zl:front", "cbot:zm:front", "ams:ia:oil", "ams:ia:meal"],
+    series: ["cme:zl:front", "cme:zm:front", "ams:ia:oil", "ams:ia:meal"],
     maxAgeD: 7,
-    need: "derived at read time (crush.js productShareSeries); board legs are Yahoo front-month",
+    need: "member-facing: CME settlements first, USDA AMS Iowa cash second — never the Yahoo board legs",
   },
   {
     id: "soy_corn_ratio",
     label: "Soy:corn price ratio",
-    series: ["nass:ia:soy-corn-ratio", "cbot:soy-corn:ratio", "cme:zs:*-11 ÷ cme:zc:*-12"],
+    series: ["cme:zs:*-11 ÷ cme:zc:*-12", "nass:ia:soy-corn-ratio"],
     maxAgeD: 4,
-    need: "signal reads NASS Iowa monthly prices received; a new-crop Nov/Dec ratio needs cme_settlements ON",
+    need: "new-crop Nov/Dec needs CME_SETTLEMENTS on (no backfill — history starts the day it is set); NASS Iowa monthly is dated context",
   },
   {
     id: "barge_freight",
-    label: "Mississippi barge freight",
-    series: ["agtransport:barge-freight"],
+    label: "Barge freight by location",
+    series: ["agtransport:barge-freight:st-louis", "agtransport:barge-freight:illinois-river"],
     maxAgeD: 14,
-    need: "no location filter (all-location average), no % of tariff, no 3-yr average",
+    need: "per-location $/ton (1.40.0); 3-yr same-week average computed at render",
   },
 ];
 
@@ -595,6 +595,7 @@ export function auditFreshness({ db, watchlist, defaultWatchlist = null, envPres
     panel({ id: "monthly", label: "Monthly review", where: "Saved briefs", writer: "runMemo(monthly)", lastAt: brief("monthly")?.at, expectedMs: daySpecCadence(ed.monthly), evidence: `schedule ${ed.monthly || "off"}` }),
     panel({ id: "education", label: "Market-education brief", where: "Saved briefs · email", writer: "runMemo(education)", lastAt: brief("education")?.at, expectedMs: daySpecCadence(ed.education), evidence: `schedule ${ed.education || "off"}` }),
     panel({ id: "analyst", label: "Analyst Note", where: "Saved briefs", writer: "runMemo(analyst)", lastAt: brief("analyst")?.at, expectedMs: daySpecCadence(ed.analyst), evidence: `schedule ${ed.analyst || "off"}` }),
+    panel({ id: "member", label: "ISA Member Brief", where: "member email (BCC) · Saved briefs", writer: "runMemberBrief — Mon/Wed/Fri", lastAt: brief("member")?.at, expectedMs: 3 * DAY, expectedLabel: "Mon/Wed/Fri", evidence: `${brief("member-draft")?.n ?? 0} failed-closed draft(s) all-time; previews ${brief("member-preview")?.n ?? 0}` }),
     panel({ id: "packets", label: "Evidence packets", where: "brief/Ask/Analyst context", writer: "buildPackets — each relevant run", lastAt: latestPacket?.at, expectedMs: null, evidence: "built only when must_read/worth_knowing items exist" }),
     panel({ id: "backup", label: "Nightly backup", where: "/data/backups", writer: "scheduler 03:15", lastAt: newestBackup ? new Date(newestBackup).toISOString() : null, expectedMs: DAY }),
   ];

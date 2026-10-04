@@ -28,7 +28,16 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  STORYLINES UPDATE AGAIN, AND EVERY PANEL NOW SAYS WHEN IT FAILED. Storylines had been stuck on Sept 1:
+  NEW: THE ISA MEMBER BRIEF (MON/WED/FRI). A short policy-first, markets-second update for farmer-members,
+  built so it can't say anything the stored record doesn't support: every number is filled in by code,
+  every sentence cites a source, proposed rules can never read as final, and a second AI reviewer can
+  only delete or downgrade. If anything fails a check after one retry, it is NOT sent — the draft is saved
+  and you get an alert. Fund positioning now covers soybeans, meal and oil; barge freight is reported by
+  location (St. Louis, Illinois River) in $/ton. Try "Preview Member Brief" on the home page, add
+  recipients in Settings, and set CME_SETTLEMENTS=1 in .env so the new-crop soy:corn ratio starts building
+  history. Also includes 1.39.0 (below).
+  ---
+  1.39.0 — STORYLINES UPDATE AGAIN, AND EVERY PANEL NOW SAYS WHEN IT FAILED. Storylines had been stuck on Sept 1:
   each morning the AI's answer ran past its length limit, the result was thrown away, and the panel kept
   showing the old threads as if they were current. That is fixed, and storylines now run after the
   morning's relevance pass so they include that day's items. Storylines, the news digest, market intel

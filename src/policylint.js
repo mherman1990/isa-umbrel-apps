@@ -20,6 +20,10 @@
 // consequence turns into an instruction. The Analyst Note's explicit licence to give a directional
 // read is untouched, because this lint never runs on it. Do not extend this scan to the other slots
 // or to any other run type without revisiting the platform-split decision.
+//
+// 2026-10-04 — THAT DECISION WAS REVISITED FOR EXACTLY ONE RUN TYPE: the Member Brief (`lintMemberDraft`
+// below). It is the farmer-facing product compliance.js was reserved for, so every member-facing sentence
+// gets the full scanBanned check. The staff tools above are unchanged.
 
 import { MECHANISM_TERMINALS, BANNED_TERMINALS, CERTAINTY_STATES } from "./prompts/policy-domain.js";
 import { scanBanned } from "./compliance.js";
@@ -189,3 +193,124 @@ export function lintCards(cards, ctxFor) {
 // Exported for tests: these encode the contract's measured thresholds, and a future edit could
 // loosen them without any visible symptom.
 export const __testing = { CLOCK_REQUIRED, MIN_CHAIN_STEPS, MAX_CHAIN_STEPS, VAGUE_WATCH, DATED_WINDOW };
+
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+// MEMBER BRIEF LINT (1.40.0) — no unsupported claims, enforced in code.
+//
+// The Member Brief goes to farmer-members under ISA's name, so "every factual statement traces to a
+// stored, citable record" is checked here, sentence by sentence, before the reviewer sees the draft and
+// again after the reviewer's edits:
+//   cite_required     every sentence cites ≥ 1 packet id
+//   cite_unknown      every cited id exists in the evidence packet
+//   cite_scope        a policy sentence cites its own action's evidence; a market sentence its own facts
+//   token_unknown     every {{TOKEN}} exists in the packet (and was not withheld as stale)
+//   number_unsourced  every word containing a digit is inside a {{TOKEN}} or appears verbatim in the text
+//                     of a source the sentence cites — the model never writes a number of its own
+//   enacted_claim     "final / in effect / enacted / signed into law…" only for an In-force action backed
+//                     by a primary source
+//   proposed_as_decision  a Proposed or Signalled action never reads as decided
+//   advice            compliance.scanBanned — education, never advice
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+
+const DECISION_WORDS =
+  /\b(?:enacted|finali[sz]ed|final rule|is final|now final|in effect|takes effect|took effect|went into effect|signed into law|became law|is now law|now requires|is required|are required|mandates|has approved|approved the|adopted the|ruled that|struck down|upheld)\b/i;
+
+const ABBREV = /\b(?:U\.S|U\.N|E\.U|Sen|Rep|Gov|Dept|Corp|Inc|No|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept|Sep|Oct|Nov|Dec|Mr|Ms|Dr|St|vs|e\.g|i\.e|approx)\.$/i;
+
+/** Split text into sentences, not breaking on common abbreviations ("U.S.", "Sept.", "St.", "No."). */
+export function splitSentences(text) {
+  const t = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (!t) return [];
+  const out = [];
+  let buf = "";
+  const parts = t.split(/(?<=[.!?])\s+(?=["'(\[]?[A-Z0-9{])/);
+  for (const p of parts) {
+    buf = buf ? `${buf} ${p}` : p;
+    if (ABBREV.test(buf)) continue; // the "sentence" ended on an abbreviation — keep accumulating
+    out.push(buf);
+    buf = "";
+  }
+  if (buf) out.push(buf);
+  return out;
+}
+
+const TOKEN_RE = /\{\{([A-Z0-9_]+)\}\}/g;
+/** Words containing a digit, after removing {{TOKENS}}. "45Z", "2026", "HF2571", "3.2%". */
+export function digitWords(text) {
+  const stripped = String(text ?? "").replace(TOKEN_RE, " ");
+  return (stripped.match(/[^\s,;:()"“”]*\d[^\s,;:()"“”]*/g) ?? []).map((w) => w.replace(/[.!?]+$/, ""));
+}
+
+/**
+ * Lint one sentence object { text, cites } against the packet.
+ * @param {object} s
+ * @param {object} packet  { sources: Map(id → {text, tier, kind}), tokens: Map(name → {value, stale}), }
+ * @param {object} scope   { allowedCites?: Set, band?: "enacted"|"contested"|"proposed"|"speculative" }
+ * @returns {{rule:string, detail:string}[]}
+ */
+export function lintMemberSentence(s, packet, scope = {}) {
+  const out = [];
+  const text = String(s?.text ?? "").trim();
+  const cites = Array.isArray(s?.cites) ? s.cites.map(String) : [];
+  if (!text) return out;
+  if (!cites.length) out.push({ rule: "cite_required", detail: "sentence has no citation" });
+  const known = cites.filter((c) => packet.sources.has(c));
+  for (const c of cites) if (!packet.sources.has(c)) out.push({ rule: "cite_unknown", detail: `cites ${c}, which is not in the evidence packet` });
+  if (scope.allowedCites) for (const c of known) if (!scope.allowedCites.has(c)) out.push({ rule: "cite_scope", detail: `cites ${c}, which belongs to a different section` });
+  for (const m of text.matchAll(TOKEN_RE)) {
+    const tok = packet.tokens.get(m[1]);
+    if (!tok) out.push({ rule: "token_unknown", detail: `{{${m[1]}}} is not a packet token` });
+    else if (tok.stale) out.push({ rule: "token_stale", detail: `{{${m[1]}}} was withheld as not updated this cycle` });
+  }
+  // Whole-word match, not substring: "15" must not pass because a cited source contains "2026-09-15".
+  const citedWords = new Set(known.flatMap((c) => digitWords(packet.sources.get(c).text ?? "")).map((w) => w.toLowerCase()));
+  for (const w of digitWords(text)) {
+    if (!citedWords.has(w.toLowerCase())) out.push({ rule: "number_unsourced", detail: `"${w}" is not a packet token and does not appear in a cited source` });
+  }
+  if (DECISION_WORDS.test(text)) {
+    const m = text.match(DECISION_WORDS)[0];
+    if (scope.band === "proposed" || scope.band === "speculative") {
+      out.push({ rule: "proposed_as_decision", detail: `"${m}" makes a ${scope.band} action read as decided` });
+    } else if (scope.band === "enacted" || scope.band === "contested") {
+      if (!known.some((c) => packet.sources.get(c).tier === "primary_source")) out.push({ rule: "enacted_claim", detail: `"${m}" needs a cited primary source` });
+    } else {
+      out.push({ rule: "enacted_claim", detail: `"${m}" is a decision claim outside a policy item with an In-force band` });
+    }
+  }
+  const advice = scanBanned(text);
+  if (advice.length) out.push({ rule: "advice", detail: `reads as advice: ${advice.map((h) => `"${h}"`).join(", ")}` });
+  return out;
+}
+
+/**
+ * Lint a whole Member Brief draft. Returns every failure with the path of the sentence it is in, so
+ * the retry prompt can name them and the run log can count them.
+ * @returns {{ok:boolean, failures:{path:string, rule:string, detail:string}[]}}
+ */
+export function lintMemberDraft(draft, packet) {
+  const failures = [];
+  const each = (list, path, scope) =>
+    (list ?? []).forEach((s, i) => {
+      for (const f of lintMemberSentence(s, packet, scope)) failures.push({ path: `${path}[${i}]`, ...f });
+      if (splitSentences(s?.text).length > 1) failures.push({ path: `${path}[${i}]`, rule: "one_sentence", detail: "each entry must be exactly one sentence" });
+    });
+  each(draft?.update, "update", { allowedCites: null });
+  if (!(draft?.update ?? []).length) failures.push({ path: "update", rule: "update_empty", detail: "the update needs at least one sentence" });
+  if ((draft?.update ?? []).length > 3) failures.push({ path: "update", rule: "update_length", detail: `${draft.update.length} sentences; the limit is 3` });
+  for (const p of draft?.policy ?? []) {
+    const item = packet.policy.get(p?.id);
+    if (!item) {
+      failures.push({ path: `policy.${p?.id}`, rule: "policy_unknown", detail: "not an action in the packet" });
+      continue;
+    }
+    for (const slot of ["whatChanged", "whereItStands", "whatItMeans", "next"]) {
+      each(p?.[slot] ? [p[slot]] : [], `policy.${p.id}.${slot}`, { allowedCites: item.citeIds, band: item.band });
+    }
+  }
+  for (const [k, list] of Object.entries(draft?.markets ?? {})) {
+    const fact = packet.markets.get(k);
+    each(list, `markets.${k}`, { allowedCites: fact ? fact.citeIds : new Set() });
+  }
+  return { ok: failures.length === 0, failures };
+}

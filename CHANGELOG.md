@@ -1,5 +1,101 @@
 # Changelog
 
+## 1.40.0 — The ISA Member Brief (Mon/Wed/Fri): no unsupported claims, by construction
+
+A new scheduled report for farmer-members. Policy and regulatory first, markets second; education, not advice. It goes out under ISA's name, so making an unsupported claim is **structurally hard**, not just discouraged (`src/memberbrief.js`).
+
+### How a sentence earns its place
+- **Numbers are inserted by code.** Market figures are computed from stored series and handed to the model as locked tokens (`{{FUND_SOYBEANS_NET}}`); the renderer substitutes them.
+  - The lint rejects any digit the model writes that is not inside a token or verbatim in a source the sentence cites. Dates are tokens too.
+- **Every sentence cites.** Sentences are `{ text, cites[] }`. Each cite must resolve to a stored record carrying URL, publisher, date and provenance tier (`provenance.js`).
+  - A policy sentence may cite only its own action's sources, and a market sentence only its own data.
+- **Certainty bands are code-rendered** from the policy card: In force / In force — under legal challenge / Proposed — NOT final / Signalled.
+  - Decision language ("final", "in effect", "requires", "approved"…) on a Proposed or Signalled action fails the lint.
+  - "In force" language needs a cited primary source.
+- **Adversarial review.** `REVIEW_MODEL` (default `ANALYST_MODEL`; `.env.example` suggests Opus 5.5) checks the draft against the evidence packet only. No web search. It may delete sentences or lower bands, never add or raise; code enforces both.
+- **Fail closed.** If lint or review still fails after one retry, nothing is sent:
+  - the draft is saved as `<date>-member-draft.md`;
+  - an alert goes to `ALERT_EMAIL_TO` (or `BRIEF_EMAIL_TO`);
+  - the run is marked failed with the reasons, and the red banner shows.
+  - Reaching the budget's hard ceiling also fails closed.
+- **Compliance.** `compliance.scanBanned` runs on every member-facing sentence and again on the rendered brief, and the education footer is appended. This is the farmer-facing product `compliance.js` was reserved for.
+- **Staleness.** Every datum shows its as-of date.
+  - Past its allowance, it is shown with its date and "not updated this cycle".
+  - Past twice the allowance, it is omitted, and its tokens are withheld so the model cannot use them.
+  - The allowances are: CFTC = last Friday's release; barge = 14 days; oil share = 4 days (CME) or 10 days (AMS weekly); new-crop ratio = 4 days.
+
+### Structure (fixed order)
+1. **The update** — at most 3 sentences, enforced by code: entries are split into sentences and capped.
+2. **Policy & regulatory**
+   - **Open comment deadlines** come first (code-rendered).
+   - Then each action: band, what changed, where it stands, what it means for an Iowa corn/soybean operation, and the next dated event.
+3. **Markets** — figures printed by code, each with its as-of date:
+   - **Fund positioning:** soybeans, meal and oil — managed-money net, week-over-week, 52-week percentile.
+   - **Oil share of crush:** CME settlements first, then USDA AMS Iowa cash. Never the Yahoo board legs.
+   - **Soy:corn ratio:** new-crop Nov soybeans ÷ Dec corn from CME settlements, with the contracts and settle date stated. The NASS Iowa monthly ratio follows as dated context.
+   - **Barge freight:** by location (St. Louis, Illinois River), $/ton, week-over-week and the 3-year same-week average.
+4. **What to watch** through the next edition — code-rendered from the report calendar, policy dates, deadlines, hearings and card next-events.
+5. **Sources** — the full numbered list.
+
+**Lookback window:** since the previous Member Brief (Mon covers Fri–Sun, Wed covers Mon–Tue, Fri covers Wed–Thu). If an edition failed closed, the next one reaches back to where the last *sent* window ended, so nothing is skipped.
+
+### Market inputs it needed (Phase 0 audit §4.3)
+- **CFTC** now fetches soybeans, soybean meal and soybean oil (`cftc:<market>:mm-net`).
+  - Markets are matched by contract code or name, with a name-only fallback so today's soybean feed can't break.
+  - A total failure now throws, so it is recorded, instead of returning `[]`.
+- **Barge freight by location** (`agtransport:barge-freight:<location>`, $/ton; `sources.agtransport.bargeLocations`).
+  - The dataset's location column is discovered rather than assumed.
+  - The old series is relabelled honestly as the *average of all reported locations*.
+- **The positioning, barge and soy:corn charts** are relabelled to say what they plot.
+
+### Plumbing
+- **Schedule:** `briefEditions.member` defaults to `"Mon,Wed,Fri 06:45"`; set it in Settings, or `off`.
+  - It always runs after the day's data refresh has completed.
+  - Restart dedup counts `member` runs.
+- **Recipients:** `MEMBER_BRIEF_TO`, Settings → member recipients, and `/data/member-list.txt`.
+  - Sent **BCC**. Subject: "ISA Member Brief — <date>". HTML email.
+  - A List-Unsubscribe header plus an unsubscribe line (`MEMBER_BRIEF_REPLY_TO`).
+  - `scripts/member-list.mjs add|rm|list|unsubscribes`. `unsubscribes` reads replies over IMAP, following `subscribe.mjs`, and removes senders.
+- **🔍 Preview Member Brief** button on Home, and `node src/index.js member-brief --preview`. A preview never emails anyone and never advances the sent window.
+- **`SAFE_BRIEF_NAME`, the Run allow-list and the Saved-briefs labels** include `member`, `member-preview` and `member-draft`.
+  - `farmer` and `pulse` were dropped from the allow-list. They were never memo presets, so posting them ran the full policy pipeline under that name.
+- **`/freshness`** gains a Member Brief row and the updated input checks.
+
+### Cost
+At list prices, per edition:
+
+| Case | Cost | Breakdown |
+|---|---|---|
+| Typical | ≈ $0.15 | Sonnet draft ≈ $0.045 (~10k in / ~2.5k out); Opus 5.5 review at high effort ≈ $0.11 (~12k in / ~3k out) |
+| Worst case | ≈ $0.31 | one retry |
+| Month | ≈ $2.50–3.50 | 13 editions plus a few previews |
+
+That is inside the Member Brief's $12 allocation (`docs/BUDGET.md`).
+
+The cache breakpoint sits after the evidence packet. The system prompt alone (~670 tokens) is under Sonnet 5's 1,024-token cache minimum, so a breakpoint there would cache nothing; placing it after the packet makes a retry read system + packet from cache.
+
+### Tests: 427 → 449
+New `test/member-brief.test.js` (22 tests):
+- section order;
+- ≤3-sentence update;
+- rejection of an uncited sentence, a number not in the packet, decision language on a proposal, advice, a withheld stale token, and cross-section cites;
+- stale-datum omission;
+- review can only delete and lower;
+- fail-closed after one retry, and a retry that recovers;
+- the budget hard ceiling;
+- M/W/F scheduling and restart dedup;
+- the lookback window and a missed edition;
+- the COT as-of rule;
+- the new-crop roll;
+- CFTC fallback, barge location discovery, and the 3-year average.
+
+### Pi go-live: one Update, then
+1. Set `CME_SETTLEMENTS=1` in `/data/.env`. History starts the day it is on.
+2. Click **🔍 Preview Member Brief** and read it.
+3. Add recipients in Settings (or `/data/member-list.txt`).
+
+Until recipients exist, Mon/Wed/Fri editions are generated and saved, not emailed.
+
 ## 1.39.0 — Every panel says when it failed; storylines unstuck; fresh data before every report; a $75/month budget
 
 Phase 1 of the audit in `docs/AUDIT-2026-10-04.md`.
@@ -75,7 +171,7 @@ A new `source_health` table records every item fetch and series refresh as ok, e
 - A market layer that failed this run is withheld from the brief's evidence menu (`missingSeriesPrefixes`, previously never wired).
 - The calendar loads every `<prefix>.<year>.json`. `/freshness` warns when authored USDA dates end within 60 days: today they end 2026-12-10. **The 2027 file is still needed.**
 
-### Tests: 409 → 428
+### Tests: 409 → 427
 New `test/phase1-reliability.test.js` (18 tests): storylines null / throw / truncation / recovery / prune; truncated digest; PM-only day; restart after a quiet AM; interrupted vs. failed run; multi-day specs; refresh gate; thinking switch per model; budget; watchlist migration; source health; calendar coverage.
 
 ### Pi go-live: one Update

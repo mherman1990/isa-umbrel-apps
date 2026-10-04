@@ -1361,6 +1361,30 @@ export function priorCardsFor(eventKeys, hours = 36) {
 }
 
 /** Cards filed by one run, newest first. Powers the run-log detail view. */
+/**
+ * Policy cards KEPT (published) in [startISO, endISO), newest first — the Member Brief's policy section.
+ * One per event_key: the newest card for a thread wins, so an action updated twice in a window is one item.
+ */
+export function keptCardsBetween(startISO, endISO) {
+  const rows = db
+    .prepare("SELECT * FROM policy_cards WHERE status = 'kept' AND created_at >= ? AND created_at < ? ORDER BY created_at DESC, id DESC")
+    .all(startISO, endISO);
+  const seen = new Set();
+  const out = [];
+  for (const r of rows) {
+    if (seen.has(r.event_key)) continue;
+    seen.add(r.event_key);
+    let card = {};
+    try {
+      card = JSON.parse(r.card || "{}");
+    } catch {
+      card = {};
+    }
+    out.push({ ...r, card });
+  }
+  return out;
+}
+
 export function cardsForRun(runId) {
   return db.prepare("SELECT * FROM policy_cards WHERE run_id = ? ORDER BY id ASC").all(runId).map((r) => {
     let card = null;
@@ -2384,6 +2408,13 @@ export function getItemByUid(uid) {
               comment_deadline, doc_type, published_at, entity_id, item_type, geo
          FROM seen_items WHERE uid = ?`
     )
+    .get(uid);
+}
+
+/** What a Member Brief citation needs from a stored item: identity, dates, and its text (for the number check). */
+export function getItemForCitation(uid) {
+  return db
+    .prepare("SELECT uid, source_id, title, url, one_line, body, published_at, first_seen_at FROM seen_items WHERE uid = ?")
     .get(uid);
 }
 

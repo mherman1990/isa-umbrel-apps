@@ -224,6 +224,28 @@ program
   });
 
 program
+  .command("member-brief")
+  .description("Generate the ISA Member Brief (lint + adversarial review; fails closed). --preview never emails.")
+  .option("--preview", "generate and save without sending", false)
+  .action(async (opts) => {
+    const { runMemberBrief } = await import("./memberbrief.js");
+    const { loadWatchlist } = await import("./pipeline.js");
+    let watchlist = null;
+    try {
+      watchlist = loadWatchlist();
+    } catch {
+      /* defaults */
+    }
+    try {
+      const r = await runMemberBrief({ env: process.env, watchlist, preview: !!opts.preview });
+      console.log(`🌾 ${r.status} — ${path.basename(r.path)} (${r.attempts} attempt(s), ${r.deleted} sentence(s) removed in review)`);
+    } catch (err) {
+      console.error(`⛔ ${err.message}`);
+      process.exitCode = 1;
+    }
+  });
+
+program
   .command("alerts-check")
   .description("Detect material market changes since last check → the 'what changed' feed")
   .action(async () => {
