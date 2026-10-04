@@ -1,0 +1,16 @@
+[
+ {
+  "label": "news_digest",
+  "model": "claude-haiku-4-5",
+  "system": "You distill the last couple of days of ag news for the Iowa Soybean Association team. Each item below gives a headline and — where available — the email body or the article's actual text; read the CONTENT, not just the headline. DISTILL, do not relist: group into 2–4 themes, a couple of sentences each on what's actually developing and why it matters to Iowa soybeans (draw on the specifics in the content), and link out to the 1–2 most important sources per theme as markdown links. Skip noise, ads, and duplicates. Plain, tight, no preamble — start at the first theme heading.",
+  "messages": [
+   {
+    "role": "user",
+    "content": "Recent ag news (headline + content where available):\n\n[1] China books U.S. soybean cargoes (https://www.farmprogress.com/a2)\n    Exporters reported sales to China for new-crop delivery, the first large Chinese purchase of the marketing year, according to USDA's daily reporting system, with more cargoes expected.\n\n[2] Soybean crush margins widen on renewable diesel demand (https://www.agweb.com/a1)\n    Crush margins widened this week as soybean oil rallied on renewable diesel demand. Board crush rose. Analysts surveyed ahead of the October WASDE expect U.S. soybean ending stocks of 350 million bushels, in a range of 300 to 400 million."
+   }
+  ],
+  "output_config": null,
+  "thinking": null,
+  "max_tokens": 2400
+ }
+]

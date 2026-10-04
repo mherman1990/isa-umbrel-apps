@@ -1,0 +1,84 @@
+[
+ {
+  "label": "expectations",
+  "model": "claude-haiku-4-5",
+  "system": "You extract PRE-REPORT TRADE ESTIMATES from ag newsletters — the analyst survey / consensus figures published BEFORE a USDA release (WASDE, Grain Stocks, Acreage, Crop Production, NOPA crush). Extract ONLY forward-looking estimates of a number not yet published. Do NOT extract: actual reported figures, last month's number, a prior USDA estimate being revised, or a general opinion with no figure. If a range is given use estLow/estHigh; if only an average is given, repeat it in all three fields. Return an empty array if there are no genuine pre-report estimates — that is a valid and common answer, and a wrong extraction is far worse than none.",
+  "messages": [
+   {
+    "role": "user",
+    "content": "AVAILABLE MARKET SERIES (exact ids for `series`):\nagtransport:barge-freight:st-louis — Barge freight — St. Louis ($/ton)\ncme:zc:2026-12 — ZC Dec (¢/bu)\ndrought_monitor:ia:d1 — IA D1+ (%)\ncftc:soybeans:mm-net — Managed money net position (contracts)\ncropcasma:ia:rootzone-sm — IA root-zone (m3/m3)\nwasde:us:soy-endstocks — Ending stocks (mln bu)\nwasde:us:soy-stocks-to-use — Stocks-to-use (%)\nams:ia:basis — IA basis (¢/bu)\nnass:us:condition — US condition (% G/E)\nnass:ia:soy-corn-ratio — IA soy:corn ratio (ratio)\nnass:us:crush — US soybean crush (mln bu)\ncbot:crush:board-margin — Board crush ($/bu)\ncme:zs:2026-11 — ZS Nov (¢/bu)\nagtransport:soy-net-export-sales — Net export sales (metric tons)\ncbot:zs:front — Soybeans (¢/bu)\nnass:ia:price — IA soybean price received ($/bu)\nnass:us:price — US soybean price received ($/bu)\ncbot:zm:front — Meal ($/ton)\ncbot:zl:front — Oil (¢/lb)\nams:ia:meal — IA cash meal ($/ton)\nams:ia:oil — IA cash oil (¢/lb)\nvegscape:ia:vci — IA VCI (index)\nopen_meteo:us:precip-pctile — US precip (pctile)\n\n=== RECENT NEWS BODIES ===\n[1] China books U.S. soybean cargoes — 2026-10-06\n    Exporters reported sales to China for new-crop delivery, the first large Chinese purchase of the marketing year, according to USDA's daily reporting system, with more cargoes expected.\n\n[2] Soybean crush margins widen on renewable diesel demand — 2026-10-06\n    Crush margins widened this week as soybean oil rallied on renewable diesel demand. Board crush rose. Analysts surveyed ahead of the October WASDE expect U.S. soybean ending stocks of 350 million bushels, in a range of 300 to 400 million."
+   }
+  ],
+  "output_config": {
+   "format": {
+    "type": "json_schema",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "expectations": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "properties": {
+         "report": {
+          "type": "string",
+          "description": "Report name plus period, e.g. \"WASDE 2026-08\" or \"Grain Stocks 2026-09\"."
+         },
+         "reportDate": {
+          "type": "string",
+          "description": "Expected release date as YYYY-MM-DD, or empty string if not stated."
+         },
+         "item": {
+          "type": "string",
+          "description": "What is being estimated, e.g. \"U.S. soybean ending stocks\"."
+         },
+         "series": {
+          "type": "string",
+          "description": "EXACT market_series id from the provided list that will hold the actual, or empty string."
+         },
+         "unit": {
+          "type": "string"
+         },
+         "estLow": {
+          "type": "number",
+          "description": "Low end of the analyst range. Repeat estAvg if only an average is given."
+         },
+         "estAvg": {
+          "type": "number",
+          "description": "Average / consensus estimate."
+         },
+         "estHigh": {
+          "type": "number",
+          "description": "High end of the range. Repeat estAvg if only an average is given."
+         },
+         "source": {
+          "type": "string",
+          "description": "Publication the estimate came from."
+         }
+        },
+        "required": [
+         "report",
+         "reportDate",
+         "item",
+         "series",
+         "unit",
+         "estLow",
+         "estAvg",
+         "estHigh",
+         "source"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     "required": [
+      "expectations"
+     ],
+     "additionalProperties": false
+    }
+   }
+  },
+  "thinking": null,
+  "max_tokens": 2500
+ }
+]
