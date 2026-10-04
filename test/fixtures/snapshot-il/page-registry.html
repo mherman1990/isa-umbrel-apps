@@ -2,7 +2,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>The Bean Brief · studio</title>
+<title>The Bean Brief · registry</title>
 <style>
   /* ---- ISA brand palette (from ISA24 Branding Guidelines: primary p10, 40-tints) ---- */
   :root {
@@ -251,84 +251,22 @@
   }
 </style></head>
 <body><header>
-<a class="brand" href="/"><img class="logo" src="/assets/isa-logo-main.png" alt="Iowa Soybean Association"><span class="brandname">The Bean Brief</span></a>
+<a class="brand" href="/"><span class="brandname">The Bean Brief</span></a>
 <nav><a href="/">Home</a><a href="/items">Laws, Rules &amp; Decisions</a><a href="/news">News</a><a href="/markets">Markets</a><a href="/studio">Studio</a><a href="/map">Map</a><a href="/watchlist">Watchlist</a><a href="/sources">Sources</a><a href="/registry">Registry</a><a href="/logs">Logs &amp; Settings</a></nav>
 </header>
 <script>(function(){var p=location.pathname,act=null;document.querySelectorAll('nav a').forEach(function(a){var h=a.getAttribute('href');if(h==='/'?p==='/':p===h||p.indexOf(h+'/')===0){a.classList.add('active');act=a;}});
 /* On a phone the nav is one horizontal strip (see the mobile CSS), so the current tab can sit off
    screen — scroll it into view, without scrolling the page itself. */
 if(act&&act.offsetParent){var n=act.parentNode;if(n.scrollWidth>n.clientWidth+4)n.scrollLeft=Math.max(0,act.offsetLeft-16);}})();</script>
-
-<style>
-  body { max-width: 1360px; }
-  #studio-gate { display: none; }
-  .st-toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 6px 0 14px; }
-  .st-range, .st-export { display: flex; gap: 5px; align-items: center; }
-  .st-export { margin-left: auto; }
-  .st-range button, .st-export button, .st-export a { background: #fff; color: var(--isa-dark);
-    border: 1px solid var(--isa-dark-40); border-radius: 6px; padding: 5px 11px; font-size: .85em;
-    font-weight: 600; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 5px; }
-  .st-range button.on { background: var(--isa-blue); color: #fff; border-color: var(--isa-blue); }
-  .st-range button:hover, .st-export button:hover, .st-export a:hover { background: var(--isa-gold-40); }
-  .st-grid { display: grid; grid-template-columns: 240px minmax(0, 1fr) 236px; gap: 16px; align-items: start; }
-  #studio-rail, #studio-stats { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: #fff; }
-  #studio-rail { max-height: 78vh; overflow: auto; }
-  .st-railhead { font-weight: 700; color: var(--isa-dark); font-size: .82em; text-transform: uppercase;
-    letter-spacing: .04em; display: flex; align-items: center; gap: 6px; margin: 2px 0 4px; }
-  .st-grp { font-size: .72em; font-weight: 700; color: var(--isa-dark); opacity: .75; margin: 12px 0 3px; }
-  .st-item { display: flex; align-items: center; gap: 7px; font-size: .85em; padding: 2px 0; cursor: pointer; }
-  .st-item input { margin: 0; }
-  .st-sub { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 8px; }
-  .st-radio { display: flex; align-items: center; gap: 7px; font-size: .85em; padding: 2px 0; cursor: pointer; }
-  .st-chart { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; background: #fff; min-height: 340px; }
-  .st-caption { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
-  .st-caption .st-title { font-weight: 700; color: var(--isa-dark); }
-  .st-caption .st-chip { font-size: .72em; font-weight: 600; color: var(--isa-dark); background: var(--isa-blue-40);
-    border-radius: 999px; padding: 1px 9px; }
-  .st-caption .st-chip.warn { background: var(--isa-gold-40); color: var(--isa-rust); }
-  .st-statshead { font-weight: 700; color: var(--isa-dark); font-size: .82em; text-transform: uppercase;
-    letter-spacing: .04em; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
-  .st-focussel { width: 100%; margin-bottom: 8px; }
-  .st-stat { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 0; border-bottom: 1px dashed var(--line); }
-  .st-stat .k { font-size: .78em; color: var(--muted); }
-  .st-stat .v { font-size: .92em; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
-  /* Direction shown with a neutral glyph, not green/red — "up" isn't "good" for every series
-     (a rising dollar or drought reads bearish), so valence colour would mislead. */
-  .st-stat .v.up::before { content: "▲ "; font-size: .72em; color: var(--muted); }
-  .st-stat .v.down::before { content: "▼ "; font-size: .72em; color: var(--muted); }
-  .st-foot { font-size: .74em; color: var(--muted); line-height: 1.45; margin-top: 8px; }
-  .st-empty { color: var(--muted); text-align: center; padding: 60px 12px; }
-  .st-empty.err { color: var(--isa-rust); }
-  .uplot { font-family: system-ui, sans-serif; }
-  @media (max-width: 999px) { #studio-app { display: none; } }
-</style>
-<h1>Chart studio <span class="muted" style="font-size:.55em;font-weight:700;letter-spacing:.03em">DESKTOP · STAFF</span></h1>
-<div id="studio-gate" class="banner">The chart studio is built for a wider screen — open The Bean Brief on a desktop, or widen this window, to use it. The <a href="/markets">Markets</a> tab works everywhere.</div>
-<div id="studio-app" data-spec="">
-  <div class="st-toolbar">
-    <div class="st-range" id="st-range">
-      <span class="muted" style="font-size:.8em;font-weight:600">Range</span>
-      <button data-months="6">6M</button><button data-months="12">1Y</button>
-      <button data-months="36" class="on">3Y</button><button data-months="60">5Y</button>
-      <button data-months="all">All</button>
-    </div>
-    <div class="st-export">
-      <button id="st-png" type="button" title="Download a PNG for slides / Teams">⬇ PNG</button>
-      <a id="st-csv" download href="#" title="Download the underlying data">⬇ CSV</a>
-      <button id="st-share" type="button" title="Copy a link that reproduces this view">🔗 Share</button>
-    </div>
-  </div>
-  <div class="st-grid">
-    <aside id="studio-rail"><div class="muted" style="font-size:.85em">Loading…</div></aside>
-    <main class="st-chart">
-      <div class="st-caption" id="studio-caption"></div>
-      <div id="studio-panes"><div class="st-empty">Pick one or more series on the left to build a chart.</div></div>
-      <div id="studio-legend"></div>
-    </main>
-    <aside id="studio-stats"></aside>
-  </div>
-</div>
-<link rel="stylesheet" href="/assets/uPlot.min.css">
-<script src="/assets/uPlot.iife.min.js"></script>
-<script src="/assets/studio.js?v=X"></script>
+<h2>Entity Registry</h2>
+    <p>no entities yet — <strong>0</strong> total · 0 active channels.</p>
+    <form method="post" action="/registry/sync" style="margin:.5rem 0">
+      <button class="ghost">↻ Sync registry.json → database</button>
+      <span class="muted">Re-imports the hand-seed file (idempotent). Machine seeders run from the CLI.</span></form>
+    
+    <table class="sources">
+      <tr><th>Name</th><th>Type</th><th>Party</th><th>Office</th><th>Level</th><th>Ch.</th><th>Source</th></tr>
+      <tr><td colspan="7" class="muted">No entities yet — click Sync above, or seed from the CLI: <code>node src/index.js registry-refresh</code>.</td></tr>
+    </table>
+    <p class="muted">The backbone of v2: <em>who</em> we watch and <em>how</em> each publishes. Seed state legislators with <code>registry-seed openstates</code>.</p>
 </body></html>

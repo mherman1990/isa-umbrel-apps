@@ -9,6 +9,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { pack } from "./pack.js";
 
 const DATA_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "data");
 
@@ -46,8 +47,16 @@ function loadCal() {
 // regulatory milestones) — a separate authored file so the homepage calendar shows more than USDA
 // reports. Comment deadlines are NOT here (captured dynamically per-rule in store.upcomingDeadlines).
 let POL = null;
+// State-specific events carry `state` and show only under that state's pack; a shared event may carry
+// `stateNotes` with a state's own wording (the Iowa ballot on the general election, say).
 function loadPolicy() {
-  if (!POL) POL = loadAll("policy_events", { events: [] });
+  if (!POL) {
+    POL = loadAll("policy_events", { events: [] });
+    const alpha = pack().identity.stateAlpha;
+    POL.events = POL.events
+      .filter((e) => !e.state || e.state === alpha)
+      .map((e) => (e.stateNotes?.[alpha] ? { ...e, note: e.stateNotes[alpha] } : e));
+  }
   return POL;
 }
 

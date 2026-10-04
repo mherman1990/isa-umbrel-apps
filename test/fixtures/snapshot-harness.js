@@ -93,13 +93,10 @@ export async function captureState({ stateKey = "ia" } = {}) {
   const adapterUrls = {};
   const ADAPTERS = ["usda_nass", "usda_ams", "drought_monitor", "cropcasma", "vegscape", "open_meteo", "legiscan", "barchart", "fas_export_sales", "agtransport", "cftc", "iowa_admin_rules"];
   const keys = { NASS_API_KEY: "k", USDA_AMS_API_KEY: "k", LEGISCAN_API_KEY: "k", BARCHART_API_KEY: "k", FAS_API_KEY: "k" };
+  const { adapters: registered } = await import("../../src/adapters/index.js");
   for (const id of ADAPTERS) {
-    let mod;
-    try {
-      mod = await import(`../../src/adapters/${id}.js`);
-    } catch {
-      continue;
-    }
+    const mod = registered[id]; // a state-specific adapter is absent under another state's pack
+    if (!mod) continue;
     const urls = [];
     globalThis.fetch = async (u) => {
       urls.push(String(u).replace(/([?&](key|api_key|apikey|token)=)[^&]+/gi, "$1K"));
@@ -160,7 +157,7 @@ function get(port, p) {
 // app version, and temp paths.
 export function scrub(s) {
   return String(s ?? "")
-    .replace(/\?v=[a-z0-9]+/g, "?v=X")
+    .replace(/\?v=[a-z0-9.]+/g, "?v=X") // the asset cache-buster is the app version — not state output
     .replace(/\b1\.\d{2}\.\d+\b/g, "VERSION")
     .replace(/\/tmp\/[^\s"'<>)]+/g, "/TMP");
 }

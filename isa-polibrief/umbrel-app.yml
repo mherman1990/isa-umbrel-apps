@@ -28,7 +28,15 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  NEW: THE ISA MEMBER BRIEF (MON/WED/FRI). A short policy-first, markets-second update for farmer-members,
+  STATE PACKS — NOTHING CHANGES FOR IOWA. Everything that made the Bean Brief "Iowa" (the organization
+  and state names in every prompt and page, the legislature, map, market reports, crop regions and
+  calendar) now lives in one swappable state pack, so another state association can run the same app
+  without a fork. Every step was checked against a recording of today's Iowa output and had to match it
+  byte for byte, so your briefs, charts and data are unchanged and the database needs no migration. A new
+  Setup page (Logs & Settings → Setup) shows which state the box is configured for and what it still
+  needs. An Illinois pilot pack ships but is not active. Update only — no new keys.
+  ---
+  1.40.0 — NEW: THE ISA MEMBER BRIEF (MON/WED/FRI). A short policy-first, markets-second update for farmer-members,
   built so it can't say anything the stored record doesn't support: every number is filled in by code,
   every sentence cites a source, proposed rules can never read as final, and a second AI reviewer can
   only delete or downgrade. If anything fails a check after one retry, it is NOT sent — the draft is saved

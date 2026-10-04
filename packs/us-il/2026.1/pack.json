@@ -1,0 +1,66 @@
+{
+  "id": "us-il",
+  "version": "2026.1",
+  "extends": "us-national@2026.1",
+  "abstract": false,
+  "description": "Illinois — PILOT (docs/MULTI_STATE.md §14). Only values verified from public sources are filled; anything not yet verified is empty and listed under `verify`, so the app degrades (setup says what is off) instead of guessing. ILSoy reviews before first deploy.",
+  "verify": [
+    "identity.orgShort, prompts.reader, prompts.readerTitle — ILSoy to confirm house style and the reader role",
+    "identity.branding — ILSoy to supply the logo file (none shipped; the header shows no logo until then) and its colours (the ISA palette is used until then)",
+    "legislature.sessionNote — confirm the General Assembly calendar each session",
+    "adminRules — Illinois Register (ilsos.gov) adapter (il_register) not yet written; needs a live probe of the issue index",
+    "markets.ams.cashReportId — the AMS Illinois daily cash-grain report id has to be probed on MARS before it is set",
+    "markets.ams.feedstuffTradeLoc — confirm AMS 3511 carries an Illinois trade location (the series stays empty if not)",
+    "registry — no Illinois entity seed yet; geo layers via scripts/fetch-geo.mjs, roster via scripts/fetch-incumbents.mjs",
+    "election.campaignFinance — off until counsel reviews the Illinois State Board of Elections data-use terms"
+  ],
+  "identity": {
+    "orgName": "Illinois Soybean Association",
+    "orgShort": "ILSoy",
+    "stateName": "Illinois",
+    "stateAlpha": "IL",
+    "stateFips": "17",
+    "timezone": "America/Chicago",
+    "website": "https://www.ilsoy.org"
+  },
+  "prompts": {
+    "reader": "ILSoy's policy and market-development staff",
+    "readerTitle": "policy and market-development staff",
+    "operation": "an Illinois corn/soybean operation"
+  },
+  "provenance": {
+    "primaryHosts": { "inherit": true, "add": ["ilga.gov", "ilsos.gov"] },
+    "agencyHosts": { "inherit": true, "add": ["agr.illinois.gov", "epa.illinois.gov"] },
+    "advocacyHosts": { "inherit": true, "add": ["ilsoy.org"] }
+  },
+  "legislature": {
+    "legiscanHome": "IL",
+    "legiscanStates": ["IL"],
+    "fullTextStates": ["IL"],
+    "openstatesJurisdiction": "Illinois",
+    "sessionNote": "IL General Assembly spring session Jan–May (verify)",
+    "chamberNames": { "upper": "Illinois Senate", "lower": "Illinois House", "legislature": "Illinois General Assembly" }
+  },
+  "election": {
+    "campaignFinance": { "enabled": false }
+  },
+  "geo": {
+    "center": [40.0, -89.2], "zoom": 6, "minZoom": 5,
+    "bbox": [-91.6, 36.9, -87.4, 42.6],
+    "layers": { "counties": "geo/counties.geojson", "congress": "geo/congress.geojson", "senate": "geo/senate.geojson", "house": "geo/house.geojson", "huc8": "geo/huc8.geojson" },
+    "districtHucs": "data/district-hucs.json",
+    "incumbents": "data/il-incumbents.json",
+    "openstatesRosterCsv": "https://data.openstates.org/people/current/il.csv"
+  },
+  "markets": {
+    "nass": { "stateAlpha": "IL" },
+    "ams": { "cashReportId": null, "feedstuffReportId": 3511, "feedstuffTradeLoc": "Illinois" },
+    "cropRegions": {
+      "belt": [
+        { "key": "ia", "fips": "19", "name": "Iowa" },
+        { "key": "in", "fips": "18", "name": "Indiana" }
+      ]
+    },
+    "barge": { "locations": ["Illinois River", "St. Louis"] }
+  }
+}

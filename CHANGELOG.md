@@ -1,5 +1,56 @@
 # Changelog
 
+## 1.41.0 — State packs: the Bean Brief can run for another state without a fork
+
+Everything that made a deployment "Iowa" now lives in a versioned **state pack** (`packs/<id>/<version>/pack.json`). Iowa ships as `us-ia`, extending a federal base tier `us-national`. `STATE_PACK` (default `us-ia`) picks the pack. Design: `docs/MULTI_STATE.md`.
+
+**For the Iowa deployment nothing changes.** Every step of the migration had to pass a snapshot test: prompts, Member Brief, text blocks, adapter requests and page HTML stayed **byte-identical** to a baseline recorded before the work (`test/iowa-snapshot.test.js`). Series keys are unchanged, so the database needs no migration. No new keys.
+
+### What moved into the pack
+- **Identity and voice.** Org name, short name, state name, reader title, time zone and logo. Prompts and UI copy interpolate them; there are no state literals left in prompt or page code.
+- **Series keys.** `seriesKey("nass", "soy-corn-ratio")` resolves to `nass:ia:…` under Iowa and `nass:il:…` under Illinois.
+  - The crush-capacity sentence now computes the state's share and rank from the national plant table instead of asserting "the largest of any state".
+- **Legislature.** LegiScan home and full-text states, the OpenStates jurisdiction and chamber names, and the FEC candidate state.
+- **Admin rules.** The pack names its admin-rules adapter. State-specific adapters (`export const state`) load only under their own state, so Illinois never polls the Iowa bulletin.
+- **Provenance.** The primary, agency and advocacy host lists.
+- **Election gate.** Campaign-finance seeding needs `election.campaignFinance` enabled in the pack, in addition to the existing env confirmation. It is off unless a pack turns it on.
+- **Map and registry.** Boundary layers, the district→watershed map, the legislature roster, the candidate list and the registry seed moved into `packs/us-ia/2026.1/`. The map reads its center, plant filter and layer names from `/assets/geo/map.json`. The geo scripts take FIPS, bounding box and output paths from the pack.
+- **Markets.**
+  - AMS cash-grain report, feedstuff report and trade location. A pack without a verified cash report skips those legs rather than reading another state's.
+  - NASS state.
+  - Drought, VegScape and Crop-CASMA home areas and belt states.
+  - Corn Belt weather points, Barchart basis locations and default barge locations.
+- **Calendar.** State-specific policy events carry `state` and show only under that state; shared events can carry a per-state note.
+
+### Customizing and switching
+- **`/data/pack-overlay.json`** merges over the shipped pack: objects merge, arrays replace, `null` removes, and `{inherit, add, remove}` extends a list.
+  - It survives upgrades.
+  - Keys the pack no longer has are reported, not dropped.
+  - Packs refuse secret-looking values: name the env var instead.
+- **`node src/index.js setup`** reports:
+  - the active pack and where `STATE_PACK` came from;
+  - the extends chain with sha256 hashes;
+  - the overlay;
+  - a checklist covering admin rules, map layers, registry seed, AMS cash report, campaign finance and keys (presence only).
+- `setup --list` shows the packs in the image. `setup --state us-il` validates the target pack before writing `STATE_PACK` to the data `.env`.
+- The same report is at **/setup**, as a "State pack" section on /freshness, and as `statePack` in /freshness.json.
+
+### Illinois pilot pack (`us-il`, not deployed)
+- **Filled and verified:** identity, legislature, provenance hosts (ilga.gov, ilsos.gov, agr.illinois.gov, epa.illinois.gov, ilsoy.org), NASS `IL`, belt IA/IN, barge (Illinois River, St. Louis), and the six Illinois crush plants from the national table. Campaign finance is off.
+- **Listed under `verify`, left empty rather than guessed:**
+  - the AMS Illinois cash-grain report id (to probe on MARS);
+  - the Illinois Register adapter;
+  - map layers and roster — build on the box with `STATE_PACK=us-il node scripts/fetch-geo.mjs` and `scripts/fetch-incumbents.mjs`, since this environment's network policy blocks those hosts;
+  - ILSoy's logo, colours and reader title.
+- **`test/illinois-snapshot.test.js`** records Illinois output for ILSoy's review (`test/fixtures/snapshot-il/`) and fails if Iowa organisation or Iowa-only wording appears.
+- **Known gap:** the shipped `watchlist.json` is shared, so Illinois still starts with the `iowa-water-land` focus area. ILSoy defines its replacement (MULTI_STATE.md §14).
+
+### Tests
+- 469 tests (was 450). New files: `pack.test.js`, `pack-gates.test.js` (a non-Iowa overlay switches off the Iowa adapter, hosts, campaign-finance seeding and AMS report), `setup.test.js`, and the two snapshot tests.
+
+### Not in this release
+- The shared data commons (MULTI_STATE.md step 9) and funding channels (step 10) wait on open questions 2 and 4.
+
 ## 1.40.0 — The ISA Member Brief (Mon/Wed/Fri): no unsupported claims, by construction
 
 A new scheduled report for farmer-members. Policy and regulatory first, markets second; education, not advice. It goes out under ISA's name, so making an unsupported claim is **structurally hard**, not just discouraged (`src/memberbrief.js`).

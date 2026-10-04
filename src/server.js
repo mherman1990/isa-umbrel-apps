@@ -47,6 +47,9 @@ const escRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 // "IA" / "Iowa" in a jurisdiction string, for the active state.
 const HOME_JURIS_RE = new RegExp(`^${escRe(V.alpha)}$|${escRe(V.state)}`, "i");
 const HOME_RULES_SOURCE = pack().adminRules?.adapter ?? null;
+// The org logo named by the pack (identity.branding.logo) — served from src/assets or the pack folder.
+const LOGO = pack().identity.branding?.logo ?? null;
+const LOGO_IMG = LOGO ? `<img class="logo" src="/assets/${LOGO}" alt="${V.org}">` : "";
 // A file the state pack ships (geo layers, rosters). A pack without the entry throws → callers fall back.
 const packFile = (rel) => {
   if (!rel) throw new Error("not in this state pack");
@@ -507,7 +510,7 @@ function page(title, body, { chrome = true } = {}) {
   }
 </style></head>
 <body>${chrome ? `<header>
-<a class="brand" href="/"><img class="logo" src="/assets/isa-logo-main.png" alt="${V.org}"><span class="brandname">The Bean Brief</span></a>
+<a class="brand" href="/">${LOGO_IMG}<span class="brandname">The Bean Brief</span></a>
 <nav><a href="/">Home</a><a href="/items">Laws, Rules &amp; Decisions</a><a href="/news">News</a><a href="/markets">Markets</a><a href="/studio">Studio</a><a href="/map">Map</a><a href="/watchlist">Watchlist</a><a href="/sources">Sources</a><a href="/registry">Registry</a><a href="/logs">Logs &amp; Settings</a></nav>
 </header>
 <script>(function(){var p=location.pathname,act=null;document.querySelectorAll('nav a').forEach(function(a){var h=a.getAttribute('href');if(h==='/'?p==='/':p===h||p.indexOf(h+'/')===0){a.classList.add('active');act=a;}});
@@ -3019,7 +3022,7 @@ function loginPage({ next = "/", error = false } = {}) {
   const safeNext = /^\/($|[^/\\])/.test(String(next ?? "")) ? next : "/"; // never redirect off-site
   const body = `<div class="login-wrap">
   <form class="login-card" method="post" action="/login">
-    <img class="logo" src="/assets/isa-logo-main.png" alt="${V.org}">
+    ${LOGO_IMG}
     <h1>The Bean Brief</h1>
     <p class="muted">Sign in to review policy &amp; market intelligence.</p>
     ${error ? '<p class="banner err" role="alert">Incorrect username or password.</p>' : ""}
@@ -3173,6 +3176,16 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
           try {
             const buf = fs.readFileSync(packFile(pack().geo?.layers?.[layer]));
             res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "public, max-age=86400" });
+            res.end(buf);
+          } catch {
+            res.writeHead(404, { "content-type": "text/plain" }).end("not found");
+          }
+          return;
+        }
+        if (LOGO && name === LOGO && !ASSETS[name]) {
+          try {
+            const buf = fs.readFileSync(packFile(LOGO));
+            res.writeHead(200, { "content-type": /\.svg$/i.test(LOGO) ? "image/svg+xml" : /\.jpe?g$/i.test(LOGO) ? "image/jpeg" : "image/png", "cache-control": "public, max-age=86400" });
             res.end(buf);
           } catch {
             res.writeHead(404, { "content-type": "text/plain" }).end("not found");

@@ -404,6 +404,17 @@ Hybrid (§3c):
 
 Each step is a separate PR and a separate minor release, so a regression is bisectable to one step.
 
+**Status (1.41.0):** steps 0–8 are implemented, one commit per step. The Iowa snapshot stayed byte-identical throughout; the only re-record was a harness fix to the asset cache-buster scrub, and it touched no state output.
+- **Steps 9–10** (commons, channels) wait on open questions 2 and 4 in §15.
+- **Built beyond the table:**
+  - `node src/index.js setup` and the `/setup` page;
+  - the `abstract` flag on base tiers;
+  - `export const state` on state-specific adapters;
+  - per-state `state` / `stateNotes` on calendar events.
+- **Gaps that remain:**
+  - focus areas, news RSS and email-intake senders still come from the shared `watchlist.json`, not the pack;
+  - pack-driven branding colours.
+
 ## 14. The Illinois pack (pilot contents)
 
 - **Identity:** Illinois Soybean Association, IL, FIPS 17, `America/Chicago`. Branding assets from ILSoy.

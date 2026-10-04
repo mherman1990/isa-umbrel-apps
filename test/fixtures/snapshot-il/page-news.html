@@ -2,7 +2,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>The Bean Brief · studio</title>
+<title>The Bean Brief · news</title>
 <style>
   /* ---- ISA brand palette (from ISA24 Branding Guidelines: primary p10, 40-tints) ---- */
   :root {
@@ -251,84 +251,112 @@
   }
 </style></head>
 <body><header>
-<a class="brand" href="/"><img class="logo" src="/assets/isa-logo-main.png" alt="Iowa Soybean Association"><span class="brandname">The Bean Brief</span></a>
+<a class="brand" href="/"><span class="brandname">The Bean Brief</span></a>
 <nav><a href="/">Home</a><a href="/items">Laws, Rules &amp; Decisions</a><a href="/news">News</a><a href="/markets">Markets</a><a href="/studio">Studio</a><a href="/map">Map</a><a href="/watchlist">Watchlist</a><a href="/sources">Sources</a><a href="/registry">Registry</a><a href="/logs">Logs &amp; Settings</a></nav>
 </header>
 <script>(function(){var p=location.pathname,act=null;document.querySelectorAll('nav a').forEach(function(a){var h=a.getAttribute('href');if(h==='/'?p==='/':p===h||p.indexOf(h+'/')===0){a.classList.add('active');act=a;}});
 /* On a phone the nav is one horizontal strip (see the mobile CSS), so the current tab can sit off
    screen — scroll it into view, without scrolling the page itself. */
 if(act&&act.offsetParent){var n=act.parentNode;if(n.scrollWidth>n.clientWidth+4)n.scrollLeft=Math.max(0,act.offsetLeft-16);}})();</script>
-
-<style>
-  body { max-width: 1360px; }
-  #studio-gate { display: none; }
-  .st-toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 6px 0 14px; }
-  .st-range, .st-export { display: flex; gap: 5px; align-items: center; }
-  .st-export { margin-left: auto; }
-  .st-range button, .st-export button, .st-export a { background: #fff; color: var(--isa-dark);
-    border: 1px solid var(--isa-dark-40); border-radius: 6px; padding: 5px 11px; font-size: .85em;
-    font-weight: 600; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 5px; }
-  .st-range button.on { background: var(--isa-blue); color: #fff; border-color: var(--isa-blue); }
-  .st-range button:hover, .st-export button:hover, .st-export a:hover { background: var(--isa-gold-40); }
-  .st-grid { display: grid; grid-template-columns: 240px minmax(0, 1fr) 236px; gap: 16px; align-items: start; }
-  #studio-rail, #studio-stats { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: #fff; }
-  #studio-rail { max-height: 78vh; overflow: auto; }
-  .st-railhead { font-weight: 700; color: var(--isa-dark); font-size: .82em; text-transform: uppercase;
-    letter-spacing: .04em; display: flex; align-items: center; gap: 6px; margin: 2px 0 4px; }
-  .st-grp { font-size: .72em; font-weight: 700; color: var(--isa-dark); opacity: .75; margin: 12px 0 3px; }
-  .st-item { display: flex; align-items: center; gap: 7px; font-size: .85em; padding: 2px 0; cursor: pointer; }
-  .st-item input { margin: 0; }
-  .st-sub { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 8px; }
-  .st-radio { display: flex; align-items: center; gap: 7px; font-size: .85em; padding: 2px 0; cursor: pointer; }
-  .st-chart { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; background: #fff; min-height: 340px; }
-  .st-caption { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
-  .st-caption .st-title { font-weight: 700; color: var(--isa-dark); }
-  .st-caption .st-chip { font-size: .72em; font-weight: 600; color: var(--isa-dark); background: var(--isa-blue-40);
-    border-radius: 999px; padding: 1px 9px; }
-  .st-caption .st-chip.warn { background: var(--isa-gold-40); color: var(--isa-rust); }
-  .st-statshead { font-weight: 700; color: var(--isa-dark); font-size: .82em; text-transform: uppercase;
-    letter-spacing: .04em; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
-  .st-focussel { width: 100%; margin-bottom: 8px; }
-  .st-stat { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 0; border-bottom: 1px dashed var(--line); }
-  .st-stat .k { font-size: .78em; color: var(--muted); }
-  .st-stat .v { font-size: .92em; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
-  /* Direction shown with a neutral glyph, not green/red — "up" isn't "good" for every series
-     (a rising dollar or drought reads bearish), so valence colour would mislead. */
-  .st-stat .v.up::before { content: "▲ "; font-size: .72em; color: var(--muted); }
-  .st-stat .v.down::before { content: "▼ "; font-size: .72em; color: var(--muted); }
-  .st-foot { font-size: .74em; color: var(--muted); line-height: 1.45; margin-top: 8px; }
-  .st-empty { color: var(--muted); text-align: center; padding: 60px 12px; }
-  .st-empty.err { color: var(--isa-rust); }
-  .uplot { font-family: system-ui, sans-serif; }
-  @media (max-width: 999px) { #studio-app { display: none; } }
-</style>
-<h1>Chart studio <span class="muted" style="font-size:.55em;font-weight:700;letter-spacing:.03em">DESKTOP · STAFF</span></h1>
-<div id="studio-gate" class="banner">The chart studio is built for a wider screen — open The Bean Brief on a desktop, or widen this window, to use it. The <a href="/markets">Markets</a> tab works everywhere.</div>
-<div id="studio-app" data-spec="">
-  <div class="st-toolbar">
-    <div class="st-range" id="st-range">
-      <span class="muted" style="font-size:.8em;font-weight:600">Range</span>
-      <button data-months="6">6M</button><button data-months="12">1Y</button>
-      <button data-months="36" class="on">3Y</button><button data-months="60">5Y</button>
-      <button data-months="all">All</button>
+<h1>📰 News</h1>
+    
+    <style>
+      /* ⚡ Worth your attention. The .lb/.lb-must chip classes are defined inside itemsBody()'s own
+         <style> block, which is served only on /items — so they are repeated here rather than
+         inherited. Same values on purpose: a "must read" chip must look identical on both tabs or it
+         reads as a different concept. If the palette changes on one, change it on the other. */
+      .lb{display:inline-block;font-size:.72em;font-weight:600;padding:1px 6px;border-radius:9px;margin-top:2px;white-space:nowrap}
+      .lb-must{background:#fbe3dc;color:#a63c17}
+      .attention{border:1px solid #f0cfc4;background:#fffaf8;border-radius:8px;padding:12px 14px;margin:0 0 18px}
+      .att-h{font-size:1.02em;margin:0 0 2px;display:flex;align-items:center;gap:8px}
+      .att-sub{font-size:.83em;margin:0 0 10px}
+      .att-list{list-style:none;margin:0;padding:0}
+      .att-item{padding:8px 0;border-top:1px solid #f2ded6}
+      .att-item:first-child{border-top:none}
+      .att-head{display:flex;justify-content:space-between;gap:10px;font-size:.78em}
+      .att-from{font-weight:600;color:var(--isa-blue,#1d4e79)}
+      .att-title{font-weight:600;margin:1px 0 2px;line-height:1.3}
+      .att-title a{color:inherit}
+      .att-why{font-size:.88em;color:#444;line-height:1.35}
+      @media (max-width:640px){
+        .attention{padding:10px 11px;margin-bottom:14px}
+        .att-head{flex-direction:column;gap:0}
+        .att-when{font-size:.95em}
+      }
+      .inbox{border-top:1px solid var(--isa-blue-40)}
+      .mailitem{border-bottom:1px solid var(--isa-blue-40);padding:9px 0}
+      .mailitem>summary{cursor:pointer;list-style:none;display:block}
+      .mailitem>summary::-webkit-details-marker{display:none}
+      .mailitem>summary::before{content:"▸";display:inline-block;width:14px;opacity:.55;vertical-align:top}
+      .mailitem[open]>summary::before{content:"▾"}
+      .mailitem[open]{background:var(--isa-blue-40);border-radius:6px;padding:9px 10px;margin:0 -10px}
+      .mailitem .mi-line{display:flex;justify-content:space-between;gap:10px;margin-left:14px}
+      .mailitem .mi-from{font-weight:600;font-size:.82em;color:var(--isa-blue);text-transform:uppercase;letter-spacing:.02em}
+      .mailitem .mi-date{font-size:.8em;white-space:nowrap}
+      .mailitem .mi-title{display:block;font-weight:600;margin:1px 0 0 14px}
+      .mailitem .mi-prev{display:block;font-size:.9em;margin:2px 0 0 14px}
+      .mailitem .mailbody{margin:8px 0 4px 14px;font-size:.93em;line-height:1.6;max-width:74ch}
+      .mailitem .mi-body{margin-bottom:10px}
+      .mailitem .mi-body p{margin:.5em 0}
+      .mailitem .mi-body a{color:var(--isa-blue);text-decoration:underline;word-break:break-word}
+      /* A link whose own text was a bare url / image file is reduced to this compact marker by the
+         sanitizer, so the prose reads clean but nothing is unreachable. */
+      .mailitem .mi-body a.mi-x{text-decoration:none;font-size:.85em;opacity:.6;padding:0 1px}
+      .mailitem .mi-body a.mi-x:hover{opacity:1}
+      .mailitem .mi-body ul,.mailitem .mi-body ol{margin:.5em 0;padding-left:1.4em}
+      .mailitem .mi-body li{margin:.2em 0}
+      .mailitem .mi-body h1,.mailitem .mi-body h2,.mailitem .mi-body h3,.mailitem .mi-body h4{font-size:1em;font-weight:700;margin:.8em 0 .2em}
+      .mailitem .mi-body blockquote{margin:.5em 0;padding-left:.8em;border-left:3px solid var(--isa-blue);opacity:.85}
+      .mailitem .mi-body hr{border:none;border-top:1px solid var(--isa-blue-40);margin:.8em 0}
+      .mailitem .mi-body pre{white-space:pre-wrap;font-size:.9em;overflow-x:auto}
+      .mailitem .mi-link{font-size:.9em}
+      .mi-older{margin-top:16px}
+      .mi-older>summary{cursor:pointer;font-weight:600}
+    </style>
+    <h2 style="margin-bottom:2px">🧠 News of the day</h2>
+    <p class="muted" style="margin-top:0">A distillation of the collector inbox + press RSS — themes and why they matter, not a relist.</p>
+    <div class="answer news-digest"><p>stub</p>
+        <div class="muted" style="margin-top:8px;font-size:.85em">Distilled from 2 items · 2026-10-07 · <form method="post" action="/news/digest" style="display:inline"><button class="ghost tiny">↻ Refresh</button></form></div></div>
+    <details class="topic" style="margin-top:10px">
+    <summary style="cursor:pointer;font-weight:600">📈 Market intel from the inbox <span class="muted" style="font-weight:400">— feeds the Analyst &amp; Ask box</span> <span class="fresh-badge">2026-10-07 · today</span></summary>
+    <div class="answer" style="margin-top:8px"><p>[]</p>
+      <div class="muted" style="margin-top:8px;font-size:.85em">Distilled from 2 newsletter items · 2026-10-07</div>
     </div>
-    <div class="st-export">
-      <button id="st-png" type="button" title="Download a PNG for slides / Teams">⬇ PNG</button>
-      <a id="st-csv" download href="#" title="Download the underlying data">⬇ CSV</a>
-      <button id="st-share" type="button" title="Copy a link that reproduces this view">🔗 Share</button>
-    </div>
-  </div>
-  <div class="st-grid">
-    <aside id="studio-rail"><div class="muted" style="font-size:.85em">Loading…</div></aside>
-    <main class="st-chart">
-      <div class="st-caption" id="studio-caption"></div>
-      <div id="studio-panes"><div class="st-empty">Pick one or more series on the left to build a chart.</div></div>
-      <div id="studio-legend"></div>
-    </main>
-    <aside id="studio-stats"></aside>
-  </div>
-</div>
-<link rel="stylesheet" href="/assets/uPlot.min.css">
-<script src="/assets/uPlot.iife.min.js"></script>
-<script src="/assets/studio.js?v=X"></script>
+  </details>
+    <details class="topic" open><summary>🧵 Storylines <span class="muted">(1)</span> <span class="fresh-badge is-stale">⚠️ </span></summary>
+    <p class="stale-warn">Last attempt 10/7/2026, 7:00:00 AM: the model returned nothing usable. Showing content from the no recorded success yet.</p>
+    <p class="muted" style="margin:2px 0 8px;font-size:.85em">The ongoing threads behind the headlines — auto-clustered from what's flowing in. <form method="post" action="/storylines" style="display:inline"><button class="ghost tiny">↻ Refresh</button></form></p>
+    <div class="storylines"><div class="storyline">
+        <div class="sl-name">RFS volumes <span class="sl-state sl-st-advanced">▲ moved</span></div>
+        <div class="muted sl-focus">EPA RVOs</div>
+        
+        <p class="sl-what">EPA proposed volumes.</p>
+        
+        
+        <ul class="whatchanged sl-tl"><li><span class="wc-when">2026-10-06</span> Proposal</li></ul>
+      </div></div></details>
+    <hr style="border:none;border-top:1px solid var(--isa-blue-40);margin:20px 0">
+    <h2 style="margin-bottom:2px">📬 What's flowing in</h2>
+    <p class="muted" style="margin-top:0">The 20 most-recent items — click any headline to read it right here. Older mail is tucked below.</p>
+    <div class="inbox"><details class="mailitem">
+      <summary>
+        <span class="mi-line"><span class="mi-from">Entity RSS/Atom feeds</span><span class="mi-date muted">2026-10-07</span></span>
+        <span class="mi-title">China books U.S. soybean cargoes</span>
+        <span class="mi-prev muted">Exporters reported sales to China for new-crop delivery, the first large Chinese purchase of the marketing year, according to USDA's daily reporting system, with more cargoes…</span>
+      </summary>
+      <div class="mailbody">
+        <div class="mi-body"><p>Exporters reported sales to China for new-crop delivery, the first large Chinese purchase of the marketing year, according to USDA's daily reporting system, with more cargoes expected.</p></div>
+        <a class="mi-link" href="https://www.farmprogress.com/a2" target="_blank" rel="noopener">Open original ↗</a>
+      </div>
+    </details><details class="mailitem">
+      <summary>
+        <span class="mi-line"><span class="mi-from">Entity RSS/Atom feeds</span><span class="mi-date muted">2026-10-07</span></span>
+        <span class="mi-title">Soybean crush margins widen on renewable diesel demand</span>
+        <span class="mi-prev muted">Crush margins widened this week as soybean oil rallied on renewable diesel demand.</span>
+      </summary>
+      <div class="mailbody">
+        <div class="mi-body"><p>Crush margins widened this week as soybean oil rallied on renewable diesel demand. Board crush rose. Analysts surveyed ahead of the October WASDE expect U.S. soybean ending stocks of 350 million bushels, in a range of 300 to 400 million.</p></div>
+        <a class="mi-link" href="https://www.agweb.com/a1" target="_blank" rel="noopener">Open original ↗</a>
+      </div>
+    </details></div>
 </body></html>

@@ -479,7 +479,7 @@
     // compliance footer strip
     ctx.fillStyle = "#f3f6f9"; ctx.fillRect(0, y, W, footH);
     ctx.fillStyle = "#5a6b7b"; ctx.font = (11 * dpr) + "px system-ui, sans-serif";
-    wrapText(ctx, footerText() + "  |  The Bean Brief · " + orgName(), 10 * dpr, y + 7 * dpr, W - 20 * dpr, 15 * dpr);
+    wrapText(ctx, footerText() + "  |  The Bean Brief" + (orgName() ? " · " + orgName() : ""), 10 * dpr, y + 7 * dpr, W - 20 * dpr, 15 * dpr);
     out.toBlob(function (blob) {
       var a = document.createElement("a"); a.download = "bean-brief-chart-" + new Date().toISOString().slice(0, 10) + ".png";
       a.href = URL.createObjectURL(blob); document.body.appendChild(a); a.click(); document.body.removeChild(a);
