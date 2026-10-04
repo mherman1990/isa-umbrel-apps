@@ -24,7 +24,7 @@ import * as store from "./store.js";
 import * as panels from "./panels.js";
 import * as budgetMod from "./budget.js";
 import { auditFreshness, envPresence, fmtAge } from "./health.js";
-import { setupReport, availablePacks } from "./setup.js";
+import { setupReport, availablePacks, claimDataDir } from "./setup.js";
 import Database from "better-sqlite3";
 import { seedRan, dueEditions, localClock, needsRefreshFirst, parseDaySpec } from "./schedule.js";
 import { runMemberBrief, DEFAULT_MEMBER_SPEC, memberRecipients } from "./memberbrief.js";
@@ -3102,6 +3102,7 @@ function seedDataDir() {
 // ---------- the server ----------
 export async function startServer({ port = 8484, schedule = true } = {}) {
   captureConsole();
+  claimDataDir(store.DATA_DIR, pack().id); // refuses a data folder that belongs to another state (setup.js)
   seedDataDir();
   try {
     const added = migrateWatchlistSources();

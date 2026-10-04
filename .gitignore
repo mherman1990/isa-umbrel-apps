@@ -23,3 +23,6 @@ __pycache__/
 farmos/backend/*.egg-info/
 farmos/tests/eval/recorded_live.json
 farmos/backend/static/
+
+# The state pack a data folder belongs to (src/setup.js)
+.state-pack

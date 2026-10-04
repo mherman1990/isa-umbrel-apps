@@ -255,6 +255,29 @@ test("budget: discretionary pauses at its allocation; essential runs to the hard
   raw.prepare("DELETE FROM token_usage").run();
 });
 
+test("budget: the daily run fails closed at the hard ceiling before any model call", async () => {
+  const env = { ...process.env, MONTHLY_BUDGET_USD: "10" };
+  raw.prepare("DELETE FROM token_usage").run();
+  store.recordUsage("claude-sonnet-5", "query", 0, 1_200_000); // $12 of a $10 month → past 110%
+  const realFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    throw new Error("no model call may be made past the ceiling");
+  };
+  try {
+    const wl = pipeline.loadWatchlist();
+    await assert.rejects(
+      pipeline.runFullPipeline({ watchlist: wl, env, edition: "am", kept: [], items: [], skippedSources: [], fetchedCount: 0 }),
+      /Budget hard ceiling/
+    );
+    assert.equal(calls, 0);
+  } finally {
+    globalThis.fetch = realFetch;
+    raw.prepare("DELETE FROM token_usage").run();
+  }
+});
+
 test("watchlist migration: adds missing source entries, never touches existing ones", () => {
   const shipped = JSON.parse(fs.readFileSync(path.join(store.PROJECT_ROOT, "watchlist.json"), "utf8"));
   const live = structuredClone(shipped);

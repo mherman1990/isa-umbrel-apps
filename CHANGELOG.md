@@ -45,8 +45,14 @@ Everything that made a deployment "Iowa" now lives in a versioned **state pack**
 - **`test/illinois-snapshot.test.js`** records Illinois output for ILSoy's review (`test/fixtures/snapshot-il/`) and fails if Iowa organisation or Iowa-only wording appears.
 - **Known gap:** the shipped `watchlist.json` is shared, so Illinois still starts with the `iowa-water-land` focus area. ILSoy defines its replacement (MULTI_STATE.md §14).
 
+### Fixes from review (also in this release)
+- **The budget's hard ceiling now stops the daily run.** Past 110% of the month's budget, the AM/PM run still collects, stores and refreshes market data. It then fails closed, with the reason, before triage: no model call is made. Today's items stay queued for the next run inside budget. Before this fix, only the panels and the Member Brief checked the ceiling.
+- **Member Brief: an incomplete review fails closed.** The reviewer must give exactly one decision for every sentence and every policy band. A sentence it skipped used to count as approved; an empty or partial review now fails the attempt, and after the retry nothing is sent.
+- **LegiScan searches the pack's home state first, and always full-text.** The shared watchlist's Iowa-era state list no longer decides this; the other states it lists stay as extra coverage.
+- **A data folder belongs to one state.** The first start records the pack in `/data/.state-pack`; an existing Iowa install is recognised by its `registry.json`. Starting it under a different `STATE_PACK` is refused with an explanation. `setup --state` refuses the switch, and /setup shows it. Without this, Iowa's registry entities and channels would carry over into another state's deployment.
+
 ### Tests
-- 469 tests (was 450). New files: `pack.test.js`, `pack-gates.test.js` (a non-Iowa overlay switches off the Iowa adapter, hosts, campaign-finance seeding and AMS report), `setup.test.js`, and the two snapshot tests.
+- 473 tests (was 450). New files: `pack.test.js`, `pack-gates.test.js` (a non-Iowa overlay switches off the Iowa adapter, hosts, campaign-finance seeding and AMS report), `setup.test.js`, and the two snapshot tests.
 
 ### Not in this release
 - The shared data commons (MULTI_STATE.md step 9) and funding channels (step 10) wait on open questions 2 and 4.

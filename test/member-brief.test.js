@@ -109,15 +109,31 @@ const goodDraft = () => ({
   },
 });
 
-/** Stub the API: draft calls get `drafts[i]`, review calls get `review`. */
-function stub(drafts, review = { sentences: [], bands: [] }) {
+/**
+ * Stub the API: draft calls get `drafts[i]`, review calls get `review`. Like a real reviewer, the stub
+ * answers every sentence and band it is shown — "keep" unless `review` says otherwise — unless
+ * `{ complete: false }` asks for the review exactly as given (the incomplete-review test).
+ */
+function completeReview(body, review) {
+  const text = body.messages[0].content.map((c) => c.text).join("\n");
+  const [, sents = "", bands = ""] = text.match(/DRAFT SENTENCES TO REVIEW[^\n]*\n([\s\S]*?)\n\nPOLICY ITEM BANDS:\n([\s\S]*)$/) ?? [];
+  const sids = sents.split("\n").map((l) => l.split(" ")[0]).filter((s) => s && s !== "(none)");
+  const ids = bands.split("\n").map((l) => l.split(":")[0]).filter((s) => s && s !== "(none)");
+  const given = new Map((review.sentences ?? []).map((x) => [x.sid, x]));
+  const givenBands = new Map((review.bands ?? []).map((x) => [x.id, x]));
+  return {
+    sentences: sids.map((sid) => given.get(sid) ?? { sid, action: "keep", reason: "" }),
+    bands: ids.map((id) => givenBands.get(id) ?? { id, action: "keep", to: "", reason: "" }),
+  };
+}
+function stub(drafts, review = { sentences: [], bands: [] }, { complete = true } = {}) {
   const original = globalThis.fetch;
   const calls = { draft: 0, review: 0, bodies: [] };
   globalThis.fetch = async (_u, init) => {
     const body = JSON.parse(init.body);
     calls.bodies.push(body);
     const isReview = String(body.system?.[0]?.text ?? "").startsWith("You are the adversarial reviewer");
-    const payload = isReview ? review : drafts[Math.min(calls.draft, drafts.length - 1)];
+    const payload = isReview ? (complete ? completeReview(body, review) : review) : drafts[Math.min(calls.draft, drafts.length - 1)];
     if (isReview) calls.review++;
     else calls.draft++;
     return new Response(JSON.stringify({ id: "m", type: "message", role: "assistant", model: body.model, content: [{ type: "text", text: JSON.stringify(payload) }], usage: { input_tokens: 15000, output_tokens: 1500 }, stop_reason: "end_turn" }), { status: 200, headers: { "content-type": "application/json" } });
@@ -381,4 +397,22 @@ test("barge: location column discovered, rows grouped per wanted location, $/ton
 test("3-year same-week average needs at least two prior years", () => {
   assert.equal(mb.threeYearAverage([{ period: "2025-10-01", value: 10 }], "2026-10-01"), null);
   assert.deepEqual(mb.threeYearAverage([{ period: "2025-10-03", value: 10 }, { period: "2024-09-28", value: 20 }], "2026-10-01"), { avg: 15, years: 2 });
+});
+
+test("an empty or partial review fails closed — an unreviewed sentence is never treated as approved", async () => {
+  // The schema allows empty arrays; a reviewer that returns them has reviewed nothing.
+  const { calls, restore } = stub([goodDraft()], { sentences: [], bands: [] }, { complete: false });
+  try {
+    await assert.rejects(mb.runMemberBrief({ env: process.env, preview: true, now: NOW }), (e) => e.failedClosed && /review incomplete/.test(e.message) && /no decision on sentence U1/.test(e.message));
+    assert.equal(calls.review, 2, "retried once, then failed closed");
+  } finally {
+    restore();
+  }
+  // Partial: one sentence answered, a duplicate, and an id it was never shown.
+  const draft = mb.normalizeDraft(goodDraft());
+  const pk = { policy: new Map() };
+  const gaps = mb.reviewCoverage(draft, { sentences: [{ sid: "U1", action: "keep", reason: "" }, { sid: "U1", action: "keep", reason: "" }, { sid: "X9", action: "keep", reason: "" }], bands: [] }, pk);
+  assert.ok(gaps.includes("2 decisions on sentence U1"));
+  assert.ok(gaps.includes("no decision on sentence U2"));
+  assert.ok(gaps.includes("decision on unknown sentence X9"));
 });

@@ -62,3 +62,22 @@ test("the base tier is listed but cannot be deployed; switching writes STATE_PAC
   assert.match(env, /^ANTHROPIC_API_KEY=x$/m);
   assert.match(setupReport({ dataDir: dir, env: {} }).specSource, /STATE_PACK in .*\.env/);
 });
+
+test("a data folder is bound to its state: switching an existing folder to another state is refused", async () => {
+  const { claimDataDir, dataDirPack } = await import("../src/setup.js");
+  // A pre-1.41 Iowa install (registry copy, no marker) is Iowa's.
+  const old = tmp("bb-setup-old-");
+  fs.writeFileSync(path.join(old, "registry.json"), "{}");
+  assert.equal(dataDirPack(old), "us-ia");
+  claimDataDir(old, "us-ia");
+  assert.equal(fs.readFileSync(path.join(old, ".state-pack"), "utf8").trim(), "us-ia", "marker written on first start");
+  assert.throws(() => claimDataDir(old, "us-il"), /belongs to state pack us-ia/);
+  assert.throws(() => writeStatePack(old, "us-il"), /holds us-ia data/);
+  assert.equal(setupReport({ dataDir: old, spec: "us-il", env: { ANTHROPIC_API_KEY: "x" } }).checks.find((c) => c.name === "Data folder").status, "error");
+  // A fresh folder takes whichever state starts it first.
+  const fresh = tmp("bb-setup-fresh-");
+  assert.equal(dataDirPack(fresh), null);
+  claimDataDir(fresh, "us-il");
+  assert.equal(dataDirPack(fresh), "us-il");
+  assert.doesNotThrow(() => claimDataDir(fresh, "us-il"));
+});

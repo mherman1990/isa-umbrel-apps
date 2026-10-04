@@ -655,6 +655,30 @@ export function sentenceList(draft) {
   return out;
 }
 
+/**
+ * Did the reviewer actually review everything? Exactly one decision per draft sentence and per policy
+ * band, and none for ids it was not shown. A sentence with no decision is NOT approved — an empty or
+ * partial review must fail closed, not wave the draft through. Returns the problems ([] = complete).
+ */
+export function reviewCoverage(draft, review, pk) {
+  const problems = [];
+  const tally = (list, key) => {
+    const m = new Map();
+    for (const x of Array.isArray(list) ? list : []) m.set(x?.[key], (m.get(x?.[key]) ?? 0) + 1);
+    return m;
+  };
+  const check = (kind, want, got) => {
+    for (const id of want) {
+      const n = got.get(id) ?? 0;
+      if (n !== 1) problems.push(n ? `${n} decisions on ${kind} ${id}` : `no decision on ${kind} ${id}`);
+    }
+    for (const id of got.keys()) if (!want.includes(id)) problems.push(`decision on unknown ${kind} ${id}`);
+  };
+  check("sentence", sentenceList(draft).map((x) => x.sid), tally(review?.sentences, "sid"));
+  check("band", [...pk.policy.keys()], tally(review?.bands, "id"));
+  return problems;
+}
+
 /** Apply the reviewer's decisions. It can only delete sentences and lower bands — enforced here. */
 export function applyReview(draft, review, pk) {
   const del = new Set((review?.sentences ?? []).filter((x) => x.action === "delete").map((x) => x.sid));
@@ -890,6 +914,12 @@ export async function runMemberBrief({ env = process.env, watchlist = null, prev
         continue;
       }
       const review = await callReview(api, reviewModel, pk, draft);
+      const gaps = reviewCoverage(draft, review, pk);
+      if (gaps.length) {
+        failures.push({ attempt, stage: "review incomplete", detail: `${gaps.length} problem(s): ${gaps.slice(0, 6).join("; ")}` });
+        log(`   ✋ attempt ${attempt}: review incomplete (${gaps.length}) — an unreviewed sentence is never treated as approved`);
+        continue;
+      }
       const applied = applyReview(draft, review, pk);
       lastDraft = applied.draft;
       const lint2 = lintMemberDraft(applied.draft, pk);

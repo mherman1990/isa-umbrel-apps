@@ -27,7 +27,10 @@ export async function captureState({ stateKey = "ia" } = {}) {
   const { weatherRiskText } = await import("../../src/weather.js");
   const { studioCatalog } = await import("../../src/studio.js");
   const { syncRegistryFromSeed } = await import("../../src/registry.js");
+  const { claimDataDir } = await import("../../src/setup.js");
+  const { pack } = await import("../../src/pack.js");
 
+  claimDataDir(store.DATA_DIR, pack().id); // as the app does at startup
   seed(store, stateKey);
   {
     const Database = (await import("better-sqlite3")).default;
@@ -53,7 +56,16 @@ export async function captureState({ stateKey = "ia" } = {}) {
     if (body.output_config?.format) {
       const props = Object.keys(body.output_config.format.schema?.properties ?? {});
       if (props.includes("update")) text = JSON.stringify({ update: [{ text: "Policy activity continued this week.", cites: ["S1"] }], policy: [], markets: { fund: [], oilShare: [], ratio: [], barge: [] } });
-      else if (props.includes("sentences")) text = JSON.stringify({ sentences: [], bands: [] });
+      else if (props.includes("sentences")) {
+        // Like a real reviewer: one "keep" per sentence and band it was shown (an empty review fails closed).
+        const shown = body.messages[0].content.map((c) => c.text).join("\n");
+        const [, sents = "", bands = ""] = shown.match(/DRAFT SENTENCES TO REVIEW[^\n]*\n([\s\S]*?)\n\nPOLICY ITEM BANDS:\n([\s\S]*)$/) ?? [];
+        const ids = (block, sep) => block.split("\n").map((l) => l.split(sep)[0]).filter((s) => s && s !== "(none)");
+        text = JSON.stringify({
+          sentences: ids(sents, " ").map((sid) => ({ sid, action: "keep", reason: "" })),
+          bands: ids(bands, ":").map((id) => ({ id, action: "keep", to: "", reason: "" })),
+        });
+      }
       else text = JSON.stringify(Object.fromEntries(props.map((p) => [p, []])));
     } else if (/triage|relevan/i.test(sys)) text = "[]";
     if (body.stream) return new Response(sseBody({ text, model: body.model }), { status: 200, headers: { "content-type": "text/event-stream" } });

@@ -271,6 +271,14 @@ program
     console.log();
   });
 
+// Every command except `setup` runs only on a data folder that belongs to the active state pack (setup.js).
+program.hook("preAction", async (_program, cmd) => {
+  if (cmd.name() === "setup") return;
+  const { claimDataDir } = await import("./setup.js");
+  const { pack } = await import("./pack.js");
+  claimDataDir(DATA_DIR, pack().id);
+});
+
 program
   .command("setup")
   .description("Check this deployment's state pack, overlay, map layers and keys (presence only); --state switches packs")

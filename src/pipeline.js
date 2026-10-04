@@ -360,6 +360,12 @@ export async function runAlertsCheck(env = process.env, output = null) {
 
 export async function runPipeline({ edition = "am", dryRun = false, source = null, env = process.env, runId = null }) {
   const watchlist = loadWatchlist();
+  // HARD CEILING (budget.js): past 110% of the month's budget no step of this run may call a model.
+  // The free work still runs — collection, enrichment, news/markets storage, market series, alerts —
+  // and runFullPipeline then fails the run closed with the reason, before triage. Official items stay
+  // unseen and watermarks unadvanced, so nothing is lost: the next run inside budget picks them up.
+  const ceiling = dryRun ? { ok: true } : budget.check("brief", { env, watchlist });
+  if (!ceiling.ok) console.log(`⛔ Budget: ${ceiling.reason} — model calls are off for this run.`);
   // Market layers that failed this run — named in the brief, so a missing layer is never silent.
   // Declared out here because it is set inside the `!dryRun` block and read at the very end.
   let failedMarketLayers = [];
@@ -474,7 +480,7 @@ export async function runPipeline({ edition = "am", dryRun = false, source = nul
   // Soybean quality fades lower" (score 3) — 3 of the 8 highest-value items — because focus-area terms
   // are written for policy documents and news says the same things in different words. See newsrank.js.
   const newsVerdicts = new Map();
-  if (!dryRun && sideItems.length) {
+  if (!dryRun && sideItems.length && ceiling.ok) {
     const newsItems = sideItems.filter((it) => classOf(it.sourceId) === "news");
     if (newsItems.length) {
       try {
@@ -543,7 +549,7 @@ export async function runPipeline({ edition = "am", dryRun = false, source = nul
     }
     // Pre-report consensus in, surprises out. Extraction costs one cheap Haiku call; scoring is free.
     try {
-      await extractExpectations(env);
+      if (ceiling.ok) await extractExpectations(env);
     } catch (err) {
       console.log(`⚠️  Expectation extraction skipped: ${err.message}`);
     }
@@ -597,6 +603,11 @@ export async function runPipeline({ edition = "am", dryRun = false, source = nul
 // Re-exported below so `audit`'s arithmetic is untouched.
 
 export async function runFullPipeline({ watchlist, env, edition, kept, items, skippedSources, fetchedCount, pendingWatermarks = [], runId = null, failedMarketLayers = [] }) {
+  // The daily run's own hard-ceiling gate (see runPipeline): fail closed before the first model call.
+  const gate = budget.check("brief", { env, watchlist });
+  if (!gate.ok) {
+    throw new Error(`Budget hard ceiling — ${gate.reason}. No model calls were made; collection and market data still refreshed, and today's items stay queued for the next run inside budget.`);
+  }
   if (!env.ANTHROPIC_API_KEY) {
     throw new Error("ANTHROPIC_API_KEY is not set in .env — get one at console.anthropic.com (or use --dry-run to test without it)");
   }

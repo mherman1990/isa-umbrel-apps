@@ -78,3 +78,21 @@ test("market adapters follow the pack's state", async () => {
   const meal = ams.__test.feedstuffSeries(rows).out.find((x) => x.series === "ams:ne:meal");
   assert.equal(meal?.points?.[0]?.value, 310);
 });
+
+test("LegiScan always searches (and full-text searches) the pack's home state, whatever the shared watchlist lists", async () => {
+  const legiscan = await import("../src/adapters/legiscan.js");
+  const realFetch = globalThis.fetch;
+  const urls = [];
+  globalThis.fetch = async (u) => {
+    urls.push(String(u));
+    return new Response(JSON.stringify({ status: "OK", masterlist: {}, searchresult: { summary: { count: 0 } } }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    // The shipped watchlist's Iowa-era scope: neighbours listed, full text for IA only.
+    await legiscan.fetchItems({ sinceISO: "2026-10-01T00:00:00Z", topics: [], sourceConfig: { states: ["IA", "IL"], fullTextStates: ["IA"] }, env: { LEGISCAN_API_KEY: "k" } }).catch(() => {});
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.ok(urls.some((u) => /state=NE\b/.test(u)), `home state searched: ${urls.join(" ")}`);
+  assert.ok(urls.findIndex((u) => /state=NE\b/.test(u)) <= urls.findIndex((u) => /state=IA\b/.test(u)) || !urls.some((u) => /state=IA\b/.test(u)), "home state first");
+});

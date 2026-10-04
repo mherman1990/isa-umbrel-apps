@@ -11,7 +11,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { loadPack, packSpecFromEnv, resolvePack, validatePack, PROJECT_ROOT, PACKS_DIR } from "./pack.js";
+import { loadPack, packSpecFromEnv, resolvePack, validatePack, PROJECT_ROOT, PACKS_DIR, DEFAULT_PACK } from "./pack.js";
 
 const ADAPTERS_DIR = path.join(PROJECT_ROOT, "src", "adapters");
 
@@ -35,6 +35,43 @@ function specSource(dataDir, env) {
     }
   }
   return "default (no STATE_PACK set)";
+}
+
+// ── which state a data folder belongs to ────────────────────────────────────────────────────────
+// The data folder holds one state's registry (entities, RSS/newsletter channels), items and briefs. The
+// registry is only ever upserted, so pointing an Iowa folder at the Illinois pack would leave Iowa's
+// entities and channels live under Illinois. A folder is therefore bound to the pack it was set up for,
+// and a different state needs a fresh data folder.
+const MARKER = ".state-pack";
+
+/**
+ * The pack id this data folder belongs to: its marker; else "us-ia" for a folder that already holds data
+ * from before packs existed (every install before 1.41.0 was Iowa); else null (a fresh folder).
+ */
+export function dataDirPack(dataDir) {
+  try {
+    const v = fs.readFileSync(path.join(dataDir, MARKER), "utf8").trim();
+    if (v) return v;
+  } catch {
+    /* no marker */
+  }
+  // Every pre-1.41 server start copied registry.json into the data folder, so its presence marks one.
+  if (fs.existsSync(path.join(dataDir, "registry.json"))) return DEFAULT_PACK;
+  return null;
+}
+
+/** Bind the data folder to the active pack (first start), or refuse when it belongs to another state. */
+export function claimDataDir(dataDir, packId) {
+  const owner = dataDirPack(dataDir);
+  if (owner && owner !== packId) {
+    throw new Error(
+      `This data folder (${dataDir}) belongs to state pack ${owner}, but STATE_PACK selects ${packId}. ` +
+        `Its registry, items and briefs are ${owner}'s and would mix into ${packId}. Use a fresh data folder for ${packId}, or set STATE_PACK back to ${owner}.`
+    );
+  }
+  // The dev checkout doubles as its own data folder — never drop a marker into the repository.
+  const marker = path.join(dataDir, MARKER);
+  if (path.resolve(dataDir) !== PROJECT_ROOT && !fs.existsSync(marker)) fs.writeFileSync(marker, `${packId}\n`);
 }
 
 /** Files a pack names, resolved through its extends chain (first hit wins, leaf first). */
@@ -67,6 +104,9 @@ export function setupReport({ dataDir, env = process.env, envPresent = null, spe
   const check = (name, status, detail) => out.checks.push({ name, status, detail });
 
   check("State pack", "ok", `${p.id}@${p.version} — ${p.identity.orgName} (${p.identity.stateName}) · ${out.specSource}`);
+  const owner = dataDirPack(dataDir);
+  if (owner && owner !== p.id) check("Data folder", "error", `holds ${owner} data — a different state needs a fresh data folder (the app will not start on this one)`);
+  else check("Data folder", "ok", owner ? `${dataDir} (${owner})` : `${dataDir} (fresh — bound to ${p.id} on first start)`);
   check("Local overlay", meta.overlayIssues.length ? "warn" : "ok", meta.overlay ? `${meta.overlay}${meta.overlayIssues.length ? ` — ${meta.overlayIssues.join("; ")}` : ""}` : "none (pack-overlay.json in the data folder adds local changes without forking)");
 
   const rules = p.adminRules?.adapter;
@@ -127,6 +167,8 @@ export function availablePacks(dir = PACKS_DIR) {
 export function writeStatePack(dataDir, spec) {
   const p = loadPack({ dataDir, spec }); // throws with every validation error
   if (p.abstract) throw new Error(`${spec} is a base tier, not a deployable state pack`);
+  const owner = dataDirPack(dataDir);
+  if (owner && owner !== p.id) throw new Error(`this data folder holds ${owner} data — switching it to ${p.id} would mix the two states' registries. Set up ${p.id} with a fresh data folder instead.`);
   const f = path.join(dataDir, ".env");
   let text = "";
   try {
