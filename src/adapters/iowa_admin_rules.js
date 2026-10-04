@@ -19,6 +19,8 @@ import { fetchText } from "../util.js";
 
 export const id = "iowa_admin_rules";
 export const label = "Iowa Admin Rules";
+// State-specific: registered only under a pack whose stateAlpha matches (adapters/index.js).
+export const state = "IA";
 
 const SITE = "https://www.legis.iowa.gov";
 const INDEX = `${SITE}/law/administrativeRules/bulletinSupplementListings`;

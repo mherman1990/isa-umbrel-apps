@@ -21,7 +21,7 @@ RUN apt-get update \
 COPY src ./src
 COPY scripts ./scripts
 COPY packs ./packs
-COPY watchlist.json registry.json .env.example ./
+COPY watchlist.json .env.example ./
 
 # All mutable data (SQLite DB, briefings, editable watchlist + .env) lives on the volume.
 ENV POLIBRIEF_DATA_DIR=/data

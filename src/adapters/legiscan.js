@@ -41,6 +41,7 @@
 // change detection for free, with no extra state to keep.
 
 import { fetchJSON, isoDateOnly, keywordRegex, sleep } from "../util.js";
+import { pack } from "../pack.js";
 
 export const id = "legiscan";
 export const label = "LegiScan (state bills)";
@@ -113,11 +114,11 @@ export async function fetchItems({ sinceISO, topics, sourceConfig, env }) {
   }
 
   const itemBudget = sourceConfig.maxItemsPerRun ?? 40;
-  const states = sourceConfig.states ?? ["IA"];
+  const states = sourceConfig.states ?? pack().legislature.legiscanStates ?? [pack().legislature.legiscanHome];
   const maxQueries = sourceConfig.maxQueriesPerRun ?? DEFAULT_MAX_QUERIES_PER_RUN;
   // Full-text search is the expensive pass — only worth it where state bills are the
   // whole point. Widen once a real month's usage says there's room.
-  const fullTextStates = (sourceConfig.fullTextStates ?? ["IA"]).filter((s) => states.includes(s));
+  const fullTextStates = (sourceConfig.fullTextStates ?? pack().legislature.fullTextStates ?? [pack().legislature.legiscanHome]).filter((s) => states.includes(s));
   const sinceDate = isoDateOnly(sinceISO);
   const budget = new QueryBudget(maxQueries);
 

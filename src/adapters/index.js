@@ -49,6 +49,7 @@ import * as fas_export_sales from "./fas_export_sales.js";
 import * as banyan_rin from "./banyan_rin.js";
 import * as carbon_prices from "./carbon_prices.js";
 import * as eu_ets from "./eu_ets.js";
+import { pack } from "../pack.js";
 
 export const adapters = {
   [federal_register.id]: federal_register,
@@ -103,6 +104,12 @@ export const adapters = {
   // API — keyless HTTP, not the email (the email carries EU ETS only as an image). Always refreshes.
   [eu_ets.id]: eu_ets,
 };
+
+// State-specific adapters (`export const state = "IA"`) exist only under their own state pack — an
+// Illinois deployment must not poll the Iowa Administrative Bulletin even if its watchlist names it.
+for (const [id, a] of Object.entries(adapters)) if (a.state && a.state !== pack().identity.stateAlpha) delete adapters[id];
+const ADMIN_RULES = pack().adminRules?.adapter;
+if (ADMIN_RULES && !adapters[ADMIN_RULES]) console.warn(`⚠️  State pack ${pack().id} names admin-rules adapter "${ADMIN_RULES}", which is not available — admin rules will not be collected.`);
 
 // Information CLASS per source — decides which portal tab an item surfaces on, and
 // keeps the newsletter/market firehose out of the clean regulatory flow:

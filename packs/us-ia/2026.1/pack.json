@@ -27,9 +27,24 @@
     "legiscanStates": ["IA"],
     "fullTextStates": ["IA"],
     "openstatesJurisdiction": "Iowa",
-    "chamberNames": { "upper": "Iowa Senate", "lower": "Iowa House" }
+    "chamberNames": { "upper": "Iowa Senate", "lower": "Iowa House", "legislature": "Iowa Legislature" }
+  },
+  "election": {
+    "campaignFinance": {
+      "enabled": true, "seeder": "socrata", "domain": "data.iowa.gov", "flag": "IECDB_INFORMATIONAL_USE",
+      "useRestriction": "Iowa Code § 68B.32A(7): informational use only, never solicitation"
+    }
   },
   "adminRules": { "adapter": "iowa_admin_rules", "label": "Iowa Administrative Bulletin" },
+  "geo": {
+    "center": [42.02, -93.55], "zoom": 7, "minZoom": 6,
+    "bbox": [-96.65, 40.37, -90.14, 43.51],
+    "layers": { "counties": "geo/counties.geojson", "congress": "geo/congress.geojson", "senate": "geo/senate.geojson", "house": "geo/house.geojson", "huc8": "geo/huc8.geojson" },
+    "districtHucs": "data/district-hucs.json",
+    "incumbents": "data/ia-incumbents.json",
+    "openstatesRosterCsv": "https://data.openstates.org/people/current/ia.csv"
+  },
+  "registry": { "seed": "registry.json", "candidates": "data/ia-candidates-2026.json" },
   "markets": {
     "nass": { "stateAlpha": "IA" }
   }

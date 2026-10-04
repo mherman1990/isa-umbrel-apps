@@ -39,13 +39,18 @@ import { syncRegistryFromSeed } from "./registry.js";
 import { studioBody, studioCatalog, studioSeries, studioSeriesCSV, studioEvents } from "./studio.js";
 import { sanitizeEmailHtml, emailBodyToText, emailBodyToPreview, textToHtml } from "./emailhtml.js";
 import * as auth from "./auth.js";
-import { pack, voice } from "./pack.js";
+import { pack, packPath, voice } from "./pack.js";
 // State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
 const V = voice();
 const escRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 // "IA" / "Iowa" in a jurisdiction string, for the active state.
 const HOME_JURIS_RE = new RegExp(`^${escRe(V.alpha)}$|${escRe(V.state)}`, "i");
 const HOME_RULES_SOURCE = pack().adminRules?.adapter ?? null;
+// A file the state pack ships (geo layers, rosters). A pack without the entry throws → callers fall back.
+const packFile = (rel) => {
+  if (!rel) throw new Error("not in this state pack");
+  return packPath(rel);
+};
 
 // All user-facing timestamps render in Central time (the ISA org timezone).
 const CENTRAL_TZ = V.tz;
@@ -1685,7 +1690,7 @@ function registryBody(notice) {
 // (the DB may hold only the hand-seed until `registry-refresh`). Read straight from the image.
 function loadCandidateSeed() {
   try {
-    return JSON.parse(fs.readFileSync(new URL("./data/ia-candidates-2026.json", import.meta.url), "utf8"));
+    return JSON.parse(fs.readFileSync(packFile(pack().registry?.candidates), "utf8"));
   } catch {
     return { candidates: [] };
   }
@@ -1714,7 +1719,7 @@ function canonOffice(office) {
 // the incumbent per district and color the district by the seat-holder's party. Always present.
 function loadIncumbentRoster() {
   try {
-    return JSON.parse(fs.readFileSync(new URL("./data/ia-incumbents.json", import.meta.url), "utf8")).incumbents ?? [];
+    return JSON.parse(fs.readFileSync(packFile(pack().geo?.incumbents), "utf8")).incumbents ?? [];
   } catch {
     return [];
   }
@@ -1724,10 +1729,23 @@ function loadIncumbentRoster() {
 // hover card list the watersheds a district spans when the HUC layer is on. Always present.
 function loadDistrictHucs() {
   try {
-    return JSON.parse(fs.readFileSync(new URL("./data/district-hucs.json", import.meta.url), "utf8"));
+    return JSON.parse(fs.readFileSync(packFile(pack().geo?.districtHucs), "utf8"));
   } catch {
     return { hucNames: {}, house: {}, senate: {}, congress: {} };
   }
+}
+
+// The map's state config, served as /assets/geo/map.json (read by bbmap.js).
+function mapConfig() {
+  const g = pack().geo ?? {};
+  const names = { upper: `${V.state} Senate`, lower: `${V.state} House`, ...pack().legislature?.chamberNames };
+  return {
+    stateAlpha: V.alpha,
+    center: g.center ?? [39.8, -98.6],
+    zoom: g.zoom ?? 7,
+    minZoom: g.minZoom ?? 4,
+    labels: { house: names.lower, senate: names.upper, facilities: `🌱 ${V.state} crush &amp; biodiesel plants` },
+  };
 }
 
 // A district's color "tone" is the seat-holder's party: red (R) or blue (D). Fall back to a
@@ -3066,7 +3084,7 @@ function seedDataDir() {
   if (store.DATA_DIR === store.PROJECT_ROOT) return;
   const seeds = [
     { from: path.join(store.PROJECT_ROOT, "watchlist.json"), to: path.join(store.DATA_DIR, "watchlist.json") },
-    { from: path.join(store.PROJECT_ROOT, "registry.json"), to: path.join(store.DATA_DIR, "registry.json") },
+    { from: packPath(pack().registry?.seed ?? "registry.json"), to: path.join(store.DATA_DIR, "registry.json") },
     { from: path.join(store.PROJECT_ROOT, ".env.example"), to: path.join(store.DATA_DIR, ".env") },
   ];
   for (const { from, to } of seeds) {
@@ -3138,15 +3156,28 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
           "images/marker-icon.png": "image/png",
           "images/marker-icon-2x.png": "image/png",
           "images/marker-shadow.png": "image/png",
-          // Vendored Iowa boundary GeoJSON (built by scripts/fetch-geo.mjs).
-          "geo/counties.geojson": "application/json; charset=utf-8",
-          "geo/congress.geojson": "application/json; charset=utf-8",
-          "geo/senate.geojson": "application/json; charset=utf-8",
-          "geo/house.geojson": "application/json; charset=utf-8",
-          "geo/huc8.geojson": "application/json; charset=utf-8",
+          // National plant table (the map filters it to the pack's state).
           "geo/facilities.json": "application/json; charset=utf-8", // soybean crush + biodiesel plant markers
         };
         const name = url.pathname.slice("/assets/".length);
+        // The state's boundary layers ship in its pack (packs/<id>/<ver>/geo, built by scripts/fetch-geo.mjs);
+        // geo/map.json is the map's state config (center, filter, layer labels) so bbmap.js has no state literals.
+        if (name === "geo/map.json") {
+          res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-cache" });
+          res.end(JSON.stringify(mapConfig()));
+          return;
+        }
+        const layer = /^geo\/([a-z0-9]+)\.geojson$/.exec(name)?.[1];
+        if (layer) {
+          try {
+            const buf = fs.readFileSync(packFile(pack().geo?.layers?.[layer]));
+            res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "public, max-age=86400" });
+            res.end(buf);
+          } catch {
+            res.writeHead(404, { "content-type": "text/plain" }).end("not found");
+          }
+          return;
+        }
         const ctype = ASSETS[name];
         if (!ctype) {
           res.writeHead(404, { "content-type": "text/plain" }).end("not found");
