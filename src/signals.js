@@ -13,6 +13,9 @@
 import * as store from "./store.js";
 import { weatherSignals } from "./weather.js";
 import { crushSignal, oilShareSignal } from "./crush.js";
+import { voice } from "./pack.js";
+// State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
+const V = voice();
 
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const monthOf = (period) => MON[(Number(String(period).slice(5, 7)) || 1) - 1];
@@ -58,7 +61,7 @@ function vegCondition(m) {
   return {
     id: "veg_condition", name: "Crop Vegetation (VCI)", direction, value: v,
     label: `${Math.round(v)}/100 VCI`,
-    detail: `Iowa satellite VCI ${Math.round(v)}/100 (${s.latest.period}) — crop vigor vs. its 2000-present range.${trend} ${direction === "bullish" ? "Stressed vegetation (low VCI) is a supply-risk read that supports price, often ahead of the USDA condition rating." : direction === "bearish" ? "A vigorous crop (high VCI) points to good yield potential and weighs on price." : "Vegetation near the middle of its historical range."}`,
+    detail: `${V.state} satellite VCI ${Math.round(v)}/100 (${s.latest.period}) — crop vigor vs. its 2000-present range.${trend} ${direction === "bullish" ? "Stressed vegetation (low VCI) is a supply-risk read that supports price, often ahead of the USDA condition rating." : direction === "bearish" ? "A vigorous crop (high VCI) points to good yield potential and weighs on price." : "Vegetation near the middle of its historical range."}`,
   };
 }
 
@@ -88,7 +91,7 @@ function soilMoisture(m) {
   return {
     id: "soil_moisture", name: "Root-Zone Soil Moisture", direction, value: s.latest.value,
     label: `${pctStr(deltaPct)} ${basis === "vs. the seasonal norm" ? "vs norm" : "trend"}`,
-    detail: `Iowa root-zone soil moisture ${s.latest.value.toFixed(3)} m³/m³ (${s.latest.period}), ${pctStr(deltaPct)} ${basis}. ${direction === "bullish" ? "A drying root zone in-season is supply risk that supports price — often ahead of the crop's visible response." : direction === "bearish" ? "A well-charged root zone buffers the crop and weighs on price." : "Root-zone moisture near normal for the window."}`,
+    detail: `${V.state} root-zone soil moisture ${s.latest.value.toFixed(3)} m³/m³ (${s.latest.period}), ${pctStr(deltaPct)} ${basis}. ${direction === "bullish" ? "A drying root zone in-season is supply risk that supports price — often ahead of the crop's visible response." : direction === "bearish" ? "A well-charged root zone buffers the crop and weighs on price." : "Root-zone moisture near normal for the window."}`,
   };
 }
 
@@ -98,9 +101,9 @@ function drought(m) {
   const chg = s.changeAbs; // change in % area vs prior week
   const direction = chg >= 5 ? "bullish" : chg <= -5 ? "bearish" : s.latest.value >= 40 ? "bullish" : "neutral";
   return {
-    id: "drought", name: "Iowa Drought", direction, value: s.latest.value,
+    id: "drought", name: `${V.state} Drought`, direction, value: s.latest.value,
     label: `${Math.round(s.latest.value)}% D1+`,
-    detail: `${Math.round(s.latest.value)}% of Iowa in drought (${s.latest.period}), ${chg >= 0 ? "▲" : "▼"}${Math.abs(Math.round(chg))}pts wk/wk. ${direction === "bullish" ? "Rising/high stress supports price." : direction === "bearish" ? "Easing drought weighs on price." : "Little change."}`,
+    detail: `${Math.round(s.latest.value)}% of ${V.state} in drought (${s.latest.period}), ${chg >= 0 ? "▲" : "▼"}${Math.abs(Math.round(chg))}pts wk/wk. ${direction === "bullish" ? "Rising/high stress supports price." : direction === "bearish" ? "Easing drought weighs on price." : "Little change."}`,
   };
 }
 
@@ -247,7 +250,7 @@ function soyCornRatio(m) {
   return {
     id: "soy_corn_ratio", name: "Soy:Corn Ratio", direction, value: v,
     label: `${v.toFixed(2)}:1`,
-    detail: `Iowa soybeans are ${v.toFixed(2)}× the corn price (${s.latest.period}), ${ordinal(p)} percentile of its range. ${inWindow ? (direction === "bearish" ? "Richly priced vs corn heading into planting — incentivizes soybean acres (supply-building for the new crop)." : direction === "bullish" ? "Corn favored heading into planting — fewer soybean acres ahead can tighten new-crop supply." : "Near the acreage-neutral pivot — planting incentives balanced.") : "Watched most in late winter/spring, when it steers planting intentions."}`,
+    detail: `${V.state} soybeans are ${v.toFixed(2)}× the corn price (${s.latest.period}), ${ordinal(p)} percentile of its range. ${inWindow ? (direction === "bearish" ? "Richly priced vs corn heading into planting — incentivizes soybean acres (supply-building for the new crop)." : direction === "bullish" ? "Corn favored heading into planting — fewer soybean acres ahead can tighten new-crop supply." : "Near the acreage-neutral pivot — planting incentives balanced.") : "Watched most in late winter/spring, when it steers planting intentions."}`,
   };
 }
 

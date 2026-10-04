@@ -10,6 +10,9 @@
 // mechanism is. A reviewer working from its own paraphrase of the rules is not a check.
 
 import { POLICY_DOMAIN_CONTEXT } from "./policy-domain.js";
+import { voice } from "../pack.js";
+// State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
+const V = voice();
 
 export const SYNTHESIS_PROMPT_VERSION = "1.0.0";
 
@@ -53,7 +56,7 @@ from the supplied data, drop the card and spend the space on one you can.
      that the mechanism actually terminates in or passes through — a series chosen because it is
      available, rather than because it is in the chain, is worse than a weaker card.
 
-  5. so_what — The consequence for an Iowa corn/soybean operation, in one or two sentences. Concrete
+  5. so_what — The consequence for ${V.aState} corn/soybean operation, in one or two sentences. Concrete
      and local: acres, cost per acre, basis at the local processor, a delivery window, a compliance
      obligation. NOT national commentary, and NOT an instruction — explain what the change does, never
      what anyone should do about it. Any sentence that reads as a directive to buy, sell, hold, price

@@ -20,6 +20,7 @@ RUN apt-get update \
 # App code + default config (the live watchlist/.env are seeded into /data on first boot).
 COPY src ./src
 COPY scripts ./scripts
+COPY packs ./packs
 COPY watchlist.json registry.json .env.example ./
 
 # All mutable data (SQLite DB, briefings, editable watchlist + .env) lives on the volume.

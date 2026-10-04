@@ -43,6 +43,9 @@
 import Anthropic from "@anthropic-ai/sdk";
 import * as store from "./store.js";
 import { mapPool } from "./util.js";
+import { voice } from "./pack.js";
+// State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
+const V = voice();
 
 /** Below this many characters of source text, a packet is built WITHOUT a model call. Measured: nothing
  *  in the ungrounded news corpus exceeded 800 chars, and real Federal Register abstracts start ~300 but
@@ -147,7 +150,7 @@ export const PACKET_SCHEMA = {
     },
     soy_mechanisms: {
       type: "array",
-      description: "How this could reach an Iowa soybean operation. Empty array when there is no plausible channel.",
+      description: `How this could reach ${V.aState} soybean operation. Empty array when there is no plausible channel.`,
       items: {
         type: "object",
         properties: {
@@ -203,7 +206,7 @@ export const PACKET_SCHEMA = {
   additionalProperties: false,
 };
 
-const SYSTEM_PROMPT = `You extract structured evidence from a single government document or news article for the Iowa Soybean Association's policy and market monitor. You are PARSING, not analysing: your job is to separate what the document says from what anyone might infer from it.
+const SYSTEM_PROMPT = `You extract structured evidence from a single government document or news article for the ${V.org}'s policy and market monitor. You are PARSING, not analysing: your job is to separate what the document says from what anyone might infer from it.
 
 Rules that matter more than completeness:
 - Every entry in "evidence" must be an EXACT VERBATIM SUBSTRING of the supplied text. Copy, do not paraphrase or tidy. Quotes are checked mechanically and silently dropped if they do not match, which weakens the packet.

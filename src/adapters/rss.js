@@ -10,6 +10,7 @@ import { XMLParser } from "fast-xml-parser";
 import { createHash } from "node:crypto";
 import { fetchText } from "../util.js";
 import * as store from "../store.js";
+import { pack } from "../pack.js";
 
 export const id = "rss";
 export const label = "Entity RSS/Atom feeds";
@@ -54,7 +55,7 @@ function hash(s) {
  */
 export function parseFeed(xml, { entityId, entity, channelId } = {}) {
   const doc = parser.parse(xml);
-  const jurisdiction = entity?.level === "federal" ? "US-Federal" : "Iowa";
+  const jurisdiction = entity?.level === "federal" ? "US-Federal" : pack().identity.stateName;
   const rawEntries =
     doc?.rss?.channel?.item != null
       ? toArray(doc.rss.channel.item)

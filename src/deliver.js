@@ -10,6 +10,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import * as store from "./store.js";
+import { voice } from "./pack.js";
+const V = voice(); // org wording from the active state pack
 
 // ---------- markdown → email HTML ----------
 // Self-contained (server.js's richer renderer can't be imported — server.js imports this module)
@@ -62,11 +64,11 @@ export function markdownToEmailHtml(markdown, title = "The Bean Brief") {
   return `<div style="${FONT};color:#1c2b3a;max-width:760px">
 <div style="border-bottom:3px solid #FFC425;padding-bottom:6px;margin-bottom:14px;font-weight:700;color:#004A8D">${escHtml(title)}</div>
 ${out.join("\n")}
-<p style="${FONT};font-size:.8em;color:#6b7c8c;margin-top:20px;border-top:1px solid #d9e2ec;padding-top:8px">The Bean Brief — Iowa Soybean Association · internal monitoring. Informational, not a recommendation.</p>
+<p style="${FONT};font-size:.8em;color:#6b7c8c;margin-top:20px;border-top:1px solid #d9e2ec;padding-top:8px">The Bean Brief — ${V.org} · internal monitoring. Informational, not a recommendation.</p>
 </div>`;
 }
 
-export function saveBrief(markdown, edition, timezone = "America/Chicago") {
+export function saveBrief(markdown, edition, timezone = V.tz) {
   const dateLabel = new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(new Date());
   const dir = path.join(store.DATA_DIR, "briefings");
   fs.mkdirSync(dir, { recursive: true });
@@ -166,7 +168,7 @@ export async function sendEmail(markdown, edition, env, watchlist) {
   }
   await sendMarkdownEmail({
     markdown,
-    subject: `ISA Policy Brief — ${new Intl.DateTimeFormat("en-CA").format(new Date())} (${edition.toUpperCase()})`,
+    subject: `${V.short} Policy Brief — ${new Intl.DateTimeFormat("en-CA").format(new Date())} (${edition.toUpperCase()})`,
     to,
     env,
   });
@@ -250,7 +252,7 @@ export async function sendMemberBriefEmail({ markdown, subject, recipients, env 
     text: markdown,
     html: markdownToEmailHtml(markdown, subject),
   };
-  if (unsubscribeTo) message.list = { unsubscribe: { url: `mailto:${unsubscribeTo}?subject=unsubscribe`, comment: "Unsubscribe from the ISA Member Brief" } };
+  if (unsubscribeTo) message.list = { unsubscribe: { url: `mailto:${unsubscribeTo}?subject=unsubscribe`, comment: `Unsubscribe from the ${V.short} Member Brief` } };
   await transport.sendMail(message);
   return true;
 }

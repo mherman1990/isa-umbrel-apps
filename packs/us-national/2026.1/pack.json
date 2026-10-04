@@ -1,0 +1,17 @@
+{
+  "id": "us-national",
+  "version": "2026.1",
+  "description": "Federal tier shared by every state pack: provenance for federal publishers, the national product name. A state pack extends this and overrides only what differs.",
+  "identity": {
+    "productName": "The Bean Brief",
+    "timezone": "America/Chicago"
+  },
+  "prompts": {
+    "readerTitle": "Chief Officer for Demand & Policy"
+  },
+  "provenance": {
+    "primaryHosts": ["federalregister.gov", "regulations.gov", "congress.gov", "govinfo.gov", "courtlistener.com", "supremecourt.gov", "uscourts.gov", "eur-lex.europa.eu", "legiscan.com", "ecfr.gov"],
+    "agencyHosts": ["epa.gov", "usda.gov", "fas.usda.gov", "ams.usda.gov", "nass.usda.gov", "fsa.usda.gov", "nrcs.usda.gov", "treasury.gov", "irs.gov", "ustr.gov", "commerce.gov", "trade.gov", "cftc.gov", "eia.gov", "energy.gov", "state.gov", "whitehouse.gov"],
+    "advocacyHosts": ["cleanfuels.org", "growthenergy.org", "soygrowers.com", "ncga.com", "nbb.org", "api.org", "fuelsamerica.org", "rfa.org"]
+  }
+}

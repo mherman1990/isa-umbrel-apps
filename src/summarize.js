@@ -10,6 +10,9 @@ import { thinkingOffFields } from "./modelcfg.js";
 import * as cheerio from "cheerio";
 
 import * as store from "./store.js";
+import { voice } from "./pack.js";
+// State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
+const V = voice();
 
 const MAX_DOC_CHARS = 18000; // keep token cost bounded for long rules
 const FETCH_TIMEOUT_MS = 15000;
@@ -32,7 +35,7 @@ export async function fetchDocumentText(url, { preserveParagraphs = false } = {}
   try {
     const res = await fetch(url, {
       signal: controller.signal,
-      headers: { "user-agent": "the-bean-brief/1.0 (Iowa Soybean Association policy monitor)" },
+      headers: { "user-agent": `the-bean-brief/1.0 (${V.org} policy monitor)` },
     });
     if (!res.ok) return { text: "", note: `couldn't fetch the document (HTTP ${res.status})` };
     const type = res.headers.get("content-type") ?? "";
@@ -70,11 +73,11 @@ export async function fetchDocumentText(url, { preserveParagraphs = false } = {}
   }
 }
 
-const SYSTEM = `You are a policy analyst for the Iowa Soybean Association (ISA). You summarize government rules, notices, dockets, and court filings for ISA staff who advocate for Iowa soybean farmers.
+const SYSTEM = `You are a policy analyst for the ${V.org} (${V.short}). You summarize government rules, notices, dockets, and court filings for ${V.short} staff who advocate for ${V.state} soybean farmers.
 
 Write a clear, factual summary in NO MORE THAN 500 words, in two short parts:
 1. What the document is and what it does (the substance).
-2. Why it matters to Iowa soybean farmers — the significance, plus any action needed or deadline.
+2. Why it matters to ${V.state} soybean farmers — the significance, plus any action needed or deadline.
 
 Be specific and neutral. If the document text is missing and you are working only from the title and metadata, say so briefly and summarize what can reasonably be inferred — do not invent specifics. Use short paragraphs or bullet points. Never exceed 500 words.`;
 

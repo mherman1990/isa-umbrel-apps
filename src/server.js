@@ -39,9 +39,16 @@ import { syncRegistryFromSeed } from "./registry.js";
 import { studioBody, studioCatalog, studioSeries, studioSeriesCSV, studioEvents } from "./studio.js";
 import { sanitizeEmailHtml, emailBodyToText, emailBodyToPreview, textToHtml } from "./emailhtml.js";
 import * as auth from "./auth.js";
+import { pack, voice } from "./pack.js";
+// State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
+const V = voice();
+const escRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// "IA" / "Iowa" in a jurisdiction string, for the active state.
+const HOME_JURIS_RE = new RegExp(`^${escRe(V.alpha)}$|${escRe(V.state)}`, "i");
+const HOME_RULES_SOURCE = pack().adminRules?.adapter ?? null;
 
 // All user-facing timestamps render in Central time (the ISA org timezone).
-const CENTRAL_TZ = "America/Chicago";
+const CENTRAL_TZ = V.tz;
 const fmtCT = (d) => new Date(d).toLocaleString("en-US", { timeZone: CENTRAL_TZ });
 const fmtCTtime = (d) => new Date(d).toLocaleTimeString("en-US", { timeZone: CENTRAL_TZ });
 
@@ -494,7 +501,7 @@ function page(title, body, { chrome = true } = {}) {
   }
 </style></head>
 <body>${chrome ? `<header>
-<a class="brand" href="/"><img class="logo" src="/assets/isa-logo-main.png" alt="Iowa Soybean Association"><span class="brandname">The Bean Brief</span></a>
+<a class="brand" href="/"><img class="logo" src="/assets/isa-logo-main.png" alt="${V.org}"><span class="brandname">The Bean Brief</span></a>
 <nav><a href="/">Home</a><a href="/items">Laws, Rules &amp; Decisions</a><a href="/news">News</a><a href="/markets">Markets</a><a href="/studio">Studio</a><a href="/map">Map</a><a href="/watchlist">Watchlist</a><a href="/sources">Sources</a><a href="/registry">Registry</a><a href="/logs">Logs &amp; Settings</a></nav>
 </header>
 <script>(function(){var p=location.pathname,act=null;document.querySelectorAll('nav a').forEach(function(a){var h=a.getAttribute('href');if(h==='/'?p==='/':p===h||p.indexOf(h+'/')===0){a.classList.add('active');act=a;}});
@@ -615,7 +622,7 @@ async function triggerRun(edition, { trigger = "manual" } = {}) {
  * still runs — on whatever data is stored, which its own staleness rules then label.
  */
 async function ensureTodaysRefresh() {
-  let tz = "America/Chicago";
+  let tz = V.tz;
   let pmTime = "16:30";
   try {
     const ed = loadWatchlist().briefEditions ?? {};
@@ -1004,7 +1011,7 @@ function settingsSection(watchlist, openId) {
 <details class="topic" id="t-settings"${openId === "settings" ? " open" : ""}>
   <summary>⚙️ Settings <span class="muted">(schedule, thresholds, Teams)</span></summary>
   <form method="post" action="/watchlist/settings">
-    <div class="kicker">Schedule (${esc(ed.timezone ?? "America/Chicago")})</div>
+    <div class="kicker">Schedule (${esc(ed.timezone ?? V.tz)})</div>
     <div class="toolbar">
       <label class="muted">AM <input type="time" name="am" value="${esc(ed.am ?? "06:30")}"></label>
       <label class="muted">PM <input type="time" name="pm" value="${esc(ed.pm ?? "16:30")}"></label>
@@ -1027,7 +1034,7 @@ function settingsSection(watchlist, openId) {
         })
         .join("")}
     </div>
-    <div class="kicker">🌾 ISA Member Brief <span class="muted" style="font-weight:400">— farmer-member edition; fails closed rather than send an unsupported claim</span></div>
+    <div class="kicker">🌾 ${V.short} Member Brief <span class="muted" style="font-weight:400">— farmer-member edition; fails closed rather than send an unsupported claim</span></div>
     <div class="toolbar">
       <label class="muted">schedule <input type="text" name="memberSchedule" value="${esc(typeof ed.member === "string" ? ed.member : DEFAULT_MEMBER_SPEC)}" placeholder="Mon,Wed,Fri 06:45 — or off" style="width:190px"></label>
       <span class="muted" style="font-size:.85em">Runs after the morning data refresh has completed; type <code>off</code> to stop it.</span>
@@ -1524,7 +1531,7 @@ ${homeCalendar()}
 <div class="reports">
   <div class="report">
     <form method="post" action="/run"><input type="hidden" name="edition" value="auto"><button>▶ Run policy brief now</button></form>
-    <span class="muted rdesc">Scans the 7 government sources, flags what's relevant to Iowa soy, and writes it up. Also the twice-daily refresh that keeps Markets, News &amp; alerts current — it now stays quiet on days with no policy movement instead of saving a blank brief.</span>
+    <span class="muted rdesc">Scans the 7 government sources, flags what's relevant to ${V.state} soy, and writes it up. Also the twice-daily refresh that keeps Markets, News &amp; alerts current — it now stays quiet on days with no policy movement instead of saving a blank brief.</span>
     <div id="runstat" class="runstat" hidden></div>
   </div>
   <p class="muted" style="margin:16px 0 0;font-weight:600">On-demand reports</p>
@@ -1547,7 +1554,7 @@ ${homeCalendar()}
     </div>
     <div class="report">
       <form method="post" action="/run"><input type="hidden" name="edition" value="education"><button class="ghost">🎓 Market-education brief</button></form>
-      <span class="muted rdesc">A plain-language market read for ISA staff who aren't grain-market experts — one real data point, one concept, and the take-away, so the team learns to read the market.</span>
+      <span class="muted rdesc">A plain-language market read for ${V.short} staff who aren't grain-market experts — one real data point, one concept, and the take-away, so the team learns to read the market.</span>
     </div>
   </div>
   ${runInProgress ? '<p class="muted" style="margin-top:10px">a run is in progress…</p>' : ""}
@@ -1698,7 +1705,7 @@ function chamberOfOffice(office) {
 // Canonicalize statewide office labels so the hand-seed incumbent ("Iowa Attorney General")
 // and the candidate-seed challengers ("Attorney General") land in the same race.
 function canonOffice(office) {
-  let o = (office || "Other").trim().replace(/^Iowa\s+/i, "");
+  let o = (office || "Other").trim().replace(new RegExp(`^${escRe(V.state)}\\s+`, "i"), "");
   const alias = { "State Auditor": "Auditor of State" };
   return alias[o] || o;
 }
@@ -1870,9 +1877,9 @@ function buildMapData() {
     .sort((a, b) => a.office.localeCompare(b.office));
 
   return {
-    house: finish(house, (k) => `Iowa House District ${k}`, incBy.lower, dHucs.house),
-    senate: finish(senate, (k) => `Iowa Senate District ${k}`, incBy.upper, dHucs.senate),
-    congress: finish(congress, (k) => `Iowa Congressional District ${k}`, null, dHucs.congress),
+    house: finish(house, (k) => `${V.state} House District ${k}`, incBy.lower, dHucs.house),
+    senate: finish(senate, (k) => `${V.state} Senate District ${k}`, incBy.upper, dHucs.senate),
+    congress: finish(congress, (k) => `${V.state} Congressional District ${k}`, null, dHucs.congress),
     statewide,
   };
 }
@@ -1942,8 +1949,8 @@ function mapBody() {
   .map-legend h4 { margin: 0 0 4px; color: var(--isa-dark); font-size: .9em; }
   .leaflet-control-attribution { font-size: .68em; }
 </style>
-<h1>🗺️ Iowa Political Map</h1>
-<p class="map-lead muted">County lines form the base; the political districts lay translucent on top, each shaded <span style="color:#C0392B;font-weight:700">red</span> or <span style="color:#2C6FB0;font-weight:700">blue</span> by the party that currently holds the seat. Pick a boundary (Iowa House, Iowa Senate, U.S. Congress) from the layer control and toggle the HUC8 watershed overlay. <strong>${totalCands}</strong> candidates across ${counts.house} House, ${counts.senate} Senate &amp; ${counts.congress} congressional districts. Hover a district for its incumbent and challenger — with the HUC8 overlay on, the card also lists the watersheds the district spans.</p>
+<h1>🗺️ ${V.state} Political Map</h1>
+<p class="map-lead muted">County lines form the base; the political districts lay translucent on top, each shaded <span style="color:#C0392B;font-weight:700">red</span> or <span style="color:#2C6FB0;font-weight:700">blue</span> by the party that currently holds the seat. Pick a boundary (${V.state} House, ${V.state} Senate, U.S. Congress) from the layer control and toggle the HUC8 watershed overlay. <strong>${totalCands}</strong> candidates across ${counts.house} House, ${counts.senate} Senate &amp; ${counts.congress} congressional districts. Hover a district for its incumbent and challenger — with the HUC8 overlay on, the card also lists the watersheds the district spans.</p>
 <div class="map-wrap">
   <div id="ia-map"></div>
   <div class="side-panel">
@@ -1952,7 +1959,7 @@ function mapBody() {
     ${statewideHtml}
   </div>
 </div>
-<p class="muted" style="margin-top:14px;font-size:.85em">District color is the current seat-holder's party — <span style="color:#C0392B;font-weight:700">Republican</span> or <span style="color:#2C6FB0;font-weight:700">Democratic</span>. Hovering names the incumbent and the 2026 challenger(s); a seat whose incumbent isn't on the 2026 ballot is marked <em>open</em>. Incumbents: current Iowa legislature roster (OpenStates). Boundaries: U.S. Census TIGER (2024 districts), USGS WBD (HUC8 watersheds). Basemap © OpenStreetMap contributors, © CARTO.</p>
+<p class="muted" style="margin-top:14px;font-size:.85em">District color is the current seat-holder's party — <span style="color:#C0392B;font-weight:700">Republican</span> or <span style="color:#2C6FB0;font-weight:700">Democratic</span>. Hovering names the incumbent and the 2026 challenger(s); a seat whose incumbent isn't on the 2026 ballot is marked <em>open</em>. Incumbents: current ${V.state} legislature roster (OpenStates). Boundaries: U.S. Census TIGER (2024 districts), USGS WBD (HUC8 watersheds). Basemap © OpenStreetMap contributors, © CARTO.</p>
 <script id="mapdata" type="application/json">${spec}</script>
 <script src="/assets/leaflet.js?v=${ASSET_VER}"></script>
 <script src="/assets/bbmap.js?v=${ASSET_VER}"></script>`;
@@ -2115,7 +2122,7 @@ function attentionStrip(rows, senderName) {
     const d = new Date(stamp);
     const when = Number.isNaN(d.getTime())
       ? ""
-      : d.toLocaleString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+      : d.toLocaleString("en-US", { timeZone: V.tz, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
     const title = decodeEntities(r.title || "(untitled)");
     return `<li class="att-item">
       <div class="att-head"><span class="att-from">${esc(senderName(r))}</span><span class="muted att-when">${esc(when)}</span></div>
@@ -2420,19 +2427,19 @@ function marketsBody(notice) {
   const charts = [
     chartSection("biofuel_feedstock", "Biofuel feedstock demand", "Lipid feedstocks used in U.S. biodiesel + renewable diesel — soybean oil vs. the competition (corn oil, canola, used cooking oil, tallow…). Hover for the value + month.", 320),
     chartSection("soy_futures", "CBOT soybeans (daily board)", "Front-month soybean futures settle (¢/bu), daily. The price the whole signal board is actually a read ON — before this feed the newest price the tool could see was a monthly average published weeks late. Front-month continuous, so it carries a small step at each contract roll.", 280),
-    chartSection("soy_crush_margin", "Crush margin — board vs. Iowa cash", "What a bushel is worth crushed, minus what it costs ($/bu). BOARD margin is computed from CBOT meal/oil/beans; IOWA CASH uses observed AMS cash quotes. Yields follow the Gordon Denny workbook (meal 0.0221 t/bu, oil 11.71 lb/bu, hulls 0.0018 t/bu). Cash normally reads above board because observed Iowa cash meal and oil run over the synthetic board-plus-basis the workbook assumes. This is the cause side of crush demand — it leads plant utilization.", 280),
-    chartSection("soy_crush_share", "Crush value share — oil vs. meal", "Soybean oil's and meal's share of the product value from a crushed bushel (%), at the same workbook yields as the margin chart (oil 11.71 lb/bu, meal 0.0221 t/bu) — the industry \"oil share\". Meal share is the complement; hulls (~2% of value) are left out so the pair sums to 100. BOARD uses CBOT front-month oil/meal; IOWA CASH uses AMS cash quotes. A rising oil share is the renewable-diesel pull showing up in the crush — it means meal is increasingly the byproduct, and plants run for oil even as meal backs up.", 280),
-    chartSection("soy_basis", "Iowa soybean basis — all bids vs. processors", "Cash bid minus futures (¢/bu), nearby month. The processor line is what crush plants themselves are bidding; when it runs above the all-Iowa average, crushers are paying up to pull beans in — a demand read no other series carries. Negative basis is normal.", 260),
-    chartSection("soy_price", "Soybean price received", "Iowa daily cash ($/bu, AMS) against the monthly average price received — Iowa vs. U.S.", 260),
-    chartSection("soy_corn_ratio", "Soybean:corn price ratio", "NASS Iowa prices received (monthly) and the CBOT nearby futures ratio (daily). Soybean price ÷ corn price — the relative-value read behind acreage decisions. Historically ~2.3–2.5 is the rough pivot between favoring beans and corn.", 240),
+    chartSection("soy_crush_margin", `Crush margin — board vs. ${V.state} cash`, `What a bushel is worth crushed, minus what it costs ($/bu). BOARD margin is computed from CBOT meal/oil/beans; ${V.state.toUpperCase()} CASH uses observed AMS cash quotes. Yields follow the Gordon Denny workbook (meal 0.0221 t/bu, oil 11.71 lb/bu, hulls 0.0018 t/bu). Cash normally reads above board because observed ${V.state} cash meal and oil run over the synthetic board-plus-basis the workbook assumes. This is the cause side of crush demand — it leads plant utilization.`, 280),
+    chartSection("soy_crush_share", "Crush value share — oil vs. meal", `Soybean oil's and meal's share of the product value from a crushed bushel (%), at the same workbook yields as the margin chart (oil 11.71 lb/bu, meal 0.0221 t/bu) — the industry "oil share". Meal share is the complement; hulls (~2% of value) are left out so the pair sums to 100. BOARD uses CBOT front-month oil/meal; ${V.state.toUpperCase()} CASH uses AMS cash quotes. A rising oil share is the renewable-diesel pull showing up in the crush — it means meal is increasingly the byproduct, and plants run for oil even as meal backs up.`, 280),
+    chartSection("soy_basis", `${V.state} soybean basis — all bids vs. processors`, `Cash bid minus futures (¢/bu), nearby month. The processor line is what crush plants themselves are bidding; when it runs above the all-${V.state} average, crushers are paying up to pull beans in — a demand read no other series carries. Negative basis is normal.`, 260),
+    chartSection("soy_price", "Soybean price received", `${V.state} daily cash ($/bu, AMS) against the monthly average price received — ${V.state} vs. U.S.`, 260),
+    chartSection("soy_corn_ratio", "Soybean:corn price ratio", `NASS ${V.state} prices received (monthly) and the CBOT nearby futures ratio (daily). Soybean price ÷ corn price — the relative-value read behind acreage decisions. Historically ~2.3–2.5 is the rough pivot between favoring beans and corn.`, 240),
     chartSection("soy_crush", "U.S. soybean crush", "Monthly crush — the domestic-demand engine, near record highs on renewable-diesel demand.", 260),
     chartSection("soy_balance_stu", "U.S. soybean stocks-to-use (WASDE)", "Ending stocks as a share of total use — the tightness ratio that drives price. Roughly: below ~8% is tight (supportive), above ~15% is ample (a drag).", 240),
-    chartSection("soy_condition", "Soybean crop condition", "In-season % rated good or excellent (USDA Crop Progress) — Iowa vs. U.S. Weather's fingerprint on this year's yield potential.", 260),
-    chartSection("veg_condition", "Crop vegetation index (satellite)", "Weekly VegScape VCI (0–100) of crop vigor vs. the 2000-present range — Iowa + the core belt. MODIS-derived, ~4 days after each week closes, so it leads the NASS condition rating. Low = stress; high = a vigorous crop.", 260),
-    chartSection("soil_moisture", "Root-zone soil moisture (satellite)", "Weekly Crop-CASMA / NASA SMAP volumetric soil moisture (m³/m³) — Iowa root-zone + surface, plus the core belt's root zone. The water available to the crop's roots: a cause-side stress read that leads the vegetation and condition reports.", 260),
-    chartSection("drought", "Iowa drought coverage", "Share of Iowa land area in drought (D1+) and abnormally dry or worse (D0+), from the weekly U.S. Drought Monitor — a fast read on Corn Belt crop stress.", 260),
+    chartSection("soy_condition", "Soybean crop condition", `In-season % rated good or excellent (USDA Crop Progress) — ${V.state} vs. U.S. Weather's fingerprint on this year's yield potential.`, 260),
+    chartSection("veg_condition", "Crop vegetation index (satellite)", `Weekly VegScape VCI (0–100) of crop vigor vs. the 2000-present range — ${V.state} + the core belt. MODIS-derived, ~4 days after each week closes, so it leads the NASS condition rating. Low = stress; high = a vigorous crop.`, 260),
+    chartSection("soil_moisture", "Root-zone soil moisture (satellite)", `Weekly Crop-CASMA / NASA SMAP volumetric soil moisture (m³/m³) — ${V.state} root-zone + surface, plus the core belt's root zone. The water available to the crop's roots: a cause-side stress read that leads the vegetation and condition reports.`, 260),
+    chartSection("drought", `${V.state} drought coverage`, `Share of ${V.state} land area in drought (D1+) and abnormally dry or worse (D0+), from the weekly U.S. Drought Monitor — a fast read on Corn Belt crop stress.`, 260),
     chartSection("soy_exports", "Soybean exports (weekly)", "Weekly export activity in metric tons — inspections (actual loadings) vs. net sales (forward bookings). An export-pace / China-demand read; net sales also stands in for the (currently offline) FAS report.", 280),
-    chartSection("barge_freight", "Barge freight by location", "Cost to move grain down-river ($/ton) at named locations (St. Louis, Illinois River — set in watchlist sources.agtransport.bargeLocations), plus the average of all reported locations. A driver of the Gulf export basis, and so of what Iowa elevators can bid.", 240),
+    chartSection("barge_freight", "Barge freight by location", `Cost to move grain down-river ($/ton) at named locations (St. Louis, Illinois River — set in watchlist sources.agtransport.bargeLocations), plus the average of all reported locations. A driver of the Gulf export basis, and so of what ${V.state} elevators can bid.`, 240),
     chartSection("positioning", "Fund positioning (CFTC)", "CBOT managed-money net position for soybeans, soybean meal and soybean oil (contracts) — how the funds are leaning. Extremes can unwind fast.", 240),
   ].filter(Boolean).join('<hr style="border:none;border-top:1px solid var(--isa-blue-40);margin:18px 0">');
   // Load uPlot + our renderer only on this page, after the chart blobs are in the DOM.
@@ -2465,20 +2472,20 @@ function marketsBody(notice) {
 
 // Normalize the inconsistent per-adapter `jurisdiction` strings into a clean state/fed enum for
 // grouping the LRD feed. Source id is the primary signal (jurisdiction text is a fallback).
-const LEVEL_ORDER = ["Federal", "Iowa", "Other states", "Courts", "EU", "Other"];
+const LEVEL_ORDER = ["Federal", V.state, "Other states", "Courts", "EU", "Other"];
 const FEDERAL_SOURCES = new Set(["congress_gov", "congress_hearings", "federal_register", "regulations_gov"]);
 function jurisdictionLevel(sourceId, jurisdiction) {
   const j = String(jurisdiction || "").trim();
   if (sourceId === "legiscan") {
-    if (/^IA$/i.test(j) || /iowa/i.test(j)) return "Iowa";
+    if (HOME_JURIS_RE.test(j)) return V.state;
     if (/^US$/i.test(j) || /federal/i.test(j)) return "Federal";
     return "Other states";
   }
   if (FEDERAL_SOURCES.has(sourceId)) return "Federal";
   if (sourceId === "courtlistener") return "Courts";
   if (sourceId === "eurlex_oj") return "EU";
-  if (sourceId === "iowa_admin_rules") return "Iowa";
-  if (/iowa|^IA$/i.test(j)) return "Iowa";
+  if (HOME_RULES_SOURCE && sourceId === HOME_RULES_SOURCE) return V.state;
+  if (HOME_JURIS_RE.test(j)) return V.state;
   if (/court/i.test(j)) return "Courts";
   if (/^EU$|europe/i.test(j)) return "EU";
   if (/federal|US-Federal|^US$/i.test(j)) return "Federal";
@@ -2488,7 +2495,7 @@ function jurisdictionLevel(sourceId, jurisdiction) {
 // The graded-relevance chip. NULL tier (anything triaged before 1.26.0) shows nothing rather than a
 // misleading default — those rows are still included by the default "top" filter.
 const TIER_META = {
-  must_read: { label: "must read", cls: "lb-must", title: "ISA would act, comment, or brief leadership on this" },
+  must_read: { label: "must read", cls: "lb-must", title: `${V.short} would act, comment, or brief leadership on this` },
   worth_knowing: { label: "worth knowing", cls: "lb-worth", title: "Real but not actionable this week" },
   background: { label: "background", cls: "lb-bg", title: "Procedural or tangential — kept, but out of the daily read" },
 };
@@ -2917,9 +2924,9 @@ function rssFeed(host) {
     .join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"><channel>
-<title>polibrief — ISA policy briefs</title>
+<title>polibrief — ${V.short} policy briefs</title>
 <link>${xmlEscape(base)}</link>
-<description>Twice-daily policy briefs for Iowa soybean priorities</description>
+<description>Twice-daily policy briefs for ${V.state} soybean priorities</description>
 ${entries}
 </channel></rss>`;
 }
@@ -2993,7 +3000,7 @@ function loginPage({ next = "/", error = false } = {}) {
   const safeNext = /^\/($|[^/\\])/.test(String(next ?? "")) ? next : "/"; // never redirect off-site
   const body = `<div class="login-wrap">
   <form class="login-card" method="post" action="/login">
-    <img class="logo" src="/assets/isa-logo-main.png" alt="Iowa Soybean Association">
+    <img class="logo" src="/assets/isa-logo-main.png" alt="${V.org}">
     <h1>The Bean Brief</h1>
     <p class="muted">Sign in to review policy &amp; market intelligence.</p>
     ${error ? '<p class="banner err" role="alert">Incorrect username or password.</p>' : ""}
@@ -3468,7 +3475,7 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
           // the last resort so the text is always reachable by hand.
           const buttons = `<div class="toolbar">
             <button class="ghost" id="bb-copy" type="button">📋 Copy markdown</button>
-            <a href="mailto:?subject=${encodeURIComponent("ISA Policy Brief " + name.replace(".md", ""))}&body=${encodeURIComponent("Brief attached below (or read it at " + `http://${req.headers.host}/brief/${name}` + " on the office network):%0A%0A")}"><button class="ghost" type="button">✉️ Email</button></a>
+            <a href="mailto:?subject=${encodeURIComponent(`${V.short} Policy Brief ` + name.replace(".md", ""))}&body=${encodeURIComponent("Brief attached below (or read it at " + `http://${req.headers.host}/brief/${name}` + " on the office network):%0A%0A")}"><button class="ghost" type="button">✉️ Email</button></a>
             <form method="post" action="/brief/${encodeURIComponent(name)}/teams"><button class="ghost">💬 Post to Teams</button></form>
           </div>
           <div id="bb-copy-fallback" hidden style="margin:8px 0">
@@ -3537,7 +3544,7 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
         // am or pm slot by time of day so a manual run lines up with (and doesn't clobber)
         // the scheduled editions. The scheduler still fires am + pm on their own times.
         if (edition === "auto") {
-          let tz = "America/Chicago";
+          let tz = V.tz;
           try { tz = loadWatchlist().briefEditions?.timezone ?? tz; } catch { /* default tz */ }
           const hh = Number(new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", hour12: false }).format(new Date()));
           edition = hh >= 12 ? "pm" : "am";
@@ -4104,7 +4111,7 @@ function startScheduler() {
     // (e.g. an invalid IANA timezone → Intl throws RangeError) must degrade to a logged, skipped tick.
     try {
       const editions = watchlist.briefEditions ?? {};
-      const timezone = editions.timezone ?? "America/Chicago";
+      const timezone = editions.timezone ?? V.tz;
       const now = new Date();
       // "Already ran" is re-read from the database every tick (brief_runs + saved files) rather than
       // seeded once from saved files at boot — see schedule.js for why that dropped quiet AM runs.

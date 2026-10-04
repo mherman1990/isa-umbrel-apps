@@ -32,6 +32,9 @@ import { fileURLToPath } from "node:url";
 
 import * as store from "./store.js";
 import { CRUSH_YIELDS } from "./adapters/cbot_futures.js";
+import { voice } from "./pack.js";
+// State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
+const V = voice();
 
 const DATA_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "data");
 
@@ -321,7 +324,7 @@ export function oilSharePoints(mealPts, oilPts) {
 
 const SHARE_SOURCES = [
   { key: "board", label: "Board", meal: "cbot:zm:front", oil: "cbot:zl:front" },
-  { key: "cash", label: "Iowa cash", meal: "ams:ia:meal", oil: "ams:ia:oil" },
+  { key: "cash", label: `${V.state} cash`, meal: "ams:ia:meal", oil: "ams:ia:oil" },
 ];
 
 /**

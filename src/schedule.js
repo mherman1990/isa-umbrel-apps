@@ -12,6 +12,8 @@
 //   3. THE DATA IS FRESH BEFORE ANY REPORT. A report may not run on a day whose AM refresh has not
 //      completed — the scheduler runs the AM edition first (see `needsRefreshFirst`).
 
+import { pack } from "./pack.js";
+
 export const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 /**
@@ -87,7 +89,7 @@ export function seedRan(runs, briefFiles, timezone) {
  * @param {string[]} dayScheduled  edition ids that take a day spec
  */
 export function dueEditions(editions, now, ran, dayScheduled) {
-  const timezone = editions.timezone ?? "America/Chicago";
+  const timezone = editions.timezone ?? pack().identity.timezone;
   const { date, hhmm, weekday } = localClock(now, timezone);
   const due = [];
   for (const edition of ["am", "pm"]) {

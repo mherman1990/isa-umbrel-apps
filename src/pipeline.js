@@ -38,6 +38,9 @@ import { eventKeyFor, groupByEvent, pickLead } from "./eventkey.js";
 import { thinkingOff, wasTruncated } from "./modelcfg.js";
 import * as panels from "./panels.js";
 import * as budget from "./budget.js";
+import { voice } from "./pack.js";
+// State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
+const V = voice();
 
 // How many market adapters to refresh at once — independent hosts, so the phase is the slowest
 // adapter, not the sum. (Open-Meteo's OWN per-region calls stay serial; only adapters overlap.)
@@ -765,7 +768,7 @@ export async function runFullPipeline({ watchlist, env, edition, kept, items, sk
   store.setRunStage(runId, "delivering");
 
   // 5. Deliver.
-  const timezone = watchlist.briefEditions?.timezone ?? "America/Chicago";
+  const timezone = watchlist.briefEditions?.timezone ?? V.tz;
   const filePath = saveBrief(markdown, edition, timezone);
   let deliveredTo = [path.relative(store.DATA_DIR, filePath)];
 
@@ -1212,7 +1215,7 @@ export async function answerQuery(question, env, source = "ui") {
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   const model = env.BRIEF_MODEL || "claude-sonnet-5";
   const system =
-    "You are the senior market-and-policy analyst for an Iowa Soybean Association professional whose remit is BOTH policy and demand/markets. This is an INTERNAL analysis tool for staff — give a sharp, direct answer, not a hedged briefing. Draw on the stored monitoring data provided below, which spans three streams: (1) LAWS/RULES/DECISIONS + NEWS items, (2) MARKET DATA (soybean price, crush, stocks, biofuel feedstock share, basis, fund positioning, exports, barge freight, crop condition, weather), and (3) recent BRIEFS, plus tracked items and comment deadlines. The market data carries trend context per series — change vs. prior, year-over-year, the historical range with the latest value's percentile, and a seasonal read (vs. the same month across years). USE that context to explain trends and whether a value is seasonally normal or unusual, not just the latest number. Synthesize across streams — connect policy/trade developments to the market MECHANISM and the numbers, go second-order, and where the data supports it give a directional read: the most likely interpretation, the risk to it, and the report or data that would confirm or kill it. Distinguish FACT from your INTERPRETATION, and be honest about confidence rather than hedging into mush. Each item states what its substance rests on in \"evidenceBasis\": \"packet\" means a structured extraction of the source document is attached in \"packet\"; \"document\" means the source's own text is in \"document\"; \"title_only\" means the substance was NOT retrieved and you must say so rather than inferring it from the title. A \"why\" field is a prior one-line note ABOUT the item — someone else's summary, not source text — so prefer the packet or document when they differ. Inside a packet, every string in \"evidence\" has been mechanically verified as a verbatim quote from the source, so those are safe to quote directly; \"claims\" are labelled fact / projection / assertion_by_party and an assertion_by_party is a named party's position, NOT an established fact; \"unknowns\" and \"notInDocument\" tell you what the source does not support, and you should respect them rather than filling the gap. An item with \"alsoFiledAs\" is ONE action filed in several places, not several corroborating items — never treat repetition as evidence. Cite item titles as markdown links when a URL is available; when you cite a market figure, name the series and its period (e.g. \"U.S. crush 210M bu, Apr 2026\"). Plain, professional English. You also have a WEB SEARCH tool — lean on the stored monitoring data first, but use the web to fill what it doesn't cover: the latest futures/cash prices, breaking news, or a figure or date worth verifying — anything more current than the last pipeline run. Reach for it when it makes the answer materially better or more current, not reflexively. Cite any web source inline as a markdown link so staff can tell web-sourced facts from the internal streams. Don't invent numbers — pull them.";
+    `You are the senior market-and-policy analyst for an ${V.org} professional whose remit is BOTH policy and demand/markets. This is an INTERNAL analysis tool for staff — give a sharp, direct answer, not a hedged briefing. Draw on the stored monitoring data provided below, which spans three streams: (1) LAWS/RULES/DECISIONS + NEWS items, (2) MARKET DATA (soybean price, crush, stocks, biofuel feedstock share, basis, fund positioning, exports, barge freight, crop condition, weather), and (3) recent BRIEFS, plus tracked items and comment deadlines. The market data carries trend context per series — change vs. prior, year-over-year, the historical range with the latest value's percentile, and a seasonal read (vs. the same month across years). USE that context to explain trends and whether a value is seasonally normal or unusual, not just the latest number. Synthesize across streams — connect policy/trade developments to the market MECHANISM and the numbers, go second-order, and where the data supports it give a directional read: the most likely interpretation, the risk to it, and the report or data that would confirm or kill it. Distinguish FACT from your INTERPRETATION, and be honest about confidence rather than hedging into mush. Each item states what its substance rests on in "evidenceBasis": "packet" means a structured extraction of the source document is attached in "packet"; "document" means the source's own text is in "document"; "title_only" means the substance was NOT retrieved and you must say so rather than inferring it from the title. A "why" field is a prior one-line note ABOUT the item — someone else's summary, not source text — so prefer the packet or document when they differ. Inside a packet, every string in "evidence" has been mechanically verified as a verbatim quote from the source, so those are safe to quote directly; "claims" are labelled fact / projection / assertion_by_party and an assertion_by_party is a named party's position, NOT an established fact; "unknowns" and "notInDocument" tell you what the source does not support, and you should respect them rather than filling the gap. An item with "alsoFiledAs" is ONE action filed in several places, not several corroborating items — never treat repetition as evidence. Cite item titles as markdown links when a URL is available; when you cite a market figure, name the series and its period (e.g. "U.S. crush 210M bu, Apr 2026"). Plain, professional English. You also have a WEB SEARCH tool — lean on the stored monitoring data first, but use the web to fill what it doesn't cover: the latest futures/cash prices, breaking news, or a figure or date worth verifying — anything more current than the last pipeline run. Reach for it when it makes the answer materially better or more current, not reflexively. Cite any web source inline as a markdown link so staff can tell web-sourced facts from the internal streams. Don't invent numbers — pull them.`;
   // ⚠️ BLOCK ORDER IS LOAD-BEARING — IT IS WHAT MAKES PROMPT CACHING POSSIBLE (1.29.0).
   //
   // Caching is a PREFIX match, rendered `tools` → `system` → `messages`, and any byte change
@@ -1345,7 +1348,7 @@ export const MEMO_PRESETS = {
     edition: "weekly",
     scopeDays: 7,
     maxTokens: 6000,
-    system: (dateLabel) => `You write The Bean Brief's WEEKLY policy & market memo for Iowa Soybean Association colleagues and board members who did not follow the daily flow. Use ONLY the stored monitoring data provided (laws/rules/decisions + news items, the market timeseries, tracked items, comment deadlines, recent briefs). Structure exactly:
+    system: (dateLabel) => `You write The Bean Brief's WEEKLY policy & market memo for ${V.org} colleagues and board members who did not follow the daily flow. Use ONLY the stored monitoring data provided (laws/rules/decisions + news items, the market timeseries, tracked items, comment deadlines, recent briefs). Structure exactly:
 
 ## The Bean Brief — Weekly Memo (week ending ${dateLabel})
 
@@ -1353,7 +1356,7 @@ export const MEMO_PRESETS = {
 ### 📈 Markets & demand
 What the market data did this week — crush, soybean & soy-oil prices, biofuel feedstock share, basis, fund positioning — with the numbers (name the series + period).
 ### 🏛️ Policy & regulatory
-What changed in laws/rules/decisions and why it matters to Iowa soy.
+What changed in laws/rules/decisions and why it matters to ${V.state} soy.
 ### 🔴 What needs attention next week
 Comment deadlines approaching, votes scheduled, rules expected.
 ### 📋 Everything else worth knowing
@@ -1366,7 +1369,7 @@ Rules: never invent items or numbers; keep every markdown link; cite a market fi
     edition: "monthly",
     scopeDays: 30,
     maxTokens: 6000,
-    system: (dateLabel) => `You write The Bean Brief's MONTHLY policy & market review for Iowa Soybean Association leadership — a higher-altitude "month in review," trends over the month, not a day-by-day list. Use ONLY the stored monitoring data provided. Structure exactly:
+    system: (dateLabel) => `You write The Bean Brief's MONTHLY policy & market review for ${V.org} leadership — a higher-altitude "month in review," trends over the month, not a day-by-day list. Use ONLY the stored monitoring data provided. Structure exactly:
 
 ## The Bean Brief — Monthly Review (as of ${dateLabel})
 
@@ -1391,7 +1394,7 @@ Rules: never invent items or numbers; keep every markdown link; cite a market fi
     // The stable "teach, don't tell" identity (§1) + the daily-brief task structure (§3).
     system: (dateLabel) => `${EDUCATION_SYSTEM_PROMPT}
 
-TASK: Write today's BeanBrief daily market-education brief for Iowa Soybean Association staff who aren't grain-market experts, using ONLY the data context provided. Structure exactly:
+TASK: Write today's BeanBrief daily market-education brief for ${V.org} staff who aren't grain-market experts, using ONLY the data context provided. Structure exactly:
 
 ## BeanBrief — Market Education, ${dateLabel}
 
@@ -1444,7 +1447,7 @@ Length: scannable in ~90 seconds (250–400 words). No preamble, no sign-off. St
     // because the valuable checks are INTER-thesis (two theses resting on one datapoint) and a
     // per-thesis call cannot see them.
     challengeTheses: true,
-    system: (dateLabel) => `You are the senior market-and-policy analyst for the Iowa Soybean Association's demand & policy team — an INTERNAL audience (sharp, no hand-holding, wants to see around the corner). Write a forward-looking ANALYST NOTE grounded in the stored data provided (the market signal board, full-history trend stats, laws/rules/decisions + news, the release calendar, tracked items, recent briefs). You also have a WEB SEARCH tool: when the stored data leaves a gap that matters to the read — a very recent development, a number more current than the last pipeline run, or a fact worth verifying — search for it, and cite any web source inline as a markdown link so it stands apart from the internal streams. Lean on the stored data first; reach for the web only when it sharpens the analysis.
+    system: (dateLabel) => `You are the senior market-and-policy analyst for the ${V.org}'s demand & policy team — an INTERNAL audience (sharp, no hand-holding, wants to see around the corner). Write a forward-looking ANALYST NOTE grounded in the stored data provided (the market signal board, full-history trend stats, laws/rules/decisions + news, the release calendar, tracked items, recent briefs). You also have a WEB SEARCH tool: when the stored data leaves a gap that matters to the read — a very recent development, a number more current than the last pipeline run, or a fact worth verifying — search for it, and cite any web source inline as a markdown link so it stands apart from the internal streams. Lean on the stored data first; reach for the web only when it sharpens the analysis.
 
 Do NOT summarize the period. Do the analysis a headline can't give:
 - Connect across streams — tie a policy/trade development to the market MECHANISM and the numbers (name the series, period, percentile, YoY, seasonal read).
@@ -1490,7 +1493,7 @@ export async function generateMemo(presetId, env) {
   }
 
   const watchlist = loadWatchlist();
-  const timezone = watchlist.briefEditions?.timezone ?? "America/Chicago";
+  const timezone = watchlist.briefEditions?.timezone ?? V.tz;
   const dateLabel = new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(new Date());
 
   // Retrieve across all streams, scoped to the preset's window (memo mode).
@@ -1873,7 +1876,7 @@ async function generateNewsDigestInner(env) {
     model,
     max_tokens: 2400,
     system:
-      "You distill the last couple of days of ag news for the Iowa Soybean Association team. Each item below gives a headline and — where available — the email body or the article's actual text; read the CONTENT, not just the headline. DISTILL, do not relist: group into 2–4 themes, a couple of sentences each on what's actually developing and why it matters to Iowa soybeans (draw on the specifics in the content), and link out to the 1–2 most important sources per theme as markdown links. Skip noise, ads, and duplicates. Plain, tight, no preamble — start at the first theme heading.",
+      `You distill the last couple of days of ag news for the ${V.org} team. Each item below gives a headline and — where available — the email body or the article's actual text; read the CONTENT, not just the headline. DISTILL, do not relist: group into 2–4 themes, a couple of sentences each on what's actually developing and why it matters to ${V.state} soybeans (draw on the specifics in the content), and link out to the 1–2 most important sources per theme as markdown links. Skip noise, ads, and duplicates. Plain, tight, no preamble — start at the first theme heading.`,
     messages: [{ role: "user", content: `Recent ag news (headline + content where available):\n\n${enriched.join("\n\n")}` }],
   });
   store.recordUsage(model, "news_digest", resp.usage.input_tokens, resp.usage.output_tokens, resp.usage, resp.stop_reason);
@@ -1887,7 +1890,7 @@ async function generateNewsDigestInner(env) {
     panels.recordAttempt("news_digest", "no_output");
     return null;
   }
-  const date = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date());
+  const date = new Intl.DateTimeFormat("en-CA", { timeZone: V.tz }).format(new Date());
   store.setState("news_digest", JSON.stringify({ date, markdown, createdAt: new Date().toISOString(), count: items.length, withContent }));
   panels.recordAttempt("news_digest", "ok", { detail: `${items.length} items` });
   return { markdown, date, count: items.length, withContent };
@@ -1953,7 +1956,7 @@ async function extractMarketIntelInner(env) {
     panels.recordAttempt("market_intel", "no_output");
     return null;
   }
-  const date = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date());
+  const date = new Intl.DateTimeFormat("en-CA", { timeZone: V.tz }).format(new Date());
   store.setState("market_intel", JSON.stringify({ date, markdown, createdAt: new Date().toISOString(), count: withBody.length }));
   panels.recordAttempt("market_intel", "ok", { detail: `${withBody.length} bodies` });
   return { markdown, date, count: withBody.length };
@@ -2039,7 +2042,7 @@ async function generateMarketCardsInner(env) {
 
   const marketBlock = formatMarketSnapshot(store.marketSnapshot());
   const system =
-    `You write BeanBrief's internal SIGNAL cards for the Iowa Soybean Association demand & policy team. Turn the ACTIVE triggers below into 1–3 short signal cards; the headline card is the one with the lowest priority number (or the nearest high-impact report). Each card: what fired, what it means for soybean supply/demand/price, and the analytical read — including the likely direction and the risk to it. For a card resting on a seasonal/statistical pattern, state the sample and the caveat (e.g. "in X of the last Y years… not every year"). This is an internal analyst tool — a clear directional read is welcome; flag it as interpretation, not certainty.\n\nFormat: markdown. Begin each card with "### " and a short bold-worthy title, then 2–4 sentences grounded in the provided data (never invent a figure). No preamble, no footer.`;
+    `You write BeanBrief's internal SIGNAL cards for the ${V.org} demand & policy team. Turn the ACTIVE triggers below into 1–3 short signal cards; the headline card is the one with the lowest priority number (or the nearest high-impact report). Each card: what fired, what it means for soybean supply/demand/price, and the analytical read — including the likely direction and the risk to it. For a card resting on a seasonal/statistical pattern, state the sample and the caveat (e.g. "in X of the last Y years… not every year"). This is an internal analyst tool — a clear directional read is welcome; flag it as interpretation, not certainty.\n\nFormat: markdown. Begin each card with "### " and a short bold-worthy title, then 2–4 sentences grounded in the provided data (never invent a figure). No preamble, no footer.`;
   const user =
     `Today: ${now.toISOString().slice(0, 10)}.\n\n` +
     `ACTIVE TRIGGERS (ranked; lowest priority number = headline):\n${triggersText(now) || "(none)"}\n\n` +
@@ -2072,7 +2075,7 @@ async function generateMarketCardsInner(env) {
     return null;
   }
 
-  const date = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(now);
+  const date = new Intl.DateTimeFormat("en-CA", { timeZone: V.tz }).format(now);
   store.setState("market_cards", JSON.stringify({ date, markdown, createdAt: new Date().toISOString(), triggers: fired.map((f) => f.id) }));
   panels.recordAttempt("market_cards", "ok", { detail: `${fired.length} trigger(s)` });
   return { markdown, date, triggers: fired.map((f) => f.id) };
@@ -2149,7 +2152,7 @@ async function generateStorylinesInner(env) {
     : "(no threads yet — everything you produce is new)";
 
   const system =
-    `You maintain the "storylines" for the Iowa Soybean Association's policy & market monitor — the handful of ongoing THREADS the news is really about (e.g. "45Z Clean Fuel Production Credit", "EU Deforestation Regulation (EUDR)", "Summit Carbon CO2 Pipeline", "Renewable diesel & soybean-oil demand", "China soybean trade"). Cluster the monitoring items below into AT MOST ${STORYLINE_MAX_THREADS} active storylines — the most material ones; fewer is fine.\n\n` +
+    `You maintain the "storylines" for the ${V.org}'s policy & market monitor — the handful of ongoing THREADS the news is really about (e.g. "45Z Clean Fuel Production Credit", "EU Deforestation Regulation (EUDR)", "Summit Carbon CO2 Pipeline", "Renewable diesel & soybean-oil demand", "China soybean trade"). Cluster the monitoring items below into AT MOST ${STORYLINE_MAX_THREADS} active storylines — the most material ones; fewer is fine.\n\n` +
     `YOUR JOB IS THE TRANSITION, NOT A RE-SUMMARY. For each thread you are given its PREVIOUS state — the summary it last carried, what was still open, and what event it was waiting for. Write what MOVED since then: "whatIsNew" must contain only what a reader who already knew that previous state would not know, and must be an empty string when nothing moved. Say "unchanged" in stateChange honestly rather than manufacturing movement.\n\n` +
     `CONTINUE existing threads by their EXACT name and key where items fit one — do not rename or fork a thread that already exists. Include a thread only if it has genuine recent activity in these items or its state changed; ignore one-off noise. A prior thread you leave out is kept as-is — omitting it is fine.\n\n` +
     `Be compact: whatChanged ≤ 3 sentences, whatIsNew ≤ 2 sentences, at most 3 openQuestions. Timeline: at most ${STORYLINE_MAX_NEW_EVENTS} NEW entries, most-recent-first — the thread's older dated events are already stored and merged, so never repeat one shown under "known timeline". Dates come from the item dates. Keys are stable kebab slugs. Use an empty string for a timeline url when the item has none.`;
@@ -2755,7 +2758,7 @@ const STORYLINE_SCHEMA = {
           key: { type: "string", description: "Stable kebab-case slug; reuse the existing thread's slug when continuing one." },
           name: { type: "string", description: "Thread name. Match an existing name EXACTLY when continuing that thread." },
           focus: { type: "string", description: "One line: what this thread is about." },
-          whatChanged: { type: "string", description: "2-3 sentences: what developed recently and why it matters to Iowa soybeans." },
+          whatChanged: { type: "string", description: `2-3 sentences: what developed recently and why it matters to ${V.state} soybeans.` },
           // --- the delta fields (1.30.0): what makes this a state TRANSITION rather than a re-summary
           stateChange: {
             type: "string",
@@ -2787,7 +2790,7 @@ const STORYLINE_SCHEMA = {
             type: "string",
             enum: ["decision_changing", "monitor", "context"],
             description:
-              "decision_changing = ISA would act or brief leadership on this; monitor = worth watching; context = background only.",
+              `decision_changing = ${V.short} would act or brief leadership on this; monitor = worth watching; context = background only.`,
           },
           timeline: {
             type: "array",

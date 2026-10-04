@@ -1,3 +1,6 @@
+import { voice } from "../pack.js";
+// State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
+const V = voice();
 // prompts/policy-domain.js — the stable domain context every policy-brief stage shares.
 //
 // WHY THIS IS ITS OWN FILE. Three stages need the same domain grounding: the Sonnet synthesis that
@@ -63,7 +66,7 @@ export const MECHANISM_TERMINALS = [
   {
     id: "basis",
     label: "cash basis",
-    gloss: "Local cash price minus futures. Processor basis is where a crush-economics change reaches an Iowa farmer first.",
+    gloss: `Local cash price minus futures. Processor basis is where a crush-economics change reaches ${V.aState} farmer first.`,
   },
   {
     id: "export_program_eligibility",
@@ -111,7 +114,7 @@ const certaintyList = CERTAINTY_STATES.map((c) => `  - ${c.id}: ${c.gloss}`).joi
  * The shared block. Prefixed to the synthesis and review system prompts, in that position, so both
  * share one cacheable prefix.
  */
-export const POLICY_DOMAIN_CONTEXT = `You are working on The Bean Brief, the Iowa Soybean Association's policy and market intelligence tool. The reader is ISA's Chief Officer for Demand & Policy and his team. They are expert in the subject matter and do not need terms explained; they need to know what changed, whether it is real yet, and what it does to a number.
+export const POLICY_DOMAIN_CONTEXT = `You are working on The Bean Brief, the ${V.org}'s policy and market intelligence tool. The reader is ${V.short}'s ${V.reader} and his team. They are expert in the subject matter and do not need terms explained; they need to know what changed, whether it is real yet, and what it does to a number.
 
 This is an INTERNAL STAFF tool. A clear analytical read is welcome and expected. It is not farmer-facing and it is not marketing advice.
 

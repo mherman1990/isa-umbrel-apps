@@ -16,12 +16,15 @@ import path from "node:path";
 import readline from "node:readline";
 
 import { PROJECT_ROOT, DATA_DIR } from "./store.js";
+import { voice } from "./pack.js";
+// State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
+const V = voice();
 
 // Prefer the data-volume .env (Docker/Umbrel); fall back to the project root.
 dotenv.config({ path: [path.join(DATA_DIR, ".env"), path.join(PROJECT_ROOT, ".env")], quiet: true });
 
 const program = new Command();
-program.name("polibrief").description("Policy intelligence briefings for Iowa soybean priorities");
+program.name("polibrief").description(`Policy intelligence briefings for ${V.state} soybean priorities`);
 
 program
   .command("run")
@@ -225,7 +228,7 @@ program
 
 program
   .command("member-brief")
-  .description("Generate the ISA Member Brief (lint + adversarial review; fails closed). --preview never emails.")
+  .description(`Generate the ${V.short} Member Brief (lint + adversarial review; fails closed). --preview never emails.`)
   .option("--preview", "generate and save without sending", false)
   .action(async (opts) => {
     const { runMemberBrief } = await import("./memberbrief.js");

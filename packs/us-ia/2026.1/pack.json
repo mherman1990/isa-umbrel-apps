@@ -1,0 +1,36 @@
+{
+  "id": "us-ia",
+  "version": "2026.1",
+  "extends": "us-national@2026.1",
+  "description": "Iowa — the original deployment. Every value here reproduces v1.40.0 exactly (proven by test/iowa-snapshot.test.js).",
+  "identity": {
+    "orgName": "Iowa Soybean Association",
+    "orgShort": "ISA",
+    "stateName": "Iowa",
+    "stateAlpha": "IA",
+    "stateFips": "19",
+    "timezone": "America/Chicago",
+    "website": "https://www.iasoybeans.com",
+    "branding": { "logo": "isa-logo-main.png", "logoAlt": "Iowa Soybean Association" }
+  },
+  "prompts": {
+    "reader": "ISA's Chief Officer for Demand & Policy",
+    "operation": "an Iowa corn/soybean operation"
+  },
+  "provenance": {
+    "primaryHosts": { "inherit": true, "add": ["legis.iowa.gov"] },
+    "agencyHosts": { "inherit": true, "add": ["iowaagriculture.gov", "iowadnr.gov"] },
+    "advocacyHosts": { "inherit": true, "add": ["iasoybeans.com"] }
+  },
+  "legislature": {
+    "legiscanHome": "IA",
+    "legiscanStates": ["IA"],
+    "fullTextStates": ["IA"],
+    "openstatesJurisdiction": "Iowa",
+    "chamberNames": { "upper": "Iowa Senate", "lower": "Iowa House" }
+  },
+  "adminRules": { "adapter": "iowa_admin_rules", "label": "Iowa Administrative Bulletin" },
+  "markets": {
+    "nass": { "stateAlpha": "IA" }
+  }
+}

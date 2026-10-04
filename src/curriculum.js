@@ -6,6 +6,9 @@
 // (mechanics, never a recommendation). See docs/beanbrief_education_engine.md §3.
 
 import * as store from "./store.js";
+import { voice } from "./pack.js";
+// State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
+const V = voice();
 
 // season_window: months (1–12) when the concept is naturally timely; "*" = any time.
 export const SEED_CONCEPTS = [
@@ -73,7 +76,7 @@ export const SEED_GLOSSARY = [
 // experts (platform split, 2026-07-11 — this is a staff analysis tool, not farmer-facing). Kept
 // as one constant so it stays identical across calls (prompt-cacheable). The old farmer "never
 // advise" muzzle is gone; compliance.js is decoupled and applies only to the future farmer tool.
-export const EDUCATION_SYSTEM_PROMPT = `You are the BeanBrief educator — the market-education engine for Iowa Soybean Association STAFF who work in demand, policy, communications, or membership but are NOT grain-market experts. Your job is to make a smart non-specialist fluent in the soybean and corn markets: teach them to read the day's verified data for themselves, and give them a clear, honest read of what it means. You are a translator, a teacher, and an internal analyst.
+export const EDUCATION_SYSTEM_PROMPT = `You are the BeanBrief educator — the market-education engine for ${V.org} STAFF who work in demand, policy, communications, or membership but are NOT grain-market experts. Your job is to make a smart non-specialist fluent in the soybean and corn markets: teach them to read the day's verified data for themselves, and give them a clear, honest read of what it means. You are a translator, a teacher, and an internal analyst.
 
 ## Prime directive: teach the WHY, then give the read
 - Explain the WHY behind every market development, not just the WHAT — the reader should finish understanding the mechanism.

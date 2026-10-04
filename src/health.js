@@ -32,6 +32,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { summarizeSpend, monthlyBudget } from "./budgetcore.js";
 import { calendarCoverage } from "./calendar.js";
+import { voice } from "./pack.js";
+// State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
+const V = voice();
 
 export const PROJECT_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const HOUR = 3600e3;
@@ -106,14 +109,14 @@ export const MEMBER_BRIEF_INPUTS = [
     label: "Oil share of crush",
     series: ["cme:zl:front", "cme:zm:front", "ams:ia:oil", "ams:ia:meal"],
     maxAgeD: 7,
-    need: "member-facing: CME settlements first, USDA AMS Iowa cash second — never the Yahoo board legs",
+    need: `member-facing: CME settlements first, USDA AMS ${V.state} cash second — never the Yahoo board legs`,
   },
   {
     id: "soy_corn_ratio",
     label: "Soy:corn price ratio",
     series: ["cme:zs:*-11 ÷ cme:zc:*-12", "nass:ia:soy-corn-ratio"],
     maxAgeD: 4,
-    need: "new-crop Nov/Dec needs CME_SETTLEMENTS on (no backfill — history starts the day it is set); NASS Iowa monthly is dated context",
+    need: `new-crop Nov/Dec needs CME_SETTLEMENTS on (no backfill — history starts the day it is set); NASS ${V.state} monthly is dated context`,
   },
   {
     id: "barge_freight",
@@ -595,7 +598,7 @@ export function auditFreshness({ db, watchlist, defaultWatchlist = null, envPres
     panel({ id: "monthly", label: "Monthly review", where: "Saved briefs", writer: "runMemo(monthly)", lastAt: brief("monthly")?.at, expectedMs: daySpecCadence(ed.monthly), evidence: `schedule ${ed.monthly || "off"}` }),
     panel({ id: "education", label: "Market-education brief", where: "Saved briefs · email", writer: "runMemo(education)", lastAt: brief("education")?.at, expectedMs: daySpecCadence(ed.education), evidence: `schedule ${ed.education || "off"}` }),
     panel({ id: "analyst", label: "Analyst Note", where: "Saved briefs", writer: "runMemo(analyst)", lastAt: brief("analyst")?.at, expectedMs: daySpecCadence(ed.analyst), evidence: `schedule ${ed.analyst || "off"}` }),
-    panel({ id: "member", label: "ISA Member Brief", where: "member email (BCC) · Saved briefs", writer: "runMemberBrief — Mon/Wed/Fri", lastAt: brief("member")?.at, expectedMs: 3 * DAY, expectedLabel: "Mon/Wed/Fri", evidence: `${brief("member-draft")?.n ?? 0} failed-closed draft(s) all-time; previews ${brief("member-preview")?.n ?? 0}` }),
+    panel({ id: "member", label: `${V.short} Member Brief`, where: "member email (BCC) · Saved briefs", writer: "runMemberBrief — Mon/Wed/Fri", lastAt: brief("member")?.at, expectedMs: 3 * DAY, expectedLabel: "Mon/Wed/Fri", evidence: `${brief("member-draft")?.n ?? 0} failed-closed draft(s) all-time; previews ${brief("member-preview")?.n ?? 0}` }),
     panel({ id: "packets", label: "Evidence packets", where: "brief/Ask/Analyst context", writer: "buildPackets — each relevant run", lastAt: latestPacket?.at, expectedMs: null, evidence: "built only when must_read/worth_knowing items exist" }),
     panel({ id: "backup", label: "Nightly backup", where: "/data/backups", writer: "scheduler 03:15", lastAt: newestBackup ? new Date(newestBackup).toISOString() : null, expectedMs: DAY }),
   ];
@@ -680,7 +683,7 @@ export function auditFreshness({ db, watchlist, defaultWatchlist = null, envPres
   };
 
   // ---------- scheduler coverage: did AM and PM fire each day? ----------
-  const tz = ed.timezone ?? "America/Chicago";
+  const tz = ed.timezone ?? V.tz;
   const dayOf = (iso) => new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date(iso));
   const days = [];
   for (let i = 13; i >= 0; i--) {

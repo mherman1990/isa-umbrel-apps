@@ -38,6 +38,9 @@ import { parseDaySpec, localClock, DAYS } from "./schedule.js";
 import { MARKETS as CFTC_MARKETS, SOURCE_URL as CFTC_URL } from "./adapters/cftc.js";
 import { saveBrief, sendMemberBriefEmail, sendOpsAlert } from "./deliver.js";
 import { wasTruncated } from "./modelcfg.js";
+import { voice } from "./pack.js";
+// State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
+const V = voice();
 
 export const DEFAULT_MEMBER_SPEC = "Mon,Wed,Fri 06:45";
 export const LAST_SENT_KEY = "member_brief:last_sent";
@@ -92,7 +95,7 @@ export function localMidnightUtc(dateISO, tz) {
  * double-reported or skipped. If the last SENT edition ended earlier (an edition failed closed), the
  * window reaches back to where it ended, so a missed edition's items are not lost.
  */
-export function memberWindow({ now = new Date(), tz = "America/Chicago", spec = DEFAULT_MEMBER_SPEC, lastSent = null } = {}) {
+export function memberWindow({ now = new Date(), tz = V.tz, spec = DEFAULT_MEMBER_SPEC, lastSent = null } = {}) {
   const days = parseDaySpec(spec)?.days ?? ["Mon", "Wed", "Fri"];
   const today = localClock(now, tz).date;
   let prev = addDays(today, -7);
@@ -325,11 +328,11 @@ function addOilShare(pk) {
       source: { title: "CME Group daily settlements — soybean oil (ZL) and soybean meal (ZM)", publisher: "CME Group", url: "https://www.cmegroup.com/markets/agriculture/oilseeds/soybean-oil.settlements.html", tier: "primary_source", tierLabel: "exchange of record" },
     },
     {
-      basis: "Iowa cash soybean oil and meal, USDA AMS National Grain & Oilseed Processor Feedstuff report",
+      basis: `${V.state} cash soybean oil and meal, USDA AMS National Grain & Oilseed Processor Feedstuff report`,
       meal: series("ams:ia:meal"),
       oil: series("ams:ia:oil"),
       allow: 10,
-      source: { title: "USDA AMS National Grain and Oilseed Processor Feedstuff report (3511) — Iowa soybean oil and meal", publisher: "USDA Agricultural Marketing Service", url: "https://mymarketnews.ams.usda.gov/viewReport/3511", tier: "primary_source", tierLabel: "primary source" },
+      source: { title: `USDA AMS National Grain and Oilseed Processor Feedstuff report (3511) — ${V.state} soybean oil and meal`, publisher: "USDA Agricultural Marketing Service", url: "https://mymarketnews.ams.usda.gov/viewReport/3511", tier: "primary_source", tierLabel: "primary source" },
     },
   ];
   for (const c of candidates) {
@@ -396,11 +399,11 @@ function addRatio(pk) {
   const ia = series("nass:ia:soy-corn-ratio");
   if (ia.length) {
     const l = ia[ia.length - 1];
-    const cite = pk.addSource({ kind: "series", title: "USDA NASS Agricultural Prices — Iowa soybean and corn prices received", publisher: "USDA National Agricultural Statistics Service", url: "https://quickstats.nass.usda.gov/", date: l.period, tier: "primary_source", tierLabel: "primary source", text: `Iowa ratio ${fmt2(l.value)} for ${l.period}` });
+    const cite = pk.addSource({ kind: "series", title: `USDA NASS Agricultural Prices — ${V.state} soybean and corn prices received`, publisher: "USDA National Agricultural Statistics Service", url: "https://quickstats.nass.usda.gov/", date: l.period, tier: "primary_source", tierLabel: "primary source", text: `${V.state} ratio ${fmt2(l.value)} for ${l.period}` });
     fact.citeIds.add(cite);
     const v = pk.token("RATIO_IOWA_MONTHLY", fmt2(l.value));
     const p = pk.token("RATIO_IOWA_PERIOD", fmtDate(l.period));
-    fact.lines.push(`Context — Iowa prices received (monthly, published with a lag): ${v} for ${p} [${cite}]`);
+    fact.lines.push(`Context — ${V.state} prices received (monthly, published with a lag): ${v} for ${p} [${cite}]`);
     if (fact.status === "absent") fact.status = "context_only";
   }
   pk.markets.set("ratio", fact);
@@ -470,7 +473,7 @@ function addWatch(pk) {
     add(r.date, `${r.name} (${r.agency})`, { kind: "calendar", title: `${r.agency} release calendar — ${r.name}`, publisher: r.agency, url: CAL_URL[r.type] ?? "https://www.nass.usda.gov/Publications/Calendar/index.php", date: r.date, tier: "agency_press", tierLabel: "agency release", text: `${r.name} ${r.date}` });
   }
   for (const e of upcomingPolicyEvents(span, new Date(`${from}T00:00:00Z`))) {
-    add(e.date, e.name, { kind: "calendar", title: e.name, publisher: "ISA policy calendar (authored)", url: "", date: e.date, tier: "aggregator", tierLabel: "ISA-authored calendar", text: `${e.name} ${e.date}` });
+    add(e.date, e.name, { kind: "calendar", title: e.name, publisher: `${V.short} policy calendar (authored)`, url: "", date: e.date, tier: "aggregator", tierLabel: `${V.short}-authored calendar`, text: `${e.name} ${e.date}` });
   }
   for (const d of pk.deadlines) if (d.date <= to) pk.watch.push({ date: d.date, text: `Comments due: ${d.title}`, cite: d.cite });
   for (const h of store.upcomingHearings(40)) {
@@ -485,7 +488,7 @@ function addWatch(pk) {
 }
 
 /** Assemble the whole evidence packet for one edition. Pure over the store; no network, no model. */
-export function buildMemberPacket({ now = new Date(), tz = "America/Chicago", spec = DEFAULT_MEMBER_SPEC, lastSent = null } = {}) {
+export function buildMemberPacket({ now = new Date(), tz = V.tz, spec = DEFAULT_MEMBER_SPEC, lastSent = null } = {}) {
   const window = memberWindow({ now, tz, spec, lastSent });
   const pk = newPacket(window);
   addPolicy(pk);
@@ -540,7 +543,7 @@ export const MEMBER_SCHEMA = {
 };
 
 // ⚠️ STATIC — this is the cached prefix. Nothing that changes between editions may go in here.
-export const MEMBER_SYSTEM = `You write the ISA Member Brief: a short, plain-language update for Iowa Soybean Association farmer-members, sent Monday, Wednesday and Friday. Policy and regulatory news first, markets second. It is education, not advice.
+export const MEMBER_SYSTEM = `You write the ${V.short} Member Brief: a short, plain-language update for ${V.org} farmer-members, sent Monday, Wednesday and Friday. Policy and regulatory news first, markets second. It is education, not advice.
 
 You are given an EVIDENCE PACKET. It is the ONLY information you may use. You have no other knowledge for this task: no background facts, no prior news, no outside numbers.
 
@@ -549,24 +552,24 @@ HARD RULES — a draft that breaks any of these is rejected by code and not sent
 2. NUMBERS. You never write a digit yourself. Every number, date, dollar amount, percentage, percentile or count must be written as a {{TOKEN}} from the packet, exactly as listed (e.g. {{FUND_SOYBEANS_NET}}). The only exception is an identifier that appears verbatim in a source you cite (a bill number like "HF 2571", a rule name like "45Z"). Tokens listed as WITHHELD must not be used.
 3. CERTAINTY. Each policy item carries a band set by code: In force / In force — under legal challenge / Proposed — NOT final / Signalled — not yet an action. Write so the band is true. A Proposed or Signalled item is never described as decided: do not say final, in effect, requires, mandates, approved, or takes effect. Only an In-force item may be described as in effect.
 4. SCOPE. A policy item's sentences may cite only that item's sources. A market section's sentences may cite only that section's sources.
-5. EDUCATION, NOT ADVICE. Never tell a farmer to buy, sell, hold, store, price or hedge; never say now is a good or bad time; never predict prices. Explain what happened and what it means for an Iowa corn and soybean operation.
+5. EDUCATION, NOT ADVICE. Never tell a farmer to buy, sell, hold, store, price or hedge; never say now is a good or bad time; never predict prices. Explain what happened and what it means for ${V.aState} corn and soybean operation.
 6. Plain words. Short sentences. No hype. No "we". Name the agency, court or legislature that acted.
 
 WHAT TO WRITE
 - "update": 1 to 3 sentences — the most important things since the last brief, policy first.
-- "policy": for EACH policy item given, four sentences: whatChanged (who did what), whereItStands (procedural status, using the clock token if given), whatItMeans (the concrete consequence for an Iowa corn/soybean operation, as explanation), next (the next dated event, using the next-date token if given; if none, say the next step is not yet scheduled).
+- "policy": for EACH policy item given, four sentences: whatChanged (who did what), whereItStands (procedural status, using the clock token if given), whatItMeans (the concrete consequence for ${V.aState} corn/soybean operation, as explanation), next (the next dated event, using the next-date token if given; if none, say the next step is not yet scheduled).
 - "markets": for each of fund, oilShare, ratio, barge — 0 to 2 sentences explaining what the code-written figures mean. The figures themselves are already printed by code; do not repeat every number. If a section is marked not updated this cycle, write zero sentences for it.
 
 If the packet is thin, write less. Fewer, fully supported sentences are always better than more.`;
 
-export const REVIEW_SYSTEM = `You are the adversarial reviewer for the ISA Member Brief, a member-facing publication of the Iowa Soybean Association. You check a DRAFT against its EVIDENCE PACKET and nothing else — you have no other knowledge for this task and no web access.
+export const REVIEW_SYSTEM = `You are the adversarial reviewer for the ${V.short} Member Brief, a member-facing publication of the ${V.org}. You check a DRAFT against its EVIDENCE PACKET and nothing else — you have no other knowledge for this task and no web access.
 
 You may only REMOVE or DOWNGRADE. You may never add, rewrite or soften wording.
 
 For every numbered sentence decide:
 - "keep" — every claim in it is directly supported by the sources it cites, and nothing overstates certainty.
 - "delete" — any claim is not supported by its cited sources, overstates certainty, reads as advice or a price prediction, or implies a decision that has not happened.
-When in doubt, delete. A deleted sentence costs a little clarity; an unsupported sentence sent under ISA's name costs trust.
+When in doubt, delete. A deleted sentence costs a little clarity; an unsupported sentence sent under ${V.short}'s name costs trust.
 
 For every policy item decide its band:
 - "keep" — the band matches what the cited sources establish.
@@ -616,7 +619,7 @@ export function packetPrompt(pk) {
   });
   const mk = [...pk.markets].map(([k, f]) => `${k} — ${f.label} — status ${f.status} — sources: ${[...f.citeIds].join(", ") || "(none)"}\n${f.lines.map((l) => `    ${l}`).join("\n")}`);
   return [
-    `EDITION: ISA Member Brief for ${fmtDate(pk.window.today)}, covering ${fmtDate(pk.window.fromDate)} through ${fmtDate(pk.window.toDate)}.`,
+    `EDITION: ${V.short} Member Brief for ${fmtDate(pk.window.today)}, covering ${fmtDate(pk.window.fromDate)} through ${fmtDate(pk.window.toDate)}.`,
     `\nSOURCES:\n${src.join("\n") || "(none)"}`,
     `\nTOKENS:\n${toks.join("\n") || "(none)"}`,
     `\nPOLICY ITEMS:\n${pol.join("\n\n") || "(none in this window)"}`,
@@ -699,7 +702,7 @@ export function renderMemberBrief(draft, pk, { preview = false, unsubscribeLine 
   const L = [];
   if (draftFailure) L.push(`> ⛔ **NOT SENT — failed closed.** ${draftFailure}\n`);
   if (preview) L.push("> 🔍 **Preview** — generated without sending.\n");
-  L.push(`# ISA Member Brief — ${fmtDate(pk.window.today)}`);
+  L.push(`# ${V.short} Member Brief — ${fmtDate(pk.window.today)}`);
   L.push(`*Covering ${fmtDate(pk.window.fromDate)} through ${fmtDate(pk.window.toDate)}.*\n`);
   L.push("## The update\n");
   L.push(draft.update.map(sent).join(" ") || "_No update this edition._");
@@ -711,7 +714,7 @@ export function renderMemberBrief(draft, pk, { preview = false, unsubscribeLine 
   }
   const byId = new Map(draft.policy.map((p) => [p.id, p]));
   const items = [...pk.policy.values()].sort((a, b) => BAND_ORDER.indexOf(a.band) - BAND_ORDER.indexOf(b.band));
-  if (!items.length) L.push("_No new federal, state or court actions on the ISA watchlist since the last Member Brief._\n");
+  if (!items.length) L.push(`_No new federal, state or court actions on the ${V.short} watchlist since the last Member Brief._\n`);
   for (const it of items) {
     const p = byId.get(it.id);
     const body = p ? ["whatChanged", "whereItStands", "whatItMeans", "next"].map((k) => sent(p[k])).filter(Boolean) : [];
@@ -856,13 +859,13 @@ function finalCompliance(markdown) {
  */
 export async function runMemberBrief({ env = process.env, watchlist = null, preview = false, now = new Date(), client = null, log = console.log } = {}) {
   if (!env.ANTHROPIC_API_KEY && !client) throw new Error("ANTHROPIC_API_KEY is not set in .env");
-  const tz = watchlist?.briefEditions?.timezone ?? "America/Chicago";
+  const tz = watchlist?.briefEditions?.timezone ?? V.tz;
   const spec = typeof watchlist?.briefEditions?.member === "string" && watchlist.briefEditions.member.trim() ? watchlist.briefEditions.member : DEFAULT_MEMBER_SPEC;
   const edition = preview ? "member-preview" : "member";
   const pk = buildMemberPacket({ now, tz, spec, lastSent: lastSent() });
   log(`🌾 Member Brief ${preview ? "(preview) " : ""}— window ${pk.window.fromDate} → ${pk.window.toDate}: ${pk.policy.size} policy item(s), ${pk.deadlines.length} open deadline(s), ${pk.sources.size} sources`);
 
-  const unsubscribeLine = `You receive the ISA Member Brief as an Iowa Soybean Association member. To unsubscribe, reply with "unsubscribe"${unsubscribeAddress(env) ? ` or write to ${unsubscribeAddress(env)}` : ""}.`;
+  const unsubscribeLine = `You receive the ${V.short} Member Brief as an ${V.org} member. To unsubscribe, reply with "unsubscribe"${unsubscribeAddress(env) ? ` or write to ${unsubscribeAddress(env)}` : ""}.`;
   const failures = [];
   const gate = budget.check("member_brief", { env, watchlist, now });
   if (!gate.ok) failures.push({ attempt: 0, stage: "budget", detail: gate.reason });
@@ -910,7 +913,7 @@ export async function runMemberBrief({ env = process.env, watchlist = null, prev
     const file = saveBrief(draftMd, preview ? "member-preview-draft" : "member-draft", tzOpt);
     log(`   ⛔ Member Brief FAILED CLOSED — not sent. Draft saved to ${path.basename(file)}. ${why}`);
     try {
-      await sendOpsAlert(`⛔ ISA Member Brief NOT sent — ${fmtDate(pk.window.today)}`, `The Member Brief failed closed and was not sent.\n\nWhy: ${why}\n\nThe draft is saved as ${path.basename(file)} in the app (Saved briefs).`, env);
+      await sendOpsAlert(`⛔ ${V.short} Member Brief NOT sent — ${fmtDate(pk.window.today)}`, `The Member Brief failed closed and was not sent.\n\nWhy: ${why}\n\nThe draft is saved as ${path.basename(file)} in the app (Saved briefs).`, env);
     } catch (err) {
       log(`   ⚠️ alert email failed: ${err.message}`);
     }
@@ -935,7 +938,7 @@ export async function runMemberBrief({ env = process.env, watchlist = null, prev
     log("   📭 Member Brief saved; no recipients configured (MEMBER_BRIEF_TO, Settings, or member-list.txt) — not emailed.");
     return { status: "saved", path: file, recipients: 0, attempts, deleted: final.deleted, downgrades: final.downgrades };
   }
-  const sent = await sendMemberBriefEmail({ markdown, subject: `ISA Member Brief — ${fmtDate(pk.window.today)}`, recipients, env, unsubscribeTo: unsubscribeAddress(env) });
+  const sent = await sendMemberBriefEmail({ markdown, subject: `${V.short} Member Brief — ${fmtDate(pk.window.today)}`, recipients, env, unsubscribeTo: unsubscribeAddress(env) });
   if (sent) store.setState(LAST_SENT_KEY, JSON.stringify({ windowStart: pk.window.startISO, windowEnd: pk.window.endISO, sentAt: new Date().toISOString(), path: path.basename(file), recipients: recipients.length }));
   log(`   📧 Member Brief ${sent ? `sent to ${recipients.length} recipient(s) (BCC)` : "not sent — SMTP is not configured"}.`);
   return { status: sent ? "sent" : "saved", path: file, recipients: sent ? recipients.length : 0, attempts, deleted: final.deleted, downgrades: final.downgrades };

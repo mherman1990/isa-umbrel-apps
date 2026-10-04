@@ -33,6 +33,9 @@ import { lintCards, POSTURE_STATUSES } from "./policylint.js";
 import { MECHANISM_TERMINALS, CERTAINTY_STATES } from "./prompts/policy-domain.js";
 import { POLICY_SYNTHESIS_SYSTEM, synthesisUserTurn } from "./prompts/policy-synthesis.js";
 import { POLICY_REVIEW_SYSTEM, reviewUserTurn } from "./prompts/policy-review.js";
+import { voice } from "./pack.js";
+// State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
+const V = voice();
 
 /** Cards drafted per run. A ceiling, not a target — the prompt asks for 3–6. */
 const DRAFT_BUDGET = 8;
@@ -117,7 +120,7 @@ export const POLICY_CARD_SCHEMA = {
           so_what: {
             type: "string",
             description:
-              "The consequence for an Iowa corn/soybean operation, 1-2 sentences, concrete and local. Explain the consequence; never instruct anyone to buy, sell, hold, price or hedge.",
+              `The consequence for ${V.aState} corn/soybean operation, 1-2 sentences, concrete and local. Explain the consequence; never instruct anyone to buy, sell, hold, price or hedge.`,
           },
           watch_next: {
             type: "object",
