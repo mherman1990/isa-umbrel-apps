@@ -28,7 +28,18 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  NEW MARKETS CHART: HOW MUCH OF THE CRUSH IS OIL VS. MEAL. The Markets tab now charts soybean oil's and
+  STORYLINES UPDATE AGAIN, AND EVERY PANEL NOW SAYS WHEN IT FAILED. Storylines had been stuck on Sept 1:
+  each morning the AI's answer ran past its length limit, the result was thrown away, and the panel kept
+  showing the old threads as if they were current. That is fixed, and storylines now run after the
+  morning's relevance pass so they include that day's items. Storylines, the news digest, market intel
+  and signal cards each now show "last attempt failed — showing content from <date>" instead of quietly
+  showing old output. A new Data freshness & spend page (Logs & Settings) shows every source and panel,
+  what is stale, and this month's AI spend against a new monthly budget (default $75, set in Settings).
+  Reports always run on the day's refreshed data: if the morning refresh has not finished, a report runs
+  it first. Sources added in recent releases are now added to your watchlist automatically. Update only —
+  no new keys.
+  ---
+  PREVIOUS RELEASE (1.38.0) — NEW MARKETS CHART: HOW MUCH OF THE CRUSH IS OIL VS. MEAL. The Markets tab now charts soybean oil's and
   meal's share of the value from a crushed bushel over time (the industry "oil share"), for both the CBOT
   board and Iowa cash prices. A rising oil share is the renewable-diesel pull showing up in the crush.
   It sits right under the crush-margin chart, has full history immediately, and exports to CSV. A new

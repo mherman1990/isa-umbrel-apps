@@ -6,6 +6,7 @@
 // Results are cached (see store.item_summaries) until the item's comment deadline.
 
 import Anthropic from "@anthropic-ai/sdk";
+import { thinkingOffFields } from "./modelcfg.js";
 import * as cheerio from "cheerio";
 
 import * as store from "./store.js";
@@ -107,11 +108,11 @@ export async function summarizeItem(item, env) {
     // Disable thinking: condensing a document isn't a reasoning task, and on Sonnet 5 (our default
     // model) adaptive thinking is ON by default and counts against max_tokens — at this small budget
     // it can eat the summary. Off = the full budget goes to the summary, and it's cheaper.
-    thinking: { type: "disabled" },
+    ...thinkingOffFields(model),
     system: SYSTEM,
     messages: [{ role: "user", content: `${meta}\n\n${docBlock}` }],
   });
-  store.recordUsage(model, "summary", response.usage.input_tokens, response.usage.output_tokens);
+  store.recordUsage(model, "summary", response.usage.input_tokens, response.usage.output_tokens, response.usage, response.stop_reason);
 
   const summary = response.content.find((b) => b.type === "text")?.text?.trim() ?? "";
   return { summary, model, note };

@@ -165,7 +165,7 @@ export async function challengeTheses(theses, { context = "", env = process.env,
     console.log(`⚠️  Thesis challenge skipped: ${err.message}`);
     return null;
   }
-  recordUsage?.(model, "challenge", resp.usage.input_tokens, resp.usage.output_tokens, resp.usage);
+  recordUsage?.(model, "challenge", resp.usage.input_tokens, resp.usage.output_tokens, resp.usage, resp.stop_reason);
 
   const text = resp.content.filter((b) => b.type === "text").map((b) => b.text).join("");
   let parsed;

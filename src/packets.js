@@ -353,7 +353,7 @@ export async function buildPackets({ env = process.env, budget = PACKET_BUDGET, 
         system: SYSTEM_PROMPT,
         messages: [{ role: "user", content: user }],
       });
-      store.recordUsage(model, "packet", resp.usage.input_tokens, resp.usage.output_tokens, resp.usage);
+      store.recordUsage(model, "packet", resp.usage.input_tokens, resp.usage.output_tokens, resp.usage, resp.stop_reason);
       const text = resp.content.filter((b) => b.type === "text").map((b) => b.text).join("");
       let parsed;
       try {

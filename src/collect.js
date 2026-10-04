@@ -67,6 +67,7 @@ export async function collectAll({ watchlist, env, onlySource = null, commit = t
         env,
       });
       const fresh = fetched.filter((item) => !store.isSeen(item.uid));
+      store.recordSourceAttempt(sourceId, "items", fetched.length ? "ok" : "empty", { count: fetched.length });
       console.log(
         `📥 ${adapter.label}: ${fetched.length} fetched since ${sinceISO.slice(0, 10)}, ${fresh.length} new`
       );
@@ -77,6 +78,7 @@ export async function collectAll({ watchlist, env, onlySource = null, commit = t
       return { fresh, fetched: fetched.length, pending };
     } catch (err) {
       console.log(`⚠️  ${adapter.label}: skipped — ${err.message}`);
+      store.recordSourceAttempt(sourceId, "items", "error", { error: err.message });
       return { skipped: { id: sourceId, label: adapter.label, reason: err.message } };
     }
   });

@@ -168,7 +168,7 @@ export async function rankNewsItems(items, topics = [], env = process.env, { log
           messages: [{ role: "user", content: `Valid topicIds:\n${topicList}\n\nNews items to rank:\n${JSON.stringify(payload, null, 1)}` }],
         });
         stats.calls++;
-        store.recordUsage(model, "news_rank", resp.usage.input_tokens, resp.usage.output_tokens);
+        store.recordUsage(model, "news_rank", resp.usage.input_tokens, resp.usage.output_tokens, resp.usage, resp.stop_reason);
         const text = resp.content.find((b) => b.type === "text")?.text ?? "";
         parsed = parseVerdicts(text);
         threw = null;

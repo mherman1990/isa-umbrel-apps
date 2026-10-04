@@ -429,6 +429,7 @@
     "email": true,
     "alertEmail": false,
     "farmerBrief": true,
-    "entitySourceBoost": 6
+    "entitySourceBoost": 6,
+    "monthlyBudgetUsd": 75
   }
 }

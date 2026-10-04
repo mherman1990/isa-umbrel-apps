@@ -372,7 +372,7 @@ export async function buildTheses(markdown, { evidenceIds, universe, env = proce
     console.log(`⚠️  Thesis structuring skipped: ${err.message}`);
     return null;
   }
-  recordUsage?.(model, "thesis", resp.usage.input_tokens, resp.usage.output_tokens, resp.usage);
+  recordUsage?.(model, "thesis", resp.usage.input_tokens, resp.usage.output_tokens, resp.usage, resp.stop_reason);
 
   const text = resp.content.filter((b) => b.type === "text").map((b) => b.text).join("");
   let parsed;

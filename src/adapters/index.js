@@ -148,3 +148,21 @@ export const SOURCE_CLASS = {
 };
 export const classOf = (sourceId) => SOURCE_CLASS[sourceId] ?? "official";
 export const sourceIdsForClass = (cls) => Object.keys(SOURCE_CLASS).filter((s) => SOURCE_CLASS[s] === cls);
+
+// The market_series namespace(s) each series adapter writes, where it differs from `${id}:`. Used to
+// withhold a failed layer's series from the brief's evidence menu (pipeline.js) and by the freshness
+// audit (src/health.js keeps its own copy because it must not import adapters).
+export const SERIES_PREFIXES = {
+  usda_nass: ["nass:"],
+  usda_ams: ["ams:"],
+  fas_export_sales: ["fas:"],
+  cbot_futures: ["cbot:"],
+  cme_settlements: ["cme:"],
+  census_trade: ["census:"],
+  cpc_outlook: ["cpc:"],
+  river_stage: ["river:"],
+  comexstat: ["comex:"],
+  banyan_rin: ["rin:"],
+  carbon_prices: ["lcfs:"],
+  eu_ets: ["euets:"],
+};

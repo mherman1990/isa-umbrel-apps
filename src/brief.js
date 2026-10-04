@@ -52,6 +52,7 @@
 // exact failure mode this file's header was written about.
 
 import Anthropic from "@anthropic-ai/sdk";
+import { thinkingOffFields } from "./modelcfg.js";
 import * as store from "./store.js";
 import { buildPolicyCards } from "./policycards.js";
 import { renderPolicyBrief } from "./policyrender.js";
@@ -391,7 +392,7 @@ async function generateProseBody({ relevantItems, watchlist, edition, env, dateL
       // Adaptive thinking is ON BY DEFAULT on Sonnet 5 and counts against max_tokens. This is a
       // structured write-up over pre-judged items, not a reasoning task, and the 8k ceiling is
       // sized for prose — leaving thinking on would spend that budget before the brief is written.
-      thinking: { type: "disabled" },
+      ...thinkingOffFields(model),
       system: briefSystemPrompt({ statesTracked, actionWindowDays: ACTION_WINDOW_DAYS }),
       messages: [
         {
@@ -400,7 +401,7 @@ async function generateProseBody({ relevantItems, watchlist, edition, env, dateL
         },
       ],
     });
-    store.recordUsage(model, "brief", response.usage.input_tokens, response.usage.output_tokens);
+    store.recordUsage(model, "brief", response.usage.input_tokens, response.usage.output_tokens, response.usage, response.stop_reason);
     body = response.content.find((b) => b.type === "text")?.text?.trim() ?? "";
   }
 

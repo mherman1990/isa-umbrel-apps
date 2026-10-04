@@ -129,7 +129,7 @@ export async function triageItems(kept, topics, env) {
           },
         ],
       });
-      store.recordUsage(model, "triage", response.usage.input_tokens, response.usage.output_tokens);
+      store.recordUsage(model, "triage", response.usage.input_tokens, response.usage.output_tokens, response.usage, response.stop_reason);
       const text = response.content.find((b) => b.type === "text")?.text ?? "";
       parsed = parseVerdicts(text);
       if (parsed === null && attempt === 1) {

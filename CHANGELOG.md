@@ -1,5 +1,86 @@
 # Changelog
 
+## 1.39.0 — Every panel says when it failed; storylines unstuck; fresh data before every report; a $75/month budget
+
+Phase 1 of the audit in `docs/AUDIT-2026-10-04.md`.
+
+### Fixed — storylines frozen since 9/1
+- The model's answer was being cut off at `max_tokens` 4,500 (~720 tokens per thread × up to 7 threads). The cut-off JSON failed to parse and the function returned `null`.
+  - That path never wrote `storylines_meta` and never pruned, so the same threads went back into the next prompt and the next run failed the same way.
+- Now:
+  - output is bounded (≤ 6 threads, ≤ 3 new timeline entries, the unused `whatIsUnchanged` field dropped);
+  - the cap is 9,000;
+  - `stop_reason` is checked before parsing;
+  - pruning runs on every attempt.
+- Storylines also moved **after triage**. Before, it ran in the refresh block ahead of triage, so it clustered yesterday's verdicts.
+- The ↻ Refresh notice no longer says "Not enough recent items" for a truncated or empty answer.
+
+### Added — attempt/outcome on every cached panel (`src/panels.js`)
+- Storylines, the news digest, market intel and signal cards each record `lastAttemptAt`, `lastOutcome` (ok / empty / no_output / truncated / error / skipped), `lastError` and a failure streak.
+- Each panel shows *"Last attempt … failed — showing content from the last success …"* instead of silently showing old output.
+- Storylines now has the same age badge as the others.
+- A truncated digest or intel block is no longer stored as if complete.
+
+### Added — 🩺 Data freshness & spend (`/freshness`, linked from Logs & Settings)
+- Backed by `src/health.js`, the same read-only audit as `scripts/audit-freshness.mjs`. It covers:
+  - every source: key presence, last fetch, newest data, STALE vs. cadence;
+  - every panel, including its last attempt;
+  - the storylines verdict;
+  - the Member Brief inputs;
+  - per-source recorded health;
+  - month-to-date spend.
+- JSON at `/freshness.json`.
+
+### Added — durable per-source health
+A new `source_health` table records every item fetch and series refresh as ok, empty or error, with the last error and a failure streak. Errors used to live only in the in-memory log, which is lost on restart.
+
+### Changed — data is refreshed before any report
+- If no AM/PM refresh has completed OK today, a memo (weekly / monthly / education / Analyst) runs that refresh first. Before, an Analyst Note scheduled for 06:00 was written from yesterday's data.
+- The scheduler reads "already ran" from `brief_runs` instead of saved files. A quiet AM (no file) used to re-run in full on any same-day restart.
+- Runs interrupted by a restart are marked as interrupted and re-run.
+- Day specs accept several days (`"Mon,Wed,Fri 06:45"`, `"Mon-Fri 07:00"`).
+- Scheduled runs are recorded as `trigger='schedule'`.
+
+### Changed — the live watchlist gains sources that shipped after install
+- On start, any `sources` entry in the shipped `watchlist.json` that the live `/data` copy lacks is added. This is additive: an existing entry is never edited.
+- Item sources missing from an older install were silently never collected. The Sources page now flags "not in your watchlist".
+
+### Added — monthly AI budget, $75 (`src/budget.js`, `docs/BUDGET.md`)
+- Spend is allocated to groups:
+
+  | Group | Share | Kind |
+  |---|---|---|
+  | Member Brief | 16% | essential |
+  | Daily brief | 28% | essential |
+  | Panels | 20% | discretionary |
+  | Analysis | 20% | discretionary |
+  | Ask | 12% | discretionary |
+  | Reserve | 4% | — |
+
+- Discretionary groups pause at their allocation.
+- Essential groups run to a hard ceiling of 110%, where the Member Brief fails closed.
+- Set it in Settings, or with `MONTHLY_BUDGET_USD`.
+
+### Fixed — pricing
+`pricing.js` had Sonnet 5 at $3/$15 per MTok; the list price is $2/$10. Every Sonnet cost reported before this release (audit, run log, brief cost ceiling) was 50% too high. Sonnet 5.5 and Opus 5.5 were added.
+
+### Fixed — a model upgrade in .env could no longer silently break five features
+- `thinking: {type:"disabled"}` is rejected by Sonnet 5.5, and Opus 5.5 can't disable thinking at all.
+- `src/modelcfg.js` picks the right thinking-off switch per model for storylines, policy cards, the prose brief and summaries.
+- Signal cards now set thinking explicitly: adaptive, medium effort, 8k cap. Before, an implicit thinking budget could swallow the whole 2.5k answer.
+
+### Smaller fixes
+- `token_usage.stop_reason` is recorded on every call, so truncation is a fact, not an inference.
+- Challenger history-depth context showed `? observations` for every series; it now prints real counts.
+- A market layer that failed this run is withheld from the brief's evidence menu (`missingSeriesPrefixes`, previously never wired).
+- The calendar loads every `<prefix>.<year>.json`. `/freshness` warns when authored USDA dates end within 60 days: today they end 2026-12-10. **The 2027 file is still needed.**
+
+### Tests: 409 → 428
+New `test/phase1-reliability.test.js` (18 tests): storylines null / throw / truncation / recovery / prune; truncated digest; PM-only day; restart after a quiet AM; interrupted vs. failed run; multi-day specs; refresh gate; thinking switch per model; budget; watchlist migration; source health; calendar coverage.
+
+### Pi go-live: one Update
+No new keys. New tables and columns auto-create. Optional: Settings → monthly AI budget.
+
 ## 1.38.0 — Markets: oil vs. meal crush value share — chart + signal-board card
 
 _A new Markets chart tracks oil's and meal's share of the product value from a crushed bushel over time — the industry "oil share" — for both the CBOT board and Iowa cash, and an **Oil Share of Crush** card joins the signal board. Auto-tagged `v1.38.0` by `auto-release.yml`._

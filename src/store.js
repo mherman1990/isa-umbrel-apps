@@ -692,6 +692,62 @@ export function getTerm(term) {
   return db.prepare("SELECT term, definition FROM glossary WHERE term = ? COLLATE NOCASE").get(term);
 }
 
+// ---------- per-source health (1.39.0) ----------
+// Before this, a source's failure lived only in the in-memory /logs ring buffer (gone on restart) and, on
+// runs that produced a brief, as a bare label in brief_runs.missing_layers. One row per (source, kind)
+// now records every attempt: kind 'items' (collect.js) or 'series' (refreshMarketSeries).
+//   last_outcome: ok | empty | error.  'empty' = the adapter returned nothing — normal for a quiet
+//   source, but for a series adapter that swallows its own errors it is also what a dead feed looks
+//   like, so the health page shows how long a source has been empty, not just whether it threw.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS source_health (
+    source_id            TEXT NOT NULL,
+    kind                 TEXT NOT NULL,
+    last_attempt_at      TEXT NOT NULL,
+    last_ok_at           TEXT,
+    last_nonempty_at     TEXT,
+    last_outcome         TEXT NOT NULL,
+    last_error           TEXT,
+    last_count           INTEGER DEFAULT 0,
+    consecutive_failures INTEGER DEFAULT 0,
+    PRIMARY KEY (source_id, kind)
+  );
+`);
+const stmtSourceHealth = db.prepare(`
+  INSERT INTO source_health (source_id, kind, last_attempt_at, last_ok_at, last_nonempty_at, last_outcome, last_error, last_count, consecutive_failures)
+  VALUES (@source_id, @kind, @now, @ok_at, @nonempty_at, @outcome, @error, @count, @fail)
+  ON CONFLICT(source_id, kind) DO UPDATE SET
+    last_attempt_at      = excluded.last_attempt_at,
+    last_ok_at           = COALESCE(excluded.last_ok_at, source_health.last_ok_at),
+    last_nonempty_at     = COALESCE(excluded.last_nonempty_at, source_health.last_nonempty_at),
+    last_outcome         = excluded.last_outcome,
+    last_error           = CASE WHEN excluded.last_outcome = 'error' THEN excluded.last_error ELSE source_health.last_error END,
+    last_count           = excluded.last_count,
+    consecutive_failures = CASE WHEN excluded.last_outcome = 'error' THEN source_health.consecutive_failures + 1 ELSE 0 END
+`);
+/** Record one fetch attempt for a source. Never throws. */
+export function recordSourceAttempt(sourceId, kind, outcome, { count = 0, error = null } = {}) {
+  try {
+    const now = new Date().toISOString();
+    stmtSourceHealth.run({
+      source_id: sourceId,
+      kind,
+      now,
+      ok_at: outcome === "error" ? null : now,
+      nonempty_at: outcome === "ok" && count > 0 ? now : null,
+      outcome,
+      error: error ? String(error).slice(0, 500) : null,
+      count,
+      fail: outcome === "error" ? 1 : 0,
+    });
+  } catch {
+    /* health bookkeeping must never break a fetch */
+  }
+}
+export function listSourceHealth() {
+  return db.prepare("SELECT * FROM source_health ORDER BY source_id, kind").all();
+}
+
 // ---------- change alerts ("what changed" feed) + tiny kv state ----------
 // Alerts fire when the market data materially moves (a signal flips, a series hits a multi-year
 // extreme, a big single-period jump) — event-driven, not on a timer. kv_state holds the prior
@@ -1111,7 +1167,10 @@ db.exec(`
 // Attribute every model call to the run that paid for it. Without this, cost-per-run and
 // cost-per-tier can only be estimated by timestamp proximity, which is wrong the moment a manual run
 // overlaps a scheduled one. Additive, so existing databases keep their history with a NULL run_id.
-for (const columnDef of ["run_id INTEGER"]) {
+// stop_reason (1.39.0): `end_turn` vs `max_tokens` is the difference between a complete answer and a
+// truncated one. Before this column a truncation was only inferable from output_tokens == the cap — which
+// is how the storylines panel sat on a 9/1 success for a month while paying for every cut-off call.
+for (const columnDef of ["run_id INTEGER", "stop_reason TEXT"]) {
   try {
     db.exec(`ALTER TABLE token_usage ADD COLUMN ${columnDef}`);
   } catch {
@@ -1189,6 +1248,22 @@ export function finishBriefRun(id, { status = "ok", error = null, ...counters } 
 
 export function getBriefRun(id) {
   return db.prepare("SELECT * FROM brief_runs WHERE id = ?").get(id) ?? null;
+}
+
+/** Every run row started at or after `iso` (oldest first) — the scheduler's record of what already ran. */
+export function briefRunsSince(iso) {
+  return db.prepare("SELECT id, edition, trigger, status, started_at, finished_at, error FROM brief_runs WHERE started_at >= ? ORDER BY id").all(iso);
+}
+
+/**
+ * Close rows left `running` by a process that died mid-run (container restart, Umbrel update). Called
+ * once at server start, before the scheduler seeds itself: a row still `running` then cannot be live,
+ * and leaving it would both misreport the run log and make the edition look done.
+ */
+export function markInterruptedRuns() {
+  return db
+    .prepare("UPDATE brief_runs SET status = 'failed', error = COALESCE(error, 'interrupted — the app restarted mid-run'), finished_at = ? WHERE status = 'running'")
+    .run(new Date().toISOString()).changes;
 }
 
 export function listBriefRuns(limit = 20) {
@@ -1984,9 +2059,9 @@ export function listBriefs(limit = 50) {
  * breakpoint looks exactly like a working one from the outside. `cache_read_tokens` staying at 0
  * across a resume loop is the signal, and it only exists if it is stored.
  */
-export function recordUsage(model, purpose, inputTokens, outputTokens, usage = null) {
+export function recordUsage(model, purpose, inputTokens, outputTokens, usage = null, stopReason = null) {
   db.prepare(
-    "INSERT INTO token_usage (ts, model, purpose, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, run_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    "INSERT INTO token_usage (ts, model, purpose, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, run_id, stop_reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
   ).run(
     new Date().toISOString(),
     model,
@@ -1997,7 +2072,8 @@ export function recordUsage(model, purpose, inputTokens, outputTokens, usage = n
     usage?.cache_creation_input_tokens ?? 0,
     // Ambient, set once per run — see `setCurrentRunId`. NULL outside a tracked run (an Ask-box
     // question, a CLI memo), which is correct: those are not part of any run's cost ceiling.
-    _currentRunId
+    _currentRunId,
+    stopReason ?? null
   );
 }
 
@@ -2102,6 +2178,20 @@ export function unansweredAsks({ days = 90, minTimes = 2 } = {}) {
  * both cached and uncached purposes, so a per-model zero can't distinguish "the breakpoint broke"
  * from "this purpose never had one".
  */
+/** Calendar-month-to-date usage grouped by purpose + model (UTC month), for the budget guard. */
+export function monthUsageByPurpose(now = new Date()) {
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+  return db
+    .prepare(
+      `SELECT purpose, model,
+              SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens,
+              SUM(cache_read_tokens) AS cache_read_tokens, SUM(cache_write_tokens) AS cache_write_tokens,
+              COUNT(*) AS calls
+         FROM token_usage WHERE ts >= ? GROUP BY purpose, model`
+    )
+    .all(start);
+}
+
 export function getUsageByPurpose(days = 30) {
   const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
   return db

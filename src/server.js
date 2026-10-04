@@ -21,7 +21,12 @@ import path from "node:path";
 import zlib from "node:zlib";
 
 import * as store from "./store.js";
-import { runPipeline, runMemo, answerQuery, loadWatchlist, saveWatchlist, generateNewsDigest, getCachedNewsDigest, extractMarketIntel, getCachedMarketIntel, generateMarketCards, getCachedMarketCards, generateStorylines, getStorylinesMeta, cachedAgeDays, STALE_PANEL_DAYS } from "./pipeline.js";
+import * as panels from "./panels.js";
+import * as budgetMod from "./budget.js";
+import { auditFreshness, envPresence, fmtAge } from "./health.js";
+import Database from "better-sqlite3";
+import { seedRan, dueEditions, localClock, needsRefreshFirst } from "./schedule.js";
+import { migrateWatchlistSources, runPipeline, runMemo, answerQuery, loadWatchlist, saveWatchlist, generateNewsDigest, getCachedNewsDigest, extractMarketIntel, getCachedMarketIntel, generateMarketCards, getCachedMarketCards, generateStorylines, getStorylinesMeta, cachedAgeDays, STALE_PANEL_DAYS } from "./pipeline.js";
 import { computeSignals, SIGNAL_CHART } from "./signals.js";
 import { productShareSeries } from "./crush.js";
 import { groupByEvent, pickLead } from "./eventkey.js";
@@ -539,7 +544,7 @@ export function activeRunSnapshot() {
 
 // Returns null on success, RUN_BUSY_MESSAGE if this call attached to a run already going, or a
 // failure string if this run started and then failed. Never throws.
-async function triggerRun(edition) {
+async function triggerRun(edition, { trigger = "manual" } = {}) {
   // Attach rather than bounce. The caller still gets RUN_BUSY_MESSAGE so the notice can say what
   // happened, but it now awaits the REAL run instead of returning immediately on nothing.
   if (runInProgress && currentRun) {
@@ -557,7 +562,7 @@ async function triggerRun(edition) {
   let runId = null;
   if (!isMemo) {
     try {
-      runId = store.startBriefRun({ runKey: `${edition}:${new Date().toISOString().slice(0, 13)}`, edition, trigger: "manual" });
+      runId = store.startBriefRun({ runKey: `${edition}:${new Date().toISOString().slice(0, 13)}`, edition, trigger });
     } catch (err) {
       console.log(`⚠️  Could not open a run record (the run itself proceeds): ${err.message}`);
     }
@@ -565,6 +570,9 @@ async function triggerRun(edition) {
 
   const promise = (async () => {
     try {
+      // Reports run on the day's refreshed data, never yesterday's: if no AM/PM pipeline run has completed
+      // OK today, run the refresh first (collect → series → panels → triage), then the report.
+      if (isMemo) await ensureTodaysRefresh();
       if (isMemo) await runMemo(edition, process.env);
       else await runPipeline({ edition, env: process.env, runId });
       if (runId) store.finishBriefRun(runId, { status: "ok" });
@@ -585,6 +593,43 @@ async function triggerRun(edition) {
 
   currentRun = { id: runId, edition, promise, startedAt: Date.now() };
   return promise;
+}
+
+/**
+ * Run today's data refresh (the AM or PM pipeline, by time of day) when none has completed OK today.
+ * Called inside triggerRun's promise, so it holds the run lock. A failed refresh is logged and the report
+ * still runs — on whatever data is stored, which its own staleness rules then label.
+ */
+async function ensureTodaysRefresh() {
+  let tz = "America/Chicago";
+  let pmTime = "16:30";
+  try {
+    const ed = loadWatchlist().briefEditions ?? {};
+    tz = ed.timezone ?? tz;
+    pmTime = ed.pm ?? pmTime;
+  } catch {
+    /* defaults */
+  }
+  const now = new Date();
+  const { date, hhmm } = localClock(now, tz);
+  const today = store
+    .briefRunsSince(new Date(now.getTime() - 2 * 86400e3).toISOString())
+    .filter((r) => localClock(new Date(r.started_at), tz).date === date);
+  if (!needsRefreshFirst(today)) return false;
+  const edition = hhmm >= pmTime ? "pm" : "am";
+  console.log(`🔄 No completed data refresh yet today — running the ${edition.toUpperCase()} refresh before the report.`);
+  let runId = null;
+  try {
+    runId = store.startBriefRun({ runKey: `${edition}:${now.toISOString().slice(0, 13)}`, edition, trigger: "refresh-gate" });
+    await runPipeline({ edition, env: process.env, runId });
+    store.finishBriefRun(runId, { status: "ok" });
+  } catch (err) {
+    console.log(`⚠️  Pre-report refresh failed (${err.message}) — the report will run on stored data.`);
+    if (runId) store.finishBriefRun(runId, { status: "failed", error: err.message });
+  } finally {
+    store.setCurrentRunId(null);
+  }
+  return true;
 }
 
 /**
@@ -737,7 +782,11 @@ function sourcesSection(watchlist, openId) {
     );
     const lastSuccess = successMs ? new Date(successMs).toISOString() : null;
     let dot, status;
-    if (!enabled) {
+    if (!cfg && adapter.fetchItems && !adapter.fetchSeries) {
+      // collect.js skips an item source with no watchlist entry; this used to render as "on".
+      dot = "🟠";
+      status = "not in your watchlist — never collected (turn on to add it)";
+    } else if (!enabled) {
       dot = "⚪";
       status = "turned off";
     } else if (lastSuccess && Date.now() - successMs < 36 * 60 * 60 * 1000) {
@@ -989,6 +1038,7 @@ function settingsSection(watchlist, openId) {
     <div class="toolbar">
       <label class="muted">min local score <input type="number" name="minLocalScoreForTriage" value="${esc(out.minLocalScoreForTriage ?? 5)}" min="0" max="50" style="width:64px"></label>
       <label class="muted">max items to triage <input type="number" name="maxItemsToTriage" value="${esc(out.maxItemsToTriage ?? 80)}" min="5" max="300" style="width:70px"></label>
+      <label class="muted">monthly AI budget $ <input type="number" name="monthlyBudgetUsd" value="${esc(out.monthlyBudgetUsd ?? budgetMod.DEFAULT_MONTHLY_BUDGET_USD)}" min="1" max="10000" step="1" style="width:76px"${process.env.MONTHLY_BUDGET_USD ? ' disabled title="set in .env (MONTHLY_BUDGET_USD)"' : ""}></label>
       <label class="muted">max items in brief <input type="number" name="maxItemsInBrief" value="${esc(out.maxItemsInBrief ?? 25)}" min="5" max="100" style="width:64px"></label>
     </div>
     <div class="toolbar"><button>Save settings</button></div>
@@ -1071,8 +1121,14 @@ function storylinesSection() {
   } catch {
     return "";
   }
-  if (!lines.length) return "";
   const meta = getStorylinesMeta();
+  const notice = panels.attemptNotice("storylines", fmtCT);
+  if (!lines.length) {
+    return notice
+      ? `<details class="topic" open><summary>🧵 Storylines</summary><p class="stale-warn">${esc(notice)}</p></details>`
+      : "";
+  }
+  const fresh = freshness("storylines", meta?.generatedAt ? fmtCT(meta.generatedAt) : "");
   const cards = lines
     .map((s) => {
       const tl = (s.timeline || [])
@@ -1102,7 +1158,8 @@ function storylinesSection() {
       </div>`;
     })
     .join("");
-  return `<details class="topic"><summary>🧵 Storylines <span class="muted">(${lines.length})${meta?.generatedAt ? ` · updated ${esc(fmtCT(meta.generatedAt))}` : ""}</span></summary>
+  return `<details class="topic"${notice ? " open" : ""}><summary>🧵 Storylines <span class="muted">(${lines.length})</span> ${fresh.badge}</summary>
+    ${notice ? `<p class="stale-warn">${esc(notice)}</p>` : fresh.warn}
     <p class="muted" style="margin:2px 0 8px;font-size:.85em">The ongoing threads behind the headlines — auto-clustered from what's flowing in. <form method="post" action="/storylines" style="display:inline"><button class="ghost tiny">↻ Refresh</button></form></p>
     <div class="storylines">${cards}</div></details>`;
 }
@@ -1131,13 +1188,19 @@ function freshness(kind, dateLabel) {
   return { badge, stale, warn };
 }
 
+/** The "last attempt did not update this panel" line (src/panels.js) — empty when the last attempt succeeded. */
+function attemptLine(kind) {
+  const n = panels.attemptNotice(kind, fmtCT);
+  return n ? `<p class="stale-warn">${esc(n)}</p>` : "";
+}
+
 function marketCardsSection() {
   const cached = getCachedMarketCards();
   if (cached && cached.markdown) {
     const { badge, stale, warn } = freshness("market_cards", cached.date);
     // A stale card starts COLLAPSED. Expanded-by-default is a claim that the content is current.
     return `<details class="topic"${stale ? "" : " open"}><summary>🎯 Signal cards — what's firing${cached.triggers?.length ? ` <span class="muted">(${cached.triggers.length} active)</span>` : ""} ${badge}</summary>
-      <div class="answer market-cards">${warn}${markdownToHtml(cached.markdown)}
+      <div class="answer market-cards">${attemptLine("market_cards")}${warn}${markdownToHtml(cached.markdown)}
         <div class="muted" style="margin-top:6px;font-size:.82em">${esc(cached.date)} · <form method="post" action="/market-cards" style="display:inline"><button class="ghost tiny">↻ Refresh</button></form></div></div></details>`;
   }
   return `<details class="topic"><summary>🎯 Signal cards — what's firing</summary>
@@ -2042,7 +2105,7 @@ function intelPanel() {
   const { badge, stale, warn } = freshness("market_intel", intel.date);
   return `<details class="topic" style="margin-top:10px">
     <summary style="cursor:pointer;font-weight:600">📈 Market intel from the inbox <span class="muted" style="font-weight:400">— ${stale ? "no longer fed to the Analyst or Ask box (too old)" : "feeds the Analyst &amp; Ask box"}</span> ${badge}</summary>
-    <div class="answer" style="margin-top:8px">${warn}${markdownToHtml(intel.markdown)}
+    <div class="answer" style="margin-top:8px">${attemptLine("market_intel")}${warn}${markdownToHtml(intel.markdown)}
       <div class="muted" style="margin-top:8px;font-size:.85em">Distilled from ${intel.count} newsletter item${intel.count === 1 ? "" : "s"} · ${esc(intel.date)}</div>
     </div>
   </details>`;
@@ -2052,7 +2115,7 @@ function newsBody(notice) {
   const cached = getCachedNewsDigest();
   const digestFresh = cached ? freshness("news_digest", cached.date) : null;
   const digestBlock = cached
-    ? `<div class="answer news-digest">${digestFresh.warn}${markdownToHtml(cached.markdown)}
+    ? `<div class="answer news-digest">${attemptLine("news_digest")}${digestFresh.warn}${markdownToHtml(cached.markdown)}
         <div class="muted" style="margin-top:8px;font-size:.85em">Distilled from ${cached.count} items · ${esc(cached.date)} · <form method="post" action="/news/digest" style="display:inline"><button class="ghost tiny">↻ Refresh</button></form></div></div>`
     : `<form method="post" action="/news/digest"><button class="ghost">🧠 Generate today's digest</button></form>
        <p class="muted" style="font-size:.85em">One cheap Haiku call over the last two days of news.</p>`;
@@ -2975,6 +3038,12 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
   captureConsole();
   seedDataDir();
   try {
+    const added = migrateWatchlistSources();
+    if (added.length) console.log(`🧩 Watchlist: added ${added.length} source${added.length === 1 ? "" : "s"} that shipped after this install — ${added.join(", ")}`);
+  } catch (err) {
+    console.log(`⚠️  Watchlist source migration skipped: ${err.message}`);
+  }
+  try {
     const r = syncRegistryFromSeed();
     console.log(`🗂️  Registry synced: ${r.entities} entities, ${r.channels} channels`);
   } catch (err) {
@@ -3166,7 +3235,11 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
         let notice;
         try {
           const s = await generateStorylines(process.env);
-          notice = s ? `Storylines updated (${s.count} active thread${s.count === 1 ? "" : "s"}).` : "Not enough recent items to cluster into storylines yet.";
+          // The old notice mapped EVERY null to "Not enough recent items", which was false for a truncated
+          // or empty model answer — the exact failure that kept the panel frozen on 9/1.
+          notice = s
+            ? `Storylines updated (${s.count} active thread${s.count === 1 ? "" : "s"}).`
+            : `Storylines not updated: ${panels.attemptNotice("storylines", fmtCT) || "no result."}`;
         } catch (err) {
           notice = `Storyline update failed: ${err.message}`;
         }
@@ -3233,6 +3306,23 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
         return;
       }
 
+      if (req.method === "GET" && url.pathname === "/freshness") {
+        let body;
+        try {
+          body = freshnessBody(buildFreshnessReport());
+        } catch (err) {
+          body = `<h1>🩺 Data freshness</h1><div class="banner err">⚠️ Could not build the report: ${esc(err.message)}</div>`;
+        }
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.end(page("The Bean Brief · data freshness", body));
+        return;
+      }
+      if (req.method === "GET" && url.pathname === "/freshness.json") {
+        res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify(buildFreshnessReport()));
+        return;
+      }
+
       if (req.method === "GET" && url.pathname === "/logs") {
         let settings;
         try {
@@ -3241,6 +3331,7 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
           settings = `<div class="banner err">⚠️ ${esc(err.message)}</div>`;
         }
         const body = `<h1>🛠 Logs &amp; Settings</h1>
+          <p><a href="/freshness">🩺 Data freshness &amp; spend</a> — what is updating, what is stale, and this month's Anthropic spend.</p>
           ${runLogSection()}
           <h2>Recent activity</h2><pre class="logs">${esc(logBuffer.slice(-300).join("\n") || "(nothing yet)")}</pre>
           ${settings}`;
@@ -3738,6 +3829,11 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
             watchlist.output.editionEmail ??= {};
             watchlist.output.editionEmail[edition] = addr;
           }
+          // Monthly Anthropic budget (src/budget.js). MONTHLY_BUDGET_USD in .env still wins over this.
+          if (form.get("monthlyBudgetUsd") != null && form.get("monthlyBudgetUsd") !== "") {
+            const v = Number(form.get("monthlyBudgetUsd"));
+            if (Number.isFinite(v) && v > 0 && v <= 10000) watchlist.output.monthlyBudgetUsd = v;
+          }
           for (const key of ["minLocalScoreForTriage", "maxItemsToTriage", "maxItemsInBrief"]) {
             const value = Number(form.get(key));
             if (Number.isFinite(value) && value >= 0) watchlist.output[key] = value;
@@ -3865,15 +3961,78 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
   return server;
 }
 
+// ---------- data freshness page (/freshness) ----------
+// Backed by src/health.js — the same audit as scripts/audit-freshness.mjs — over a SEPARATE read-only
+// connection, so the page can never write to the store it is describing.
+let healthDb = null;
+function buildFreshnessReport() {
+  if (!healthDb) healthDb = new Database(store.DB_PATH, { readonly: true, fileMustExist: true });
+  let watchlist = null;
+  try {
+    watchlist = loadWatchlist();
+  } catch {
+    /* the report says what it can without it */
+  }
+  let shipped = null;
+  try {
+    shipped = JSON.parse(fs.readFileSync(path.join(store.PROJECT_ROOT, "watchlist.json"), "utf8"));
+  } catch {
+    /* no comparison */
+  }
+  return auditFreshness({
+    db: healthDb,
+    watchlist,
+    defaultWatchlist: store.DATA_DIR === store.PROJECT_ROOT ? null : shipped,
+    envPresent: envPresence([], process.env), // presence only — values never leave process.env
+    dataDir: store.DATA_DIR,
+    budgetUsd: budgetMod.monthlyBudget(process.env, watchlist),
+    logText: logBuffer.join("\n"),
+  });
+}
+
+const STATUS_TONE = (st) => (/^(OK|LIVE|ON DEMAND)/.test(st) && !/·/.test(st) ? "ok" : /^(OFF|NEVER \(on demand\))/.test(st) ? "off" : "bad");
+function freshnessBody(r) {
+  const tag = (st) => `<span class="fr-${STATUS_TONE(st)}">${esc(st)}</span>`;
+  const age = (ms) => esc(fmtAge(ms));
+  const badSources = r.sources.filter((x) => STATUS_TONE(x.status) === "bad");
+  const badPanels = r.panels.filter((x) => STATUS_TONE(x.status) === "bad");
+  const b = r.budget;
+  const rows = (list, fn) => list.map(fn).join("");
+  return `<h1>🩺 Data freshness &amp; spend</h1>
+<style>.fr-ok{color:#2e7d32;font-weight:600}.fr-off{color:#777}.fr-bad{color:#b3261e;font-weight:700}
+table.fr{border-collapse:collapse;width:100%;font-size:.86em;margin:6px 0 18px}table.fr td,table.fr th{border-bottom:1px solid var(--line,#ddd);padding:4px 6px;text-align:left;vertical-align:top}
+.fr-wrap{overflow-x:auto}</style>
+<p class="muted">Generated ${esc(fmtCT(r.generatedAt))}. STALE = older than 2× its expected cadence (plus publication lag for data). Keys are reported as present or missing — never their values. Same report as <code>node scripts/audit-freshness.mjs</code>; JSON at <a href="/freshness.json">/freshness.json</a>.</p>
+<div class="banner${badSources.length + badPanels.length ? " err" : ""}">${badPanels.length} panel${badPanels.length === 1 ? "" : "s"} and ${badSources.length} source${badSources.length === 1 ? "" : "s"} need attention · spend $${b.spent.toFixed(2)} of $${b.budget.toFixed(2)} this month (projected $${b.projected.toFixed(2)})</div>
+<h2>Panels &amp; reports</h2><div class="fr-wrap"><table class="fr"><tr><th>Panel</th><th>Last generated</th><th>Expected</th><th>Status</th><th>Last attempt</th><th>Notes</th></tr>
+${rows(r.panels, (p) => `<tr><td>${esc(p.label)}<br><span class="muted">${esc(p.where)}</span></td><td>${p.lastAt ? esc(fmtCT(p.lastAt)) : "—"}<br><span class="muted">${age(p.ageMs)}</span></td><td>${esc(p.expected)}</td><td>${tag(p.status)}</td><td>${p.attempt?.lastAttemptAt ? `${esc(fmtCT(p.attempt.lastAttemptAt))}: ${esc(p.attempt.lastOutcome ?? "")}${p.attempt.lastError ? ` — ${esc(p.attempt.lastError)}` : ""}` : p.attempt?.lastCall ? `model call ${esc(fmtCT(p.attempt.lastCall))}` : "—"}</td><td class="muted">${esc([p.evidence, p.error].filter(Boolean).join(" · "))}</td></tr>`)}
+</table></div>
+<h2>Storylines</h2><p>${esc(r.storylines.verdict)}</p>
+<h2>Sources</h2><div class="fr-wrap"><table class="fr"><tr><th>Source</th><th>Keys</th><th>Last fetch</th><th>Newest data</th><th>Status</th><th>Note / last error</th></tr>
+${rows(r.sources, (x) => `<tr><td>${esc(x.label)}<br><span class="muted">${esc(x.id)} · ${esc(x.cls)} · ${esc(x.kind)}</span></td><td>${x.keys.length ? x.keys.map((k) => `${esc(k.group.replace(/\|/g, " or "))}: ${k.ok ? "✓" : "<strong>missing</strong>"}`).join("<br>") : '<span class="muted">none needed</span>'}</td><td>${x.lastFetch ? esc(fmtCT(x.lastFetch)) : "—"}<br><span class="muted">${age(x.fetchAgeMs)} (expect ${esc(x.expectedFetch)})</span></td><td>${esc(x.newestPeriod ?? "—")}<br><span class="muted">${age(x.dataAgeMs)} (expect ${esc(x.expectedData)})</span></td><td>${tag(x.status)}</td><td class="muted">${esc([x.enabledNote, x.lastError, x.note].filter(Boolean).join(" · "))}</td></tr>`)}
+</table></div>
+<h2>Member Brief market inputs</h2><div class="fr-wrap"><table class="fr"><tr><th>Input</th><th>Series</th><th>Latest</th><th>Current?</th></tr>
+${rows(r.memberInputs, (m) => m.rows.map((row, i) => `<tr><td>${i ? "" : esc(m.label)}</td><td><code>${esc(row.key)}</code></td><td>${esc(row.latest ?? "—")}${row.ageD != null ? ` <span class="muted">(${row.ageD}d)</span>` : ""}</td><td>${row.present ? (row.current ? '<span class="fr-ok">yes</span>' : '<span class="fr-bad">stale</span>') : '<span class="fr-off">absent</span>'}</td></tr>`).join(""))}
+</table></div>
+<h2>Anthropic spend this month</h2><table class="fr"><tr><th>Group</th><th>Allocation</th><th>Spent</th><th></th></tr>
+${rows(b.groups, (g) => `<tr><td>${esc(g.label)}</td><td>$${g.allocation.toFixed(2)}</td><td>$${g.spent.toFixed(2)}</td><td class="muted">${g.essential ? "essential — runs to the hard ceiling" : "discretionary — pauses at its allocation"}</td></tr>`)}
+</table>
+${r.warnings.length ? `<h2>Warnings</h2><ul>${rows(r.warnings, (w) => `<li>${esc(w)}</li>`)}</ul>` : ""}`;
+}
+
 // ---------- scheduler ----------
 function startScheduler() {
-  // Seed "already ran" from the briefs table so a container restart mid-day
-  // doesn't re-run an edition.
-  const ran = new Set();
-  for (const b of store.listBriefs(20)) {
-    const m = path.basename(b.path).match(/^(\d{4}-\d{2}-\d{2})-(am|pm|weekly|monthly|education|analyst)\.md$/);
-    if (m) ran.add(`${m[1]}-${m[2]}`);
+  // A row still `running` at boot cannot be live — the process that owned it is gone. Close it as
+  // interrupted so the run log is honest and seedRan() treats that edition as not yet done.
+  try {
+    const n = store.markInterruptedRuns();
+    if (n) console.log(`🔁 ${n} run${n === 1 ? "" : "s"} interrupted by the last restart — marked failed; due editions will re-run.`);
+  } catch (err) {
+    console.log(`⚠️  Could not close interrupted runs: ${err.message}`);
   }
+  // Editions attempted by THIS process. A failed memo writes no file and has no run row, so without
+  // this it would be retried every 30 s; with it, it is retried only after a restart.
+  const attempted = new Set();
 
   const check = async () => {
     let watchlist;
@@ -3882,51 +4041,37 @@ function startScheduler() {
     } catch {
       return; // bad watchlist edits shouldn't crash the server; run/CLI will report it
     }
-    // The whole tick is guarded: watchlist.json invites hand-editing, and a bad briefEditions
-    // value (e.g. an invalid IANA timezone → Intl throws RangeError) must degrade to a logged,
-    // skipped tick — never an unhandled rejection that would crash-loop the container.
+    // The whole tick is guarded: watchlist.json invites hand-editing, and a bad briefEditions value
+    // (e.g. an invalid IANA timezone → Intl throws RangeError) must degrade to a logged, skipped tick.
     try {
       const editions = watchlist.briefEditions ?? {};
       const timezone = editions.timezone ?? "America/Chicago";
       const now = new Date();
-      const dateLabel = new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(now);
-      const hhmm = new Intl.DateTimeFormat("en-GB", { timeZone: timezone, hour: "2-digit", minute: "2-digit", hour12: false }).format(now);
-      const weekday = new Intl.DateTimeFormat("en-US", { timeZone: timezone, weekday: "short" }).format(now); // "Fri"
-
-      for (const edition of ["am", "pm"]) {
-        const key = `${dateLabel}-${edition}`;
-        if (editions[edition] && hhmm >= editions[edition] && !ran.has(key)) {
-          console.log(`\n⏰ Scheduled ${edition.toUpperCase()} edition (${editions[edition]} ${timezone})`);
-          const problem = await triggerRun(edition);
-          // Mark the edition done only once it actually STARTED. A "busy" bounce (a manual run in
-          // flight) stays eligible so a later tick picks it up once the run frees — no dropped brief.
-          if (problem === RUN_BUSY_MESSAGE) console.log(`⏭️  ${edition.toUpperCase()} bounced (run in progress) — retrying next tick`);
-          else { ran.add(key); if (problem) console.log(`⚠️  ${problem}`); }
+      // "Already ran" is re-read from the database every tick (brief_runs + saved files) rather than
+      // seeded once from saved files at boot — see schedule.js for why that dropped quiet AM runs.
+      const ran = seedRan(
+        store.briefRunsSince(new Date(now.getTime() - 3 * 86400e3).toISOString()),
+        store.listBriefs(60).map((b) => path.basename(b.path)),
+        timezone
+      );
+      for (const k of attempted) ran.add(k);
+      const { date, due } = dueEditions(editions, now, ran, DAY_SCHEDULED.map(([e]) => e));
+      for (const edition of due) {
+        console.log(`\n⏰ Scheduled ${edition} (${editions[edition]} ${timezone})`);
+        const problem = await triggerRun(edition, { trigger: "schedule" });
+        // A "busy" bounce stays eligible so a later tick picks it up once the run frees — no dropped brief.
+        if (problem === RUN_BUSY_MESSAGE) {
+          console.log(`⏭️  ${edition} bounced (run in progress) — retrying next tick`);
+          break;
         }
-      }
-
-      // Day-scheduled memo editions, e.g. "Fri 17:00" — weekly, plus the education brief and the
-      // Analyst Note. Education is the one that goes to its own Teams channel, and it had no
-      // schedule at all before (on-demand only, so it only existed if someone clicked). A scheduled
-      // Analyst also keeps the forecast ledger fed: Analyst is the only preset that files claims.
-      // Guard the type: a hand-edited non-string value must not throw.
-      for (const edition of ["weekly", "monthly", "education", "analyst"]) {
-        const spec = editions[edition];
-        if (typeof spec !== "string" || !spec.trim()) continue;
-        const [day, time] = spec.split(/\s+/);
-        const key = `${dateLabel}-${edition}`;
-        if (day === weekday && time && hhmm >= time && !ran.has(key)) {
-          console.log(`\n⏰ Scheduled ${edition} memo (${spec} ${timezone})`);
-          const problem = await triggerRun(edition);
-          if (problem === RUN_BUSY_MESSAGE) console.log(`⏭️  ${edition} bounced (run in progress) — retrying next tick`);
-          else { ran.add(key); if (problem) console.log(`⚠️  ${problem}`); }
-        }
+        attempted.add(`${date}-${edition}`);
+        if (problem) console.log(`⚠️  ${problem}`);
       }
 
       // Nightly backup at 03:15 local.
-      const backupKey = `${dateLabel}-backup`;
-      if (hhmm >= "03:15" && !ran.has(backupKey)) {
-        ran.add(backupKey);
+      const backupKey = `${date}-backup`;
+      if (localClock(now, timezone).hhmm >= "03:15" && !attempted.has(backupKey)) {
+        attempted.add(backupKey);
         try {
           const dir = await store.backupNow();
           console.log(`💾 Nightly backup saved to ${dir} (newest 14 kept)`);
