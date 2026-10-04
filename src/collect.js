@@ -36,6 +36,9 @@ export async function collectAll({ watchlist, env, onlySource = null, commit = t
   const targets = [];
   for (const [sourceId, adapter] of Object.entries(adapters)) {
     if (onlySource && sourceId !== onlySource) continue;
+    // Series-only adapters (banyan_rin, carbon_prices, eu_ets, …) have no items to collect — they are
+    // refreshed by refreshMarketSeries. Without this they logged "no entry in watchlist.json" every run.
+    if (typeof adapter.fetchItems !== "function") continue;
     const sourceConfig = watchlist.sources?.[sourceId];
     if (!sourceConfig) {
       console.log(`⚠️  ${adapter.label}: no entry in watchlist.json "sources" — skipping`);
