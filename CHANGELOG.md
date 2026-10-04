@@ -14,6 +14,7 @@ The 1.40.0 Member Brief asked USDA's barge dataset (Ag Transport `7spn-fbua`) fo
 - **Old names ignored:** the 1.40.0 watchlist default (`["St. Louis", "Illinois River"]`) is ignored when found untouched in a live watchlist, and has been removed from the shipped `watchlist.json`. A real override still wins.
 - **Member Brief** lists the barge lines in the pack's order. `/freshness` checks the pack's segments, and the Markets chart caption explains that the all-segment average mixes reaches priced very differently.
 - **Illinois pilot pack** follows Hardin – Havana, Kingston Mines – Peoria and the St. Louis harbor.
+- **One resolver** (`pack.effectiveBargeLocations`) decides which segments are followed: the watchlist override when it's a real choice, else the pack's. The adapter, the Member Brief and `/freshness` all use it, so a segment that is later deselected drops out of the brief and the freshness check instead of lingering.
 
 Update only — no new keys. The new series fill in on the next refresh (or `node src/index.js market-refresh`).
 

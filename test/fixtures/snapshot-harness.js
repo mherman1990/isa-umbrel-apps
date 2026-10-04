@@ -245,7 +245,7 @@ function seed(store, st) {
   S_("wasde:us:soy-stocks-to-use", "Stocks-to-use", "%", "soy_balance_stu", monthly(2026, 9, 40, 8, 0.05));
   S_("wasde:us:soy-endstocks", "Ending stocks", "mln bu", "soy_balance", monthly(2026, 9, 40, 300, 1));
   S_("agtransport:soy-net-export-sales", "Net export sales", "metric tons", "soy_exports", weekly("2026-09-24", 150, 400000, 1000));
-  S_("agtransport:barge-freight:st-louis", "Barge freight — St. Louis", "$/ton", "barge_freight", weekly("2026-10-01", 160, 18, 0.05), "agtransport:barge-freight");
+  S_("agtransport:barge-freight:cape-girardeau-grafton", "Barge freight — St. Louis harbor (Cape Girardeau – Grafton)", "$/ton", "barge_freight", weekly("2026-10-01", 160, 18, 0.05), "agtransport:barge-freight");
   S_("cbot:zm:front", "Meal", "$/ton", "soy_products", daily("2026-10-06", 200, 300, 0.1));
   S_("cbot:zl:front", "Oil", "¢/lb", "soy_products", daily("2026-10-06", 200, 45, 0.02));
   S_("cbot:zs:front", "Soybeans", "¢/bu", "soy_futures", daily("2026-10-06", 260, 1000, 0.2));

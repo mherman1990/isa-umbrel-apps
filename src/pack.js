@@ -220,6 +220,22 @@ export function bargeLocations(list = pack().markets?.barge?.locations ?? []) {
     });
 }
 
+// The 1.40.0 watchlist default (sources.agtransport.bargeLocations). Neither name exists in USDA's segment
+// data, so an untouched copy of it in a live /data/watchlist.json is treated as "not set".
+const LEGACY_BARGE = ["st louis", "illinois river"];
+const normName = (v) => String(v ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+/**
+ * The barge segments actually in effect: the watchlist's `sources.agtransport.bargeLocations` override
+ * when it is a real choice, else the pack's. ONE resolver for the adapter, the Member Brief and
+ * /freshness, so the three never disagree about which segments are followed.
+ */
+export function effectiveBargeLocations(override) {
+  const list = Array.isArray(override) ? override : [];
+  const legacy = list.length === LEGACY_BARGE.length && list.every((o) => typeof o === "string" && LEGACY_BARGE.includes(normName(o)));
+  return bargeLocations(list.length && !legacy ? list : undefined);
+}
+
 /** Absolute path of a file the pack ships (geo layers, data files, branding). */
 export function packPath(rel) {
   const p = pack();

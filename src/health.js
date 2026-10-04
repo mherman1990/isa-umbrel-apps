@@ -32,7 +32,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { summarizeSpend, monthlyBudget } from "./budgetcore.js";
 import { calendarCoverage } from "./calendar.js";
-import { pack, voice, seriesKey, bargeLocations } from "./pack.js";
+import { pack, voice, seriesKey, effectiveBargeLocations } from "./pack.js";
 // State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
 const V = voice();
 
@@ -121,7 +121,7 @@ export const MEMBER_BRIEF_INPUTS = [
   {
     id: "barge_freight",
     label: "Barge freight by location",
-    series: bargeLocations().map((l) => l.series),
+    series: "barge", // resolved per report from the effective selection (watchlist override or pack)
     maxAgeD: 14,
     need: "per-river-segment $/ton from the state pack (markets.barge.locations); 3-yr same-week average computed at render",
   },
@@ -721,7 +721,8 @@ export function auditFreshness({ db, watchlist, defaultWatchlist = null, envPres
 
   // ---------- Member Brief market inputs (Phase 2 readiness) ----------
   const memberInputs = MEMBER_BRIEF_INPUTS.map((inp) => {
-    const rows = inp.series.map((key) => {
+    const keys = inp.series === "barge" ? effectiveBargeLocations(watchlist?.sources?.agtransport?.bargeLocations).map((l) => l.series) : inp.series;
+    const rows = keys.map((key) => {
       if (key.startsWith("cme:zs:*")) {
         // New-crop ratio: the nearest Nov soybean contract over the nearest Dec corn contract that
         // BOTH have stored settles. cme_settlements keys contracts as cme:<prod>:<YYYY-MM>.

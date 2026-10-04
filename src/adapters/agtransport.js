@@ -14,7 +14,7 @@
 // public endpoint works without one at our low volume.
 
 import { fetchJSON } from "../util.js";
-import { pack, bargeLocations } from "../pack.js";
+import { pack, bargeLocations, effectiveBargeLocations } from "../pack.js";
 
 export const id = "agtransport";
 export const label = "USDA Ag Transport";
@@ -107,9 +107,7 @@ export async function fetchItems({ sourceConfig = {}, env = process.env } = {}) 
 // style ignored) — a loose substring match would let "Grafton" pick up the wrong reach.
 export const BARGE_DATASET = "7spn-fbua";
 export const DEFAULT_BARGE_LOCATIONS = pack().markets?.barge?.locations ?? [];
-// The 1.40.0 watchlist default. Neither name exists in the dataset, so an untouched copy of it in a live
-// /data/watchlist.json is treated as "not set" and the pack's segments apply.
-const LEGACY_LOCATIONS = ["st louis", "illinois river"];
+
 const LOCATION_COLUMN = /^(river_system_location|location|loc|segment|river_segment|origin|port|city|river_location)$/i;
 const norm = (v) => String(v ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 export const bargeSlug = (v) => norm(v).replace(/\s+/g, "-");
@@ -121,11 +119,8 @@ export function findLocationColumn(row) {
   return keys.find((k) => LOCATION_COLUMN.test(k)) ?? keys.find((k) => /location|segment/i.test(k)) ?? null;
 }
 
-/** The segments to fetch: the watchlist's override unless it is the untouched 1.40.0 default, else the pack's. */
-export function wantedSegments(override) {
-  const legacy = Array.isArray(override) && override.length === LEGACY_LOCATIONS.length && override.every((o) => typeof o === "string" && LEGACY_LOCATIONS.includes(norm(o)));
-  return bargeLocations(Array.isArray(override) && override.length && !legacy ? override : DEFAULT_BARGE_LOCATIONS);
-}
+/** The segments to fetch — the shared resolver (pack.effectiveBargeLocations: override unless legacy, else pack). */
+export const wantedSegments = effectiveBargeLocations;
 
 /** Group rows of {date, loc, v} into one series per WANTED segment (exact match). Exported for tests. */
 export function bargeSeriesFromRows(rows, wanted = bargeLocations(DEFAULT_BARGE_LOCATIONS)) {

@@ -71,8 +71,8 @@ store.saveSeriesPoints("cme:zc:2026-12", { label: "ZC Dec", unit: "¢/bu", categ
 store.saveSeriesPoints("ams:ia:meal", { label: "meal", unit: "$/ton", category: "soy_products_cash" }, [{ period: "2026-09-25", value: 300 }, { period: "2026-10-02", value: 310 }]);
 store.saveSeriesPoints("ams:ia:oil", { label: "oil", unit: "¢/lb", category: "soy_products_cash" }, [{ period: "2026-09-25", value: 50 }, { period: "2026-10-02", value: 52 }]);
 store.saveSeriesPoints(
-  "agtransport:barge-freight:st-louis",
-  { label: "Barge freight — St. Louis", unit: "$/ton", category: "barge_freight", family: "agtransport:barge-freight" },
+  "agtransport:barge-freight:cape-girardeau-grafton",
+  { label: "Barge freight — St. Louis harbor benchmark (Cape Girardeau – Grafton)", unit: "$/ton", category: "barge_freight", family: "agtransport:barge-freight" },
   [
     { period: "2023-10-03", value: 20 },
     { period: "2024-10-01", value: 22 },
@@ -105,7 +105,7 @@ const goodDraft = () => ({
     fund: [{ text: "Managed money is {{FUND_SOYBEANS_NET}}, {{FUND_SOYBEANS_PCT52}}.", cites: [S_FUND] }],
     oilShare: [],
     ratio: [{ text: "The new-crop ratio is {{RATIO_NEWCROP}}.", cites: [S_RATIO] }],
-    barge: [{ text: "St. Louis freight is {{BARGE_ST_LOUIS_RATE}}.", cites: [S_BARGE] }],
+    barge: [{ text: "St. Louis freight is {{BARGE_CAPE_GIRARDEAU_GRAFTON_RATE}}.", cites: [S_BARGE] }],
   },
 });
 
@@ -176,9 +176,9 @@ test("market inputs: new-crop ratio from Nov soy ÷ Dec corn; oil share from AMS
   assert.equal(pk.tokens.get("RATIO_NEWCROP").value, (1050 / 425).toFixed(2));
   assert.match(pk.tokens.get("RATIO_CONTRACTS").value, /November 2026 soybeans ÷ December 2026 corn/);
   assert.match(pk.tokens.get("OILSHARE_BASIS").value, /USDA AMS/);
-  assert.equal(pk.tokens.get("BARGE_ST_LOUIS_RATE").value, "$28.50 per ton");
-  assert.equal(pk.tokens.get("BARGE_ST_LOUIS_WOW").value, "down $1.50 from the prior week");
-  assert.equal(pk.tokens.get("BARGE_ST_LOUIS_AVG3").value, "$22.00 per ton 3-year average for the same week");
+  assert.equal(pk.tokens.get("BARGE_CAPE_GIRARDEAU_GRAFTON_RATE").value, "$28.50 per ton");
+  assert.equal(pk.tokens.get("BARGE_CAPE_GIRARDEAU_GRAFTON_WOW").value, "down $1.50 from the prior week");
+  assert.equal(pk.tokens.get("BARGE_CAPE_GIRARDEAU_GRAFTON_AVG3").value, "$22.00 per ton 3-year average for the same week");
 });
 
 test("deadlines and what-to-watch are code-rendered with citations", () => {
@@ -445,4 +445,13 @@ test("a draft that leaves out a packet policy item fails lint (the renderer woul
   const rules = mb.draftCompleteness(half, pk).map((f) => `${f.path} ${f.rule}`);
   assert.ok(rules.includes("policy.P1.next missing_policy_sentence"));
   assert.ok(rules.includes("policy.P9 unknown_policy_item"));
+});
+
+test("barge: the brief follows the effective selection — a deselected segment never reaches it", () => {
+  const lines = (override) => mb.buildMemberPacket({ now: NOW, bargeOverride: override }).markets.get("barge").lines.join("\n");
+  assert.match(lines(undefined), /Cape Girardeau – Grafton/, "the pack's segments by default");
+  assert.match(lines(["St. Louis", "Illinois River"]), /Cape Girardeau – Grafton/, "the untouched 1.40.0 default is not a real override");
+  const only = lines(["Hardin – Havana"]);
+  assert.doesNotMatch(only, /Cape Girardeau/, "a stored series outside the override is left out");
+  assert.match(only, /no location-level barge freight/, "and the section says so rather than showing it");
 });
