@@ -1,0 +1,396 @@
+[
+ {
+  "label": "member",
+  "model": "claude-sonnet-5",
+  "system": [
+   {
+    "type": "text",
+    "text": "You write the ILSoy Member Brief: a short, plain-language update for Illinois Soybean Association farmer-members, sent Monday, Wednesday and Friday. Policy and regulatory news first, markets second. It is education, not advice.\n\nYou are given an EVIDENCE PACKET. It is the ONLY information you may use. You have no other knowledge for this task: no background facts, no prior news, no outside numbers.\n\nHARD RULES — a draft that breaks any of these is rejected by code and not sent:\n1. Every entry is EXACTLY ONE sentence, with \"cites\": the ids (S1, S2…) of the packet sources it rests on. A sentence with no cite is deleted.\n2. NUMBERS. You never write a digit yourself. Every number, date, dollar amount, percentage, percentile or count must be written as a {{TOKEN}} from the packet, exactly as listed (e.g. {{FUND_SOYBEANS_NET}}). The only exception is an identifier that appears verbatim in a source you cite (a bill number like \"HF 2571\", a rule name like \"45Z\"). Tokens listed as WITHHELD must not be used.\n3. CERTAINTY. Each policy item carries a band set by code: In force / In force — under legal challenge / Proposed — NOT final / Signalled — not yet an action. Write so the band is true. A Proposed or Signalled item is never described as decided: do not say final, in effect, requires, mandates, approved, or takes effect. Only an In-force item may be described as in effect.\n4. SCOPE. A policy item's sentences may cite only that item's sources. A market section's sentences may cite only that section's sources.\n5. EDUCATION, NOT ADVICE. Never tell a farmer to buy, sell, hold, store, price or hedge; never say now is a good or bad time; never predict prices. Explain what happened and what it means for an Illinois corn and soybean operation.\n6. Plain words. Short sentences. No hype. No \"we\". Name the agency, court or legislature that acted.\n\nWHAT TO WRITE\n- \"update\": 1 to 3 sentences — the most important things since the last brief, policy first.\n- \"policy\": for EACH policy item given, four sentences: whatChanged (who did what), whereItStands (procedural status, using the clock token if given), whatItMeans (the concrete consequence for an Illinois corn/soybean operation, as explanation), next (the next dated event, using the next-date token if given; if none, say the next step is not yet scheduled).\n- \"markets\": for each of fund, oilShare, ratio, barge — 0 to 2 sentences explaining what the code-written figures mean. The figures themselves are already printed by code; do not repeat every number. If a section is marked not updated this cycle, write zero sentences for it.\n\nIf the packet is thin, write less. Fewer, fully supported sentences are always better than more."
+   }
+  ],
+  "messages": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "text",
+      "text": "EDITION: ILSoy Member Brief for Oct. 7, 2026, covering Oct. 5, 2026 through Oct. 6, 2026.\n\nSOURCES:\nS1 [primary source] Federal Register — Renewable Fuel Standard: 2027-2028 volumes (proposed rule) (2026-10-06)\n    text: Renewable Fuel Standard: 2027-2028 volumes (proposed rule) EPA proposes RVOs for biomass-based diesel. Comments due Nov. 17, 2026.\nS2 [primary source] U.S. Commodity Futures Trading Commission — CFTC Commitments of Traders (disaggregated, futures only) — Soybeans, managed money (2026-09-29)\n    text: Soybeans managed money net 87100 contracts, week ending 2026-09-29\nS3 [primary source] USDA Agricultural Marketing Service — USDA AMS National Grain and Oilseed Processor Feedstuff report (3511) — Illinois soybean oil and meal (2026-10-02)\n    text: oil share 44.3% as of 2026-10-02\nS4 [exchange of record] CME Group — CME Group daily settlements — November 2026 soybeans (ZS) and December 2026 corn (ZC) (2026-10-06)\n    text: ratio 2.47 on 2026-10-06\nS5 [primary source] USDA National Agricultural Statistics Service — USDA NASS Agricultural Prices — Illinois soybean and corn prices received (2026-08)\n    text: Illinois ratio 2.50 for 2026-08\nS6 [primary source] USDA Agricultural Marketing Service (Ag Transport) — USDA AMS Grain Transportation Report — downbound barge freight, St. Louis (2026-10-01)\n    text: St. Louis $25.95 per ton 2026-10-01\nS7 [agency release] USDA — USDA release calendar — October WASDE (2026-10-09)\n    text: October WASDE 2026-10-09\nS8 [agency release] CFTC — CFTC release calendar — CFTC Commitments of Traders (2026-10-09)\n    text: CFTC Commitments of Traders 2026-10-09\n\nTOKENS:\n{{P1_CLOCK}} = Nov. 17, 2026\n{{P1_NEXT_DATE}} = Nov. 17, 2026\n{{FUND_SOYBEANS_NET}} = net long 87,100 contracts\n{{FUND_SOYBEANS_WOW}} = up 900 contracts from the prior week\n{{FUND_SOYBEANS_PCT52}} = 100th percentile of the past 52 weeks\n{{FUND_SOYBEANS_ASOF}} = week ending Sept. 29, 2026\n{{OILSHARE_PCT}} = 44.3%\n{{OILSHARE_WOW}} = unchanged from a week earlier\n{{OILSHARE_ASOF}} = Oct. 2, 2026\n{{OILSHARE_BASIS}} = Illinois cash soybean oil and meal, USDA AMS National Grain & Oilseed Processor Feedstuff report\n{{RATIO_NEWCROP}} = 2.47\n{{RATIO_CONTRACTS}} = November 2026 soybeans ÷ December 2026 corn futures\n{{RATIO_ASOF}} = settlement of Oct. 6, 2026\n{{RATIO_IOWA_MONTHLY}} = 2.50\n{{RATIO_IOWA_PERIOD}} = August 2026\n{{BARGE_ST_LOUIS_RATE}} = $25.95 per ton\n{{BARGE_ST_LOUIS_WOW}} = up $0.05 from the prior week\n{{BARGE_ST_LOUIS_AVG3}} = $20.73 per ton 3-year average for the same week\n{{BARGE_ST_LOUIS_ASOF}} = week of Oct. 1, 2026\n\nPOLICY ITEMS:\nP1 — band: Proposed — NOT final — \"EPA proposes 2027-28 RFS volumes\" — sources: S1\n    what changed (staff card): EPA proposed volumes.\n    posture: proposed_rule; Comment period open.; comments close {{P1_CLOCK}}\n    consequence (staff card): More soybean oil demand.\n    next: Comments close — {{P1_NEXT_DATE}}\n\nMARKET SECTIONS (figures already printed by code):\nfund — Fund positioning (CFTC, managed money) — status current — sources: S2\n    Soybeans: {{FUND_SOYBEANS_NET}}, {{FUND_SOYBEANS_WOW}}; {{FUND_SOYBEANS_PCT52}} ({{FUND_SOYBEANS_ASOF}}) [S2]\n    Soybean meal: not available this cycle.\n    Soybean oil: not available this cycle.\n\noilShare — Oil share of crush — status current — sources: S3\n    Soybean oil's share of crush product value: {{OILSHARE_PCT}}, {{OILSHARE_WOW}} (as of {{OILSHARE_ASOF}}; Illinois cash soybean oil and meal, USDA AMS National Grain & Oilseed Processor Feedstuff report) [S3]\n\nratio — Soybean:corn price ratio — status current — sources: S4, S5\n    New-crop ratio, {{RATIO_CONTRACTS}}: {{RATIO_NEWCROP}} ({{RATIO_ASOF}}) [S4]\n    Context — Illinois prices received (monthly, published with a lag): {{RATIO_IOWA_MONTHLY}} for {{RATIO_IOWA_PERIOD}} [S5]\n\nbarge — Barge freight — status current — sources: S6\n    St. Louis: {{BARGE_ST_LOUIS_RATE}}, {{BARGE_ST_LOUIS_WOW}}; {{BARGE_ST_LOUIS_AVG3}} ({{BARGE_ST_LOUIS_ASOF}}) [S6]",
+      "cache_control": {
+       "type": "ephemeral"
+      }
+     }
+    ]
+   }
+  ],
+  "output_config": {
+   "effort": "medium",
+   "format": {
+    "type": "json_schema",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "update": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "properties": {
+         "text": {
+          "type": "string",
+          "description": "ONE sentence. Any number, date or amount must be a {{TOKEN}} from the packet."
+         },
+         "cites": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          },
+          "description": "Source ids (S1, S2…) this sentence rests on. At least one."
+         }
+        },
+        "required": [
+         "text",
+         "cites"
+        ],
+        "additionalProperties": false
+       },
+       "description": "The update: 1 to 3 sentences, the most important things a member should know."
+      },
+      "policy": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "properties": {
+         "id": {
+          "type": "string",
+          "description": "The policy item id (P1, P2…) exactly as given."
+         },
+         "whatChanged": {
+          "type": "object",
+          "properties": {
+           "text": {
+            "type": "string",
+            "description": "ONE sentence. Any number, date or amount must be a {{TOKEN}} from the packet."
+           },
+           "cites": {
+            "type": "array",
+            "items": {
+             "type": "string"
+            },
+            "description": "Source ids (S1, S2…) this sentence rests on. At least one."
+           }
+          },
+          "required": [
+           "text",
+           "cites"
+          ],
+          "additionalProperties": false
+         },
+         "whereItStands": {
+          "type": "object",
+          "properties": {
+           "text": {
+            "type": "string",
+            "description": "ONE sentence. Any number, date or amount must be a {{TOKEN}} from the packet."
+           },
+           "cites": {
+            "type": "array",
+            "items": {
+             "type": "string"
+            },
+            "description": "Source ids (S1, S2…) this sentence rests on. At least one."
+           }
+          },
+          "required": [
+           "text",
+           "cites"
+          ],
+          "additionalProperties": false
+         },
+         "whatItMeans": {
+          "type": "object",
+          "properties": {
+           "text": {
+            "type": "string",
+            "description": "ONE sentence. Any number, date or amount must be a {{TOKEN}} from the packet."
+           },
+           "cites": {
+            "type": "array",
+            "items": {
+             "type": "string"
+            },
+            "description": "Source ids (S1, S2…) this sentence rests on. At least one."
+           }
+          },
+          "required": [
+           "text",
+           "cites"
+          ],
+          "additionalProperties": false
+         },
+         "next": {
+          "type": "object",
+          "properties": {
+           "text": {
+            "type": "string",
+            "description": "ONE sentence. Any number, date or amount must be a {{TOKEN}} from the packet."
+           },
+           "cites": {
+            "type": "array",
+            "items": {
+             "type": "string"
+            },
+            "description": "Source ids (S1, S2…) this sentence rests on. At least one."
+           }
+          },
+          "required": [
+           "text",
+           "cites"
+          ],
+          "additionalProperties": false
+         }
+        },
+        "required": [
+         "id",
+         "whatChanged",
+         "whereItStands",
+         "whatItMeans",
+         "next"
+        ],
+        "additionalProperties": false
+       }
+      },
+      "markets": {
+       "type": "object",
+       "properties": {
+        "fund": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "properties": {
+           "text": {
+            "type": "string",
+            "description": "ONE sentence. Any number, date or amount must be a {{TOKEN}} from the packet."
+           },
+           "cites": {
+            "type": "array",
+            "items": {
+             "type": "string"
+            },
+            "description": "Source ids (S1, S2…) this sentence rests on. At least one."
+           }
+          },
+          "required": [
+           "text",
+           "cites"
+          ],
+          "additionalProperties": false
+         }
+        },
+        "oilShare": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "properties": {
+           "text": {
+            "type": "string",
+            "description": "ONE sentence. Any number, date or amount must be a {{TOKEN}} from the packet."
+           },
+           "cites": {
+            "type": "array",
+            "items": {
+             "type": "string"
+            },
+            "description": "Source ids (S1, S2…) this sentence rests on. At least one."
+           }
+          },
+          "required": [
+           "text",
+           "cites"
+          ],
+          "additionalProperties": false
+         }
+        },
+        "ratio": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "properties": {
+           "text": {
+            "type": "string",
+            "description": "ONE sentence. Any number, date or amount must be a {{TOKEN}} from the packet."
+           },
+           "cites": {
+            "type": "array",
+            "items": {
+             "type": "string"
+            },
+            "description": "Source ids (S1, S2…) this sentence rests on. At least one."
+           }
+          },
+          "required": [
+           "text",
+           "cites"
+          ],
+          "additionalProperties": false
+         }
+        },
+        "barge": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "properties": {
+           "text": {
+            "type": "string",
+            "description": "ONE sentence. Any number, date or amount must be a {{TOKEN}} from the packet."
+           },
+           "cites": {
+            "type": "array",
+            "items": {
+             "type": "string"
+            },
+            "description": "Source ids (S1, S2…) this sentence rests on. At least one."
+           }
+          },
+          "required": [
+           "text",
+           "cites"
+          ],
+          "additionalProperties": false
+         }
+        }
+       },
+       "required": [
+        "fund",
+        "oilShare",
+        "ratio",
+        "barge"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "required": [
+      "update",
+      "policy",
+      "markets"
+     ],
+     "additionalProperties": false
+    }
+   }
+  },
+  "thinking": {
+   "type": "adaptive"
+  },
+  "max_tokens": 6000
+ },
+ {
+  "label": "member",
+  "model": "claude-opus-5-5",
+  "system": [
+   {
+    "type": "text",
+    "text": "You are the adversarial reviewer for the ILSoy Member Brief, a member-facing publication of the Illinois Soybean Association. You check a DRAFT against its EVIDENCE PACKET and nothing else — you have no other knowledge for this task and no web access.\n\nYou may only REMOVE or DOWNGRADE. You may never add, rewrite or soften wording.\n\nFor every numbered sentence decide:\n- \"keep\" — every claim in it is directly supported by the sources it cites, and nothing overstates certainty.\n- \"delete\" — any claim is not supported by its cited sources, overstates certainty, reads as advice or a price prediction, or implies a decision that has not happened.\nWhen in doubt, delete. A deleted sentence costs a little clarity; an unsupported sentence sent under ILSoy's name costs trust.\n\nFor every policy item decide its band:\n- \"keep\" — the band matches what the cited sources establish.\n- \"downgrade\" — the sources do not establish the band; give the band they DO support (\"contested\", \"proposed\" or \"speculative\"). You may never raise a band.\n\nGive a one-line reason for every delete and downgrade."
+   }
+  ],
+  "messages": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "text",
+      "text": "EDITION: ILSoy Member Brief for Oct. 7, 2026, covering Oct. 5, 2026 through Oct. 6, 2026.\n\nSOURCES:\nS1 [primary source] Federal Register — Renewable Fuel Standard: 2027-2028 volumes (proposed rule) (2026-10-06)\n    text: Renewable Fuel Standard: 2027-2028 volumes (proposed rule) EPA proposes RVOs for biomass-based diesel. Comments due Nov. 17, 2026.\nS2 [primary source] U.S. Commodity Futures Trading Commission — CFTC Commitments of Traders (disaggregated, futures only) — Soybeans, managed money (2026-09-29)\n    text: Soybeans managed money net 87100 contracts, week ending 2026-09-29\nS3 [primary source] USDA Agricultural Marketing Service — USDA AMS National Grain and Oilseed Processor Feedstuff report (3511) — Illinois soybean oil and meal (2026-10-02)\n    text: oil share 44.3% as of 2026-10-02\nS4 [exchange of record] CME Group — CME Group daily settlements — November 2026 soybeans (ZS) and December 2026 corn (ZC) (2026-10-06)\n    text: ratio 2.47 on 2026-10-06\nS5 [primary source] USDA National Agricultural Statistics Service — USDA NASS Agricultural Prices — Illinois soybean and corn prices received (2026-08)\n    text: Illinois ratio 2.50 for 2026-08\nS6 [primary source] USDA Agricultural Marketing Service (Ag Transport) — USDA AMS Grain Transportation Report — downbound barge freight, St. Louis (2026-10-01)\n    text: St. Louis $25.95 per ton 2026-10-01\nS7 [agency release] USDA — USDA release calendar — October WASDE (2026-10-09)\n    text: October WASDE 2026-10-09\nS8 [agency release] CFTC — CFTC release calendar — CFTC Commitments of Traders (2026-10-09)\n    text: CFTC Commitments of Traders 2026-10-09\n\nTOKENS:\n{{P1_CLOCK}} = Nov. 17, 2026\n{{P1_NEXT_DATE}} = Nov. 17, 2026\n{{FUND_SOYBEANS_NET}} = net long 87,100 contracts\n{{FUND_SOYBEANS_WOW}} = up 900 contracts from the prior week\n{{FUND_SOYBEANS_PCT52}} = 100th percentile of the past 52 weeks\n{{FUND_SOYBEANS_ASOF}} = week ending Sept. 29, 2026\n{{OILSHARE_PCT}} = 44.3%\n{{OILSHARE_WOW}} = unchanged from a week earlier\n{{OILSHARE_ASOF}} = Oct. 2, 2026\n{{OILSHARE_BASIS}} = Illinois cash soybean oil and meal, USDA AMS National Grain & Oilseed Processor Feedstuff report\n{{RATIO_NEWCROP}} = 2.47\n{{RATIO_CONTRACTS}} = November 2026 soybeans ÷ December 2026 corn futures\n{{RATIO_ASOF}} = settlement of Oct. 6, 2026\n{{RATIO_IOWA_MONTHLY}} = 2.50\n{{RATIO_IOWA_PERIOD}} = August 2026\n{{BARGE_ST_LOUIS_RATE}} = $25.95 per ton\n{{BARGE_ST_LOUIS_WOW}} = up $0.05 from the prior week\n{{BARGE_ST_LOUIS_AVG3}} = $20.73 per ton 3-year average for the same week\n{{BARGE_ST_LOUIS_ASOF}} = week of Oct. 1, 2026\n\nPOLICY ITEMS:\nP1 — band: Proposed — NOT final — \"EPA proposes 2027-28 RFS volumes\" — sources: S1\n    what changed (staff card): EPA proposed volumes.\n    posture: proposed_rule; Comment period open.; comments close {{P1_CLOCK}}\n    consequence (staff card): More soybean oil demand.\n    next: Comments close — {{P1_NEXT_DATE}}\n\nMARKET SECTIONS (figures already printed by code):\nfund — Fund positioning (CFTC, managed money) — status current — sources: S2\n    Soybeans: {{FUND_SOYBEANS_NET}}, {{FUND_SOYBEANS_WOW}}; {{FUND_SOYBEANS_PCT52}} ({{FUND_SOYBEANS_ASOF}}) [S2]\n    Soybean meal: not available this cycle.\n    Soybean oil: not available this cycle.\n\noilShare — Oil share of crush — status current — sources: S3\n    Soybean oil's share of crush product value: {{OILSHARE_PCT}}, {{OILSHARE_WOW}} (as of {{OILSHARE_ASOF}}; Illinois cash soybean oil and meal, USDA AMS National Grain & Oilseed Processor Feedstuff report) [S3]\n\nratio — Soybean:corn price ratio — status current — sources: S4, S5\n    New-crop ratio, {{RATIO_CONTRACTS}}: {{RATIO_NEWCROP}} ({{RATIO_ASOF}}) [S4]\n    Context — Illinois prices received (monthly, published with a lag): {{RATIO_IOWA_MONTHLY}} for {{RATIO_IOWA_PERIOD}} [S5]\n\nbarge — Barge freight — status current — sources: S6\n    St. Louis: {{BARGE_ST_LOUIS_RATE}}, {{BARGE_ST_LOUIS_WOW}}; {{BARGE_ST_LOUIS_AVG3}} ({{BARGE_ST_LOUIS_ASOF}}) [S6]",
+      "cache_control": {
+       "type": "ephemeral"
+      }
+     },
+     {
+      "type": "text",
+      "text": "DRAFT SENTENCES TO REVIEW (tokens shown as their values):\nU1 [cites S1] Policy activity continued this week.\nP1.whatChanged [cites S1] The agency acted on this item.\nP1.whereItStands [cites S1] It is at the stage its band shows.\nP1.whatItMeans [cites S1] It bears on soybean demand.\nP1.next [cites S1] The next step is not yet scheduled.\n\nPOLICY ITEM BANDS:\nP1: Proposed — NOT final"
+     }
+    ]
+   }
+  ],
+  "output_config": {
+   "effort": "high",
+   "format": {
+    "type": "json_schema",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "sentences": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "properties": {
+         "sid": {
+          "type": "string"
+         },
+         "action": {
+          "type": "string",
+          "enum": [
+           "keep",
+           "delete"
+          ]
+         },
+         "reason": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "sid",
+         "action",
+         "reason"
+        ],
+        "additionalProperties": false
+       }
+      },
+      "bands": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "properties": {
+         "id": {
+          "type": "string"
+         },
+         "action": {
+          "type": "string",
+          "enum": [
+           "keep",
+           "downgrade"
+          ]
+         },
+         "to": {
+          "type": "string",
+          "enum": [
+           "contested",
+           "proposed",
+           "speculative",
+           ""
+          ]
+         },
+         "reason": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "id",
+         "action",
+         "to",
+         "reason"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     "required": [
+      "sentences",
+      "bands"
+     ],
+     "additionalProperties": false
+    }
+   }
+  },
+  "thinking": {
+   "type": "adaptive"
+  },
+  "max_tokens": 8000
+ }
+]

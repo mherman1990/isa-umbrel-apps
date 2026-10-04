@@ -9,18 +9,19 @@
 // dates; it returns rows newest-first, and d0..d4 are CUMULATIVE ("D1 or worse" = d1).
 
 import { fetchJSON } from "../util.js";
+import { homeRegion } from "../pack.js";
 
 export const id = "drought_monitor";
 export const label = "U.S. Drought Monitor";
 
 const BASE = "https://usdmdataservices.unl.edu/api/StateStatistics/GetDroughtSeverityStatisticsByAreaPercent";
-const IOWA_FIPS = "19";
+const HOME = homeRegion(); // the pack's state
 const START = "1/1/2015";
 
 const mdy = (d) => `${d.getUTCMonth() + 1}/${d.getUTCDate()}/${d.getUTCFullYear()}`;
 
-async function fetchIowa() {
-  const url = `${BASE}?aoi=${IOWA_FIPS}&startdate=${START}&enddate=${mdy(new Date())}&statisticsType=1`;
+async function fetchHome() {
+  const url = `${BASE}?aoi=${HOME.fips}&startdate=${START}&enddate=${mdy(new Date())}&statisticsType=1`;
   const rows = await fetchJSON(url, { headers: { Accept: "application/json" } });
   return (rows ?? [])
     .filter((r) => r.validStart && r.d0 != null)
@@ -31,7 +32,7 @@ async function fetchIowa() {
 export async function fetchItems() {
   let pts;
   try {
-    pts = await fetchIowa();
+    pts = await fetchHome();
   } catch {
     return []; // fail-soft
   }
@@ -42,11 +43,11 @@ export async function fetchItems() {
       uid: `${id}:iowa:${last.period}`,
       sourceId: id,
       sourceLabel: label,
-      title: `Iowa drought — ${last.d1.toFixed(0)}% of the state in drought (D1+), ${last.d0.toFixed(0)}% abnormally dry or worse (week of ${last.period})`,
-      summary: "U.S. Drought Monitor — share of Iowa land area by drought category (cumulative).",
-      url: "https://droughtmonitor.unl.edu/CurrentMap/StateDroughtMonitor.aspx?IA",
+      title: `${HOME.name} drought — ${last.d1.toFixed(0)}% of the state in drought (D1+), ${last.d0.toFixed(0)}% abnormally dry or worse (week of ${last.period})`,
+      summary: `U.S. Drought Monitor — share of ${HOME.name} land area by drought category (cumulative).`,
+      url: `https://droughtmonitor.unl.edu/CurrentMap/StateDroughtMonitor.aspx?${HOME.key.toUpperCase()}`,
       publishedAt: new Date(last.period).toISOString(),
-      jurisdiction: "Iowa",
+      jurisdiction: HOME.name,
       docType: "data",
       raw: { metric: "drought", d0: last.d0, d1: last.d1, period: last.period },
     },
@@ -57,13 +58,13 @@ export async function fetchItems() {
 export async function fetchSeries() {
   let pts;
   try {
-    pts = await fetchIowa();
+    pts = await fetchHome();
   } catch {
     return [];
   }
   if (!pts.length) return [];
   return [
-    { series: `${id}:ia:d1`, meta: { label: "Iowa % in drought (D1+)", unit: "% area", category: "drought" }, points: pts.map((p) => ({ period: p.period, value: p.d1 })) },
-    { series: `${id}:ia:d0`, meta: { label: "Iowa % abnormally dry+ (D0+)", unit: "% area", category: "drought" }, points: pts.map((p) => ({ period: p.period, value: p.d0 })) },
+    { series: `${id}:${HOME.key}:d1`, meta: { label: `${HOME.name} % in drought (D1+)`, unit: "% area", category: "drought" }, points: pts.map((p) => ({ period: p.period, value: p.d1 })) },
+    { series: `${id}:${HOME.key}:d0`, meta: { label: `${HOME.name} % abnormally dry+ (D0+)`, unit: "% area", category: "drought" }, points: pts.map((p) => ({ period: p.period, value: p.d0 })) },
   ];
 }

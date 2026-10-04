@@ -1,4 +1,4 @@
-/* bbmap.js — renders The Bean Brief's Iowa Political Map with Leaflet.
+/* bbmap.js — renders The Bean Brief's state Political Map (state config from /assets/geo/map.json) with Leaflet.
  *
  * The /map page emits a #ia-map container and a <script id="mapdata"> JSON blob with the
  * candidate/incumbent join { house, senate, congress, statewide }, each district keyed by number
@@ -33,6 +33,14 @@
   function person(p) {
     return pdot(p.party) + " " + esc(p.name) + " (" + esc(p.party || "?") + ")";
   }
+
+  var CFG = {
+    stateAlpha: "",
+    center: [39.8, -98.6],
+    zoom: 5,
+    minZoom: 4,
+    labels: { house: "State House", senate: "State Senate", facilities: "🌱 Crush &amp; biodiesel plants" },
+  };
 
   function getData() {
     var el = document.getElementById("mapdata");
@@ -154,7 +162,7 @@
     var g = L.layerGroup();
     (facs || []).forEach(function (f) {
       if (typeof f.lat !== "number" || typeof f.lng !== "number") return;
-      if (f.state !== "IA") return; // Iowa-only on the map; the full national crush list stays in facilities.json
+      if (f.state !== CFG.stateAlpha) return; // home state only on the map; the full national crush list stays in facilities.json
       var types = [];
       if (f.crush) types.push("Soybean crush");
       if (f.biodiesel) types.push("Biodiesel");
@@ -203,7 +211,7 @@
     if (!box) return;
     var data = getData();
 
-    var map = L.map(box, { center: [42.02, -93.55], zoom: 7, minZoom: 6, maxZoom: 14, scrollWheelZoom: true });
+    var map = L.map(box, { center: CFG.center, zoom: CFG.zoom, minZoom: CFG.minZoom, maxZoom: 14, scrollWheelZoom: true });
 
     L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
       subdomains: "abcd",
@@ -251,8 +259,8 @@
 
         L.control
           .layers(
-            { "Iowa House": house, "Iowa Senate": senate, "U.S. Congress": congress },
-            { "HUC8 Watersheds": huc8, "🌱 Iowa crush &amp; biodiesel plants": facilities },
+            (function () { var o = {}; o[CFG.labels.house] = house; o[CFG.labels.senate] = senate; o["U.S. Congress"] = congress; return o; })(),
+            (function () { var o = { "HUC8 Watersheds": huc8 }; o[CFG.labels.facilities] = facilities; return o; })(),
             { collapsed: false }
           )
           .addTo(map);
@@ -273,6 +281,13 @@
       });
   }
 
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
-  else init();
+  // State config (center, plant filter, layer labels) comes from the server's state pack.
+  function boot() {
+    loadJSON("/assets/geo/map.json")
+      .then(function (c) { CFG = c; })
+      .catch(function () { /* keep the neutral defaults */ })
+      .then(init);
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
+  else boot();
 })();

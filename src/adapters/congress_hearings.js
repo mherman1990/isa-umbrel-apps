@@ -18,6 +18,7 @@
 // Agriculture subcommittee code so the defense/labor/etc. subcommittees don't leak in.
 
 import { fetchJSON, mapPool, keywordRegex } from "../util.js";
+import { pack } from "../pack.js";
 
 export const id = "congress_hearings";
 export const label = "Congressional hearings";
@@ -30,20 +31,23 @@ function currentCongress(date = new Date()) {
 }
 
 // The whitelist. `prefix` matches a committee family (all its subcommittees share the 4-char
-// chamber+committee prefix); `exact` matches one subcommittee systemCode. `iowa` = Iowa delegation
-// members on that committee (for flagging in the feed).
+// chamber+committee prefix); `exact` matches one subcommittee systemCode. `delegation` = the state's own
+// members of Congress on that committee (for flagging in the feed), from the state pack's
+// legislature.congressionalDelegation keyed by the same code — none listed, no annotation.
+const DELEGATION = pack().legislature?.congressionalDelegation ?? {};
+const STATE_NAME = pack().identity.stateName;
 const COMMITTEES = [
-  { prefix: "hsag", tier: "A", name: "House Agriculture", iowa: ["Rep. Nunn", "Rep. Feenstra"] },
-  { prefix: "ssaf", tier: "A", name: "Senate Agriculture", iowa: ["Sen. Grassley", "Sen. Ernst"] },
-  { exact: "hsap01", tier: "A", name: "House Appropriations — Agriculture", iowa: ["Rep. Hinson"] },
-  { exact: "ssap01", tier: "A", name: "Senate Appropriations — Agriculture", iowa: [] },
-  { prefix: "ssev", tier: "A", name: "Senate Environment & Public Works", iowa: [] },
-  { prefix: "hswm", tier: "B", name: "House Ways & Means", iowa: ["Rep. Feenstra"] },
-  { prefix: "ssfi", tier: "B", name: "Senate Finance", iowa: ["Sen. Grassley"] },
-  { prefix: "hsif", tier: "B", name: "House Energy & Commerce", iowa: ["Rep. Miller-Meeks"] },
-  { prefix: "hspw", tier: "B", name: "House Transportation & Infrastructure", iowa: [] },
-  { prefix: "sscm", tier: "B", name: "Senate Commerce", iowa: [] },
-];
+  { prefix: "hsag", tier: "A", name: "House Agriculture" },
+  { prefix: "ssaf", tier: "A", name: "Senate Agriculture" },
+  { exact: "hsap01", tier: "A", name: "House Appropriations — Agriculture" },
+  { exact: "ssap01", tier: "A", name: "Senate Appropriations — Agriculture" },
+  { prefix: "ssev", tier: "A", name: "Senate Environment & Public Works" },
+  { prefix: "hswm", tier: "B", name: "House Ways & Means" },
+  { prefix: "ssfi", tier: "B", name: "Senate Finance" },
+  { prefix: "hsif", tier: "B", name: "House Energy & Commerce" },
+  { prefix: "hspw", tier: "B", name: "House Transportation & Infrastructure" },
+  { prefix: "sscm", tier: "B", name: "Senate Commerce" },
+].map((c) => ({ ...c, delegation: DELEGATION[c.exact ?? c.prefix] ?? [] }));
 
 // Best whitelist match for a systemCode (exact subcommittee wins; else 4-char family prefix).
 function matchCommittee(systemCode) {
@@ -153,7 +157,7 @@ export async function fetchItems({ sinceISO, topics = [], sourceConfig = {}, env
       const summary = [
         `${typeLabel}${statusNote} — ${match.name}`,
         `When: ${dateISO.slice(0, 16).replace("T", " ")} UTC${loc ? ` · ${loc}` : ""}`,
-        match.iowa.length ? `Iowa delegation on this committee: ${match.iowa.join(", ")}` : "",
+        match.delegation.length ? `${STATE_NAME} delegation on this committee: ${match.delegation.join(", ")}` : "",
         witnesses.length ? `Witnesses: ${witnesses.join("; ")}` : "",
         billText.trim() ? `Related bills: ${billText.trim().slice(0, 300)}` : "",
       ]
@@ -177,7 +181,7 @@ export async function fetchItems({ sinceISO, topics = [], sourceConfig = {}, env
           committeeTier: match.tier,
           meetingStatus: status,
           meetingDate: dateISO,
-          iowaMembers: match.iowa,
+          delegationMembers: match.delegation,
           hearingType: typeLabel,
           relatedBills: bills,
         },

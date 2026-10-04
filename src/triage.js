@@ -7,6 +7,9 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import * as store from "./store.js";
+import { voice } from "./pack.js";
+// State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
+const V = voice();
 
 const BATCH_SIZE = 15;
 
@@ -17,16 +20,16 @@ const BATCH_SIZE = 15;
 // nothing is thrown away, it's just one click further from the daily read.
 const TIERS = ["must_read", "worth_knowing", "background"];
 
-const SYSTEM_PROMPT = `You are triaging government documents and political items for relevance to Iowa soybean farmers and the Iowa Soybean Association's policy priorities. Each item gives you a title and, where the pipeline could retrieve it, the document's own text in "document" — READ THAT, and base your verdict and your one-line on what the document actually says, not on what the title implies. Titles in this corpus are often generic or shared verbatim between unrelated filings.
+const SYSTEM_PROMPT = `You are triaging government documents and political items for relevance to ${V.state} soybean farmers and the ${V.org}'s policy priorities. Each item gives you a title and, where the pipeline could retrieve it, the document's own text in "document" — READ THAT, and base your verdict and your one-line on what the document actually says, not on what the title implies. Titles in this corpus are often generic or shared verbatim between unrelated filings.
 
-For each item, return strict JSON: {"uid": "...", "relevant": true|false, "tier": "must_read|worth_knowing|background", "topicIds": [...], "oneLine": "...", "type": "..."} — oneLine is a one-line why-it-matters for Iowa soy; type is your best guess of the item kind, one of: news|statement|bill_action|vote|event|fundraiser|rule|other.
+For each item, return strict JSON: {"uid": "...", "relevant": true|false, "tier": "must_read|worth_knowing|background", "topicIds": [...], "oneLine": "...", "type": "..."} — oneLine is a one-line why-it-matters for ${V.state} soy; type is your best guess of the item kind, one of: news|statement|bill_action|vote|event|fundraiser|rule|other.
 
 Write the oneLine so it DISTINGUISHES this document: name the specific substance (the active ingredient, the commodity, the country, the program, the dollar figure) rather than restating the title's category. If two filings share a title, their one-lines must not be interchangeable. When no document text was available, say what is unknown instead of inventing significance — "notice title only; substance not retrieved" is a more useful verdict than a confident guess.
 
 Grade "tier" strictly — it decides what reaches the daily read:
-- "must_read": ISA would act, comment, or brief leadership on this. A rule/docket/bill that directly changes what Iowa soybean farmers may do, what they are paid, or what they pay; an open comment period on such a rule; a trade or biofuel decision that moves soybean demand.
+- "must_read": ${V.short} would act, comment, or brief leadership on this. A rule/docket/bill that directly changes what ${V.state} soybean farmers may do, what they are paid, or what they pay; an open comment period on such a rule; a trade or biofuel decision that moves soybean demand.
 - "worth_knowing": real but not actionable this week — a related development, an early-stage or out-of-state proceeding, a study or program announcement worth being aware of.
-- "background": procedural or tangential. Meeting notices, routine reauthorizations, boilerplate, items that merely MENTION agriculture or a watchlist term without bearing on Iowa soy, and anything whose relevance you'd have to strain to explain.
+- "background": procedural or tangential. Meeting notices, routine reauthorizations, boilerplate, items that merely MENTION agriculture or a watchlist term without bearing on ${V.state} soy, and anything whose relevance you'd have to strain to explain.
 Most items are NOT must_read. If an item is only relevant because a keyword appeared in it, that is "background". Respond ONLY with a JSON array covering every input item, no other text.`;
 
 /** Human 👍/👎 corrections from the web UI become few-shot guidance for future triage. */
@@ -129,7 +132,7 @@ export async function triageItems(kept, topics, env) {
           },
         ],
       });
-      store.recordUsage(model, "triage", response.usage.input_tokens, response.usage.output_tokens);
+      store.recordUsage(model, "triage", response.usage.input_tokens, response.usage.output_tokens, response.usage, response.stop_reason);
       const text = response.content.find((b) => b.type === "text")?.text ?? "";
       parsed = parseVerdicts(text);
       if (parsed === null && attempt === 1) {

@@ -7,6 +7,7 @@
 
 import { fetchJSON, sleep } from "../util.js";
 import * as store from "../store.js";
+import { pack } from "../pack.js";
 
 export const id = "openstates";
 export const label = "OpenStates (state legislators)";
@@ -26,7 +27,14 @@ function normParty(p) {
  * Seed / refresh IA legislators.
  * @returns {{ upserted: number, pages: number }}
  */
-export async function seed({ env = process.env, jurisdiction = "Iowa", maxPages = 8 } = {}) {
+const CHAMBERS = {
+  upper: `${pack().identity.stateName} Senate`,
+  lower: `${pack().identity.stateName} House`,
+  legislature: `${pack().identity.stateName} Legislature`,
+  ...pack().legislature.chamberNames,
+};
+
+export async function seed({ env = process.env, jurisdiction = pack().legislature.openstatesJurisdiction, maxPages = 8 } = {}) {
   if (!env.OPENSTATES_API_KEY) {
     throw new Error("OPENSTATES_API_KEY is not set in .env (free key: https://open.pluralpolicy.com)");
   }
@@ -44,7 +52,7 @@ export async function seed({ env = process.env, jurisdiction = "Iowa", maxPages 
       const role = p.current_role ?? {};
       const chamber = role.org_classification; // 'upper' | 'lower'
       const office =
-        chamber === "upper" ? "Iowa Senate" : chamber === "lower" ? "Iowa House" : role.title ?? "Iowa Legislature";
+        chamber === "upper" ? CHAMBERS.upper : chamber === "lower" ? CHAMBERS.lower : role.title ?? CHAMBERS.legislature;
       const entityId = `openstates:${p.id}`;
       store.upsertEntity({
         id: entityId,

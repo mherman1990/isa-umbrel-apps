@@ -5,6 +5,7 @@
 
 import { fetchJSON } from "../util.js";
 import * as store from "../store.js";
+import { pack } from "../pack.js";
 
 export const id = "fec";
 export const label = "FEC (federal candidates)";
@@ -22,11 +23,12 @@ function normParty(p) {
 }
 
 export async function seed({ env = process.env, cycle = 2026 } = {}) {
+  const ST = pack().identity.stateAlpha;
   if (!env.FEC_API_KEY) {
     throw new Error("FEC_API_KEY is not set in .env (free key: https://api.data.gov/signup/)");
   }
   const url =
-    `${BASE}/candidates/?api_key=${env.FEC_API_KEY}&state=IA&cycle=${cycle}` +
+    `${BASE}/candidates/?api_key=${env.FEC_API_KEY}&state=${ST}&cycle=${cycle}` +
     `&candidate_status=C&per_page=100&sort=name`;
   const data = await fetchJSON(url);
   let upserted = 0;
@@ -38,7 +40,7 @@ export async function seed({ env = process.env, cycle = 2026 } = {}) {
       full_name: c.name, // FEC returns "LAST, FIRST" — left as-is; refine later if desired
       party: normParty(c.party),
       office: OFFICE[c.office] ?? c.office_full ?? "Federal",
-      district: c.office === "H" && c.district ? `IA-${String(c.district).padStart(2, "0")}` : "IA",
+      district: c.office === "H" && c.district ? `${ST}-${String(c.district).padStart(2, "0")}` : ST,
       level: "federal",
       status: c.candidate_status === "N" ? "inactive" : "active",
       external_ids: { fec_id: c.candidate_id },

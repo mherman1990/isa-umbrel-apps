@@ -1,0 +1,67 @@
+{
+ "usda_nass": [
+  "https://quickstats.nass.usda.gov/api/api_GET/?key=K&format=JSON&year__GE=2017&commodity_desc=CORN&statisticcat_desc=PRICE+RECEIVED&agg_level_desc=NATIONAL&unit_desc=%24+%2F+BU",
+  "https://quickstats.nass.usda.gov/api/api_GET/?key=K&format=JSON&year__GE=2017&commodity_desc=CORN&statisticcat_desc=PRICE+RECEIVED&state_alpha=IL&unit_desc=%24+%2F+BU",
+  "https://quickstats.nass.usda.gov/api/api_GET/?key=K&format=JSON&year__GE=2017&commodity_desc=OIL&agg_level_desc=NATIONAL&short_desc=OIL%2C+SOYBEAN%2C+CRUDE+-+PRODUCTION%2C+MEASURED+IN+LB",
+  "https://quickstats.nass.usda.gov/api/api_GET/?key=K&format=JSON&year__GE=2017&commodity_desc=OIL&agg_level_desc=NATIONAL&short_desc=OIL%2C+SOYBEAN%2C+ONSITE+%26+OFFSITE%2C+CRUDE+-+STOCKS%2C+MEASURED+IN+LB",
+  "https://quickstats.nass.usda.gov/api/api_GET/?key=K&format=JSON&year__GE=2017&commodity_desc=SOYBEANS&statisticcat_desc=CONDITION&agg_level_desc=NATIONAL",
+  "https://quickstats.nass.usda.gov/api/api_GET/?key=K&format=JSON&year__GE=2017&commodity_desc=SOYBEANS&statisticcat_desc=CONDITION&state_alpha=IL",
+  "https://quickstats.nass.usda.gov/api/api_GET/?key=K&format=JSON&year__GE=2017&commodity_desc=SOYBEANS&statisticcat_desc=CRUSHED&agg_level_desc=NATIONAL",
+  "https://quickstats.nass.usda.gov/api/api_GET/?key=K&format=JSON&year__GE=2017&commodity_desc=SOYBEANS&statisticcat_desc=PRICE+RECEIVED&agg_level_desc=NATIONAL&unit_desc=%24+%2F+BU",
+  "https://quickstats.nass.usda.gov/api/api_GET/?key=K&format=JSON&year__GE=2017&commodity_desc=SOYBEANS&statisticcat_desc=PRICE+RECEIVED&state_alpha=IL&unit_desc=%24+%2F+BU",
+  "https://quickstats.nass.usda.gov/api/api_GET/?key=K&format=JSON&year__GE=2017&commodity_desc=SOYBEANS&statisticcat_desc=STOCKS&agg_level_desc=NATIONAL&unit_desc=BU",
+  "https://quickstats.nass.usda.gov/api/api_GET/?key=K&format=JSON&year__GE=2025&commodity_desc=SOYBEANS&agg_level_desc=NATIONAL&statisticcat_desc=PRODUCTION&unit_desc=BU",
+  "https://quickstats.nass.usda.gov/api/api_GET/?key=K&format=JSON&year__GE=2025&commodity_desc=SOYBEANS&agg_level_desc=NATIONAL&statisticcat_desc=STOCKS&unit_desc=BU",
+  "https://quickstats.nass.usda.gov/api/api_GET/?key=K&format=JSON&year__GE=2025&commodity_desc=SOYBEANS&state_alpha=IL&statisticcat_desc=PRICE+RECEIVED",
+  "https://quickstats.nass.usda.gov/api/api_GET/?key=K&format=JSON&year__GE=2026&commodity_desc=SOYBEANS&statisticcat_desc=CONDITION&state_alpha=IL"
+ ],
+ "usda_ams": [
+  "https://marsapi.ams.usda.gov/services/v1.2/reports/3511/Report%20Detail?q=report_date=04%2F10%2F2026%3A10%2F07%2F2026"
+ ],
+ "drought_monitor": [
+  "https://usdmdataservices.unl.edu/api/StateStatistics/GetDroughtSeverityStatisticsByAreaPercent?aoi=17&startdate=1/1/2015&enddate=10/7/2026&statisticsType=1"
+ ],
+ "cropcasma": [
+  "https://cloud.csiss.gmu.edu/smap_service?service=WPS&version=1.0.0&request=Execute&identifier=GetStatByFips&DataInputs=layer=SMAP-9KM-WEEKLY-SUB_2026_35_2026.08.24_2026.08.30_AVERAGE;minValue=0;maxValue=1;step=0.02;fips=17",
+  "https://cloud.csiss.gmu.edu/smap_service?service=WPS&version=1.0.0&request=Execute&identifier=GetStatByFips&DataInputs=layer=SMAP-9KM-WEEKLY-SUB_2026_36_2026.08.31_2026.09.06_AVERAGE;minValue=0;maxValue=1;step=0.02;fips=17",
+  "https://cloud.csiss.gmu.edu/smap_service?service=WPS&version=1.0.0&request=Execute&identifier=GetStatByFips&DataInputs=layer=SMAP-9KM-WEEKLY-SUB_2026_37_2026.09.07_2026.09.13_AVERAGE;minValue=0;maxValue=1;step=0.02;fips=17",
+  "https://cloud.csiss.gmu.edu/smap_service?service=WPS&version=1.0.0&request=Execute&identifier=GetStatByFips&DataInputs=layer=SMAP-9KM-WEEKLY-SUB_2026_38_2026.09.14_2026.09.20_AVERAGE;minValue=0;maxValue=1;step=0.02;fips=17",
+  "https://cloud.csiss.gmu.edu/smap_service?service=WPS&version=1.0.0&request=Execute&identifier=GetStatByFips&DataInputs=layer=SMAP-9KM-WEEKLY-SUB_2026_39_2026.09.21_2026.09.27_AVERAGE;minValue=0;maxValue=1;step=0.02;fips=17",
+  "https://cloud.csiss.gmu.edu/smap_service?service=WPS&version=1.0.0&request=Execute&identifier=GetStatByFips&DataInputs=layer=SMAP-9KM-WEEKLY-SUB_2026_40_2026.09.28_2026.10.04_AVERAGE;minValue=0;maxValue=1;step=0.02;fips=17"
+ ],
+ "vegscape": [
+  "https://nassgeo.csiss.gmu.edu/VegScape/CheckDataAvailability"
+ ],
+ "open_meteo": [
+  "https://api.open-meteo.com/v1/forecast?latitude=-12.55&longitude=-55.71&daily=precipitation_sum,temperature_2m_max&past_days=14&forecast_days=7&timezone=auto",
+  "https://api.open-meteo.com/v1/forecast?latitude=-28.26&longitude=-52.41&daily=precipitation_sum,temperature_2m_max&past_days=14&forecast_days=7&timezone=auto",
+  "https://api.open-meteo.com/v1/forecast?latitude=-33.89&longitude=-60.57&daily=precipitation_sum,temperature_2m_max&past_days=14&forecast_days=7&timezone=auto",
+  "https://archive-api.open-meteo.com/v1/archive?latitude=-12.55&longitude=-55.71&start_date=2026-08-20&end_date=2026-10-01&daily=precipitation_sum,temperature_2m_max&timezone=auto",
+  "https://archive-api.open-meteo.com/v1/archive?latitude=-28.26&longitude=-52.41&start_date=2026-08-20&end_date=2026-10-01&daily=precipitation_sum,temperature_2m_max&timezone=auto",
+  "https://archive-api.open-meteo.com/v1/archive?latitude=-33.89&longitude=-60.57&start_date=2026-08-20&end_date=2026-10-01&daily=precipitation_sum,temperature_2m_max&timezone=auto"
+ ],
+ "legiscan": [
+  "https://api.legiscan.com/?key=K&op=getMasterList&state=IL"
+ ],
+ "barchart": [
+  "https://ondemand.websol.barchart.com/getQuote.json?apikey=K&symbols=ZS*1%2CZS*2%2CZS*3%2CZS*4&fields=lastPrice,tradeTimestamp",
+  "https://ondemand.websol.barchart.com/getQuote.json?apikey=K&symbols=ZS*1&fields=lastPrice"
+ ],
+ "fas_export_sales": [
+  "https://api.fas.usda.gov/api/esr/datareleasedates"
+ ],
+ "agtransport": [
+  "https://agtransport.usda.gov/resource/7spn-fbua.json?$limit=1",
+  "https://agtransport.usda.gov/resource/7spn-fbua.json?$query=SELECT%20date%2C%20avg(price_per_ton)%20AS%20v%20WHERE%20date%20%3E%3D%20'2023-01-01T00%3A00%3A00'%20GROUP%20BY%20date%20ORDER%20BY%20date%20LIMIT%205000",
+  "https://agtransport.usda.gov/resource/sruw-w49i.json?$query=SELECT%20date%2C%20sum(mt)%20AS%20v%20WHERE%20grain%3D'SOYBEANS'%20AND%20date%20%3E%3D%20'2023-01-01T00%3A00%3A00'%20GROUP%20BY%20date%20ORDER%20BY%20date%20LIMIT%205000",
+  "https://agtransport.usda.gov/resource/wnn7-29tu.json?$query=SELECT%20date%2C%20sum(netsalescmy)%20AS%20v%20WHERE%20commodity%3D'Soybeans'%20AND%20date%20%3E%3D%20'2023-01-01T00%3A00%3A00'%20GROUP%20BY%20date%20ORDER%20BY%20date%20LIMIT%205000"
+ ],
+ "cftc": [
+  "https://publicreporting.cftc.gov/resource/72hh-3qpy.json?$where=cftc_contract_market_code%3D'005602'%20OR%20market_and_exchange_names%3D'SOYBEANS%20-%20CHICAGO%20BOARD%20OF%20TRADE'&$order=report_date_as_yyyy_mm_dd%20DESC&$limit=520",
+  "https://publicreporting.cftc.gov/resource/72hh-3qpy.json?$where=cftc_contract_market_code%3D'005602'%20OR%20market_and_exchange_names%3D'SOYBEANS%20-%20CHICAGO%20BOARD%20OF%20TRADE'&$order=report_date_as_yyyy_mm_dd%20DESC&$limit=60",
+  "https://publicreporting.cftc.gov/resource/72hh-3qpy.json?$where=cftc_contract_market_code%3D'007601'%20OR%20market_and_exchange_names%3D'SOYBEAN%20OIL%20-%20CHICAGO%20BOARD%20OF%20TRADE'&$order=report_date_as_yyyy_mm_dd%20DESC&$limit=520",
+  "https://publicreporting.cftc.gov/resource/72hh-3qpy.json?$where=cftc_contract_market_code%3D'007601'%20OR%20market_and_exchange_names%3D'SOYBEAN%20OIL%20-%20CHICAGO%20BOARD%20OF%20TRADE'&$order=report_date_as_yyyy_mm_dd%20DESC&$limit=60",
+  "https://publicreporting.cftc.gov/resource/72hh-3qpy.json?$where=cftc_contract_market_code%3D'026603'%20OR%20market_and_exchange_names%3D'SOYBEAN%20MEAL%20-%20CHICAGO%20BOARD%20OF%20TRADE'&$order=report_date_as_yyyy_mm_dd%20DESC&$limit=520",
+  "https://publicreporting.cftc.gov/resource/72hh-3qpy.json?$where=cftc_contract_market_code%3D'026603'%20OR%20market_and_exchange_names%3D'SOYBEAN%20MEAL%20-%20CHICAGO%20BOARD%20OF%20TRADE'&$order=report_date_as_yyyy_mm_dd%20DESC&$limit=60"
+ ]
+}

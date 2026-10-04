@@ -13,16 +13,23 @@
 // than each site doing its own arithmetic.
 
 /** Rough list prices per 1M tokens. Update if Anthropic pricing changes. */
+// ⚠️ RE-VERIFIED 2026-10-04 against Anthropic's current list prices. Sonnet 5 had been entered at the
+// Sonnet 4.6 rate ($3/$15); it is $2/$10, so every Sonnet cost the app reported before 1.39.0 — `audit`,
+// the run log, the brief's cost ceiling — was overstated by 50%.
 export const PRICES = {
   "claude-haiku-4-5": { input: 1.0, output: 5.0 },
   "claude-sonnet-4-6": { input: 3.0, output: 15.0 },
-  "claude-sonnet-5": { input: 3.0, output: 15.0 },
+  "claude-sonnet-5": { input: 2.0, output: 10.0 },
+  "claude-sonnet-5-5": { input: 2.0, output: 10.0 },
   "claude-opus-4-8": { input: 5.0, output: 25.0 },
-  // Opus 5 is priced identically to Opus 4.8, so ANALYST_MODEL can move between them as a one-line
-  // .env change with no cost difference. Listed explicitly because an unlisted model falls back to
-  // the Sonnet default below, which would under-report Opus spend by 40%.
+  // Listed explicitly because an unlisted model falls back to the Sonnet default below, which would
+  // under-report Opus spend.
   "claude-opus-5": { input: 5.0, output: 25.0 },
+  "claude-opus-5-5": { input: 4.0, output: 20.0 },
 };
+
+/** Message Batches API discount on every token (input, output, cache). */
+export const BATCH_MULTIPLIER = 0.5;
 
 /** Prompt-cache billing multipliers, applied to the model's INPUT rate. A 5-minute-TTL write costs
  *  1.25x and a read 0.1x, so a cached prefix pays for itself on the second request that hits it. */

@@ -1,0 +1,16 @@
+[
+ {
+  "label": "market_intel",
+  "model": "claude-haiku-4-5",
+  "system": "You are a grain-market analyst mining the last few days of ag newsletters and press for MARKET INTELLIGENCE that bears on soybean (and corn) price — the concrete signals a trading desk cares about. From the bodies below, extract only substantive, decision-relevant facts and group them under these headings (omit a heading if it has nothing): **Price & basis**, **Demand & crush**, **Exports & trade (China)**, **Weather & crop**, **Policy & regulatory (biofuels/45Z/RFS/tariffs)**, **Other**. One tight bullet per fact, each ending with a source+date tag in parentheses. Prefer numbers, cash bids, spreads, margins, sales figures, dates. Skip opinion, ads, boilerplate, and anything already obvious. If there's little of substance, return only the headings that apply with 1–2 bullets. No preamble — start at the first heading.",
+  "messages": [
+   {
+    "role": "user",
+    "content": "News bodies (headline — date (url) + text):\n\n[1] China books U.S. soybean cargoes — 2026-10-06 (https://www.farmprogress.com/a2)\n    Exporters reported sales to China for new-crop delivery, the first large Chinese purchase of the marketing year, according to USDA's daily reporting system, with more cargoes expected.\n\n[2] Soybean crush margins widen on renewable diesel demand — 2026-10-06 (https://www.agweb.com/a1)\n    Crush margins widened this week as soybean oil rallied on renewable diesel demand. Board crush rose. Analysts surveyed ahead of the October WASDE expect U.S. soybean ending stocks of 350 million bushels, in a range of 300 to 400 million."
+   }
+  ],
+  "output_config": null,
+  "thinking": null,
+  "max_tokens": 2400
+ }
+]

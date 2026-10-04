@@ -16,8 +16,11 @@
 // Word-boundary matched like the include terms, so "RIN" never matches "brine".
 
 import { keywordRegex } from "./util.js";
+import { voice } from "./pack.js";
+// State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
+const V = voice();
 
-const BOOST_TERMS = ["Iowa", "soybean", "soy oil"].map(keywordRegex);
+const BOOST_TERMS = [`${V.state}`, "soybean", "soy oil"].map(keywordRegex);
 
 /**
  * @param {Item[]} items

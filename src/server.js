@@ -21,7 +21,14 @@ import path from "node:path";
 import zlib from "node:zlib";
 
 import * as store from "./store.js";
-import { runPipeline, runMemo, answerQuery, loadWatchlist, saveWatchlist, generateNewsDigest, getCachedNewsDigest, extractMarketIntel, getCachedMarketIntel, generateMarketCards, getCachedMarketCards, generateStorylines, getStorylinesMeta, cachedAgeDays, STALE_PANEL_DAYS } from "./pipeline.js";
+import * as panels from "./panels.js";
+import * as budgetMod from "./budget.js";
+import { auditFreshness, envPresence, fmtAge } from "./health.js";
+import { setupReport, availablePacks, claimDataDir } from "./setup.js";
+import Database from "better-sqlite3";
+import { seedRan, dueEditions, localClock, needsRefreshFirst, parseDaySpec } from "./schedule.js";
+import { runMemberBrief, DEFAULT_MEMBER_SPEC, memberRecipients } from "./memberbrief.js";
+import { migrateWatchlistSources, runPipeline, runMemo, answerQuery, loadWatchlist, saveWatchlist, generateNewsDigest, getCachedNewsDigest, extractMarketIntel, getCachedMarketIntel, generateMarketCards, getCachedMarketCards, generateStorylines, getStorylinesMeta, cachedAgeDays, STALE_PANEL_DAYS } from "./pipeline.js";
 import { computeSignals, SIGNAL_CHART } from "./signals.js";
 import { productShareSeries } from "./crush.js";
 import { groupByEvent, pickLead } from "./eventkey.js";
@@ -33,9 +40,24 @@ import { syncRegistryFromSeed } from "./registry.js";
 import { studioBody, studioCatalog, studioSeries, studioSeriesCSV, studioEvents } from "./studio.js";
 import { sanitizeEmailHtml, emailBodyToText, emailBodyToPreview, textToHtml } from "./emailhtml.js";
 import * as auth from "./auth.js";
+import { pack, packPath, voice } from "./pack.js";
+// State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
+const V = voice();
+const escRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// "IA" / "Iowa" in a jurisdiction string, for the active state.
+const HOME_JURIS_RE = new RegExp(`^${escRe(V.alpha)}$|${escRe(V.state)}`, "i");
+const HOME_RULES_SOURCE = pack().adminRules?.adapter ?? null;
+// The org logo named by the pack (identity.branding.logo) — served from src/assets or the pack folder.
+const LOGO = pack().identity.branding?.logo ?? null;
+const LOGO_IMG = LOGO ? `<img class="logo" src="/assets/${LOGO}" alt="${V.org}">` : "";
+// A file the state pack ships (geo layers, rosters). A pack without the entry throws → callers fall back.
+const packFile = (rel) => {
+  if (!rel) throw new Error("not in this state pack");
+  return packPath(rel);
+};
 
 // All user-facing timestamps render in Central time (the ISA org timezone).
-const CENTRAL_TZ = "America/Chicago";
+const CENTRAL_TZ = V.tz;
 const fmtCT = (d) => new Date(d).toLocaleString("en-US", { timeZone: CENTRAL_TZ });
 const fmtCTtime = (d) => new Date(d).toLocaleTimeString("en-US", { timeZone: CENTRAL_TZ });
 
@@ -488,7 +510,7 @@ function page(title, body, { chrome = true } = {}) {
   }
 </style></head>
 <body>${chrome ? `<header>
-<a class="brand" href="/"><img class="logo" src="/assets/isa-logo-main.png" alt="Iowa Soybean Association"><span class="brandname">The Bean Brief</span></a>
+<a class="brand" href="/">${LOGO_IMG}<span class="brandname">The Bean Brief</span></a>
 <nav><a href="/">Home</a><a href="/items">Laws, Rules &amp; Decisions</a><a href="/news">News</a><a href="/markets">Markets</a><a href="/studio">Studio</a><a href="/map">Map</a><a href="/watchlist">Watchlist</a><a href="/sources">Sources</a><a href="/registry">Registry</a><a href="/logs">Logs &amp; Settings</a></nav>
 </header>
 <script>(function(){var p=location.pathname,act=null;document.querySelectorAll('nav a').forEach(function(a){var h=a.getAttribute('href');if(h==='/'?p==='/':p===h||p.indexOf(h+'/')===0){a.classList.add('active');act=a;}});
@@ -499,7 +521,7 @@ ${body}
 </body></html>`;
 }
 
-const SAFE_BRIEF_NAME = /^\d{4}-\d{2}-\d{2}-(am|pm|weekly|monthly|farmer|education|analyst|pulse)(-farmer)?\.md$/;
+const SAFE_BRIEF_NAME = /^\d{4}-\d{2}-\d{2}-(am|pm|weekly|monthly|farmer|education|analyst|pulse|member)(-farmer|-preview|-draft|-preview-draft)?\.md$/;
 
 // ---------- run management ----------
 let runInProgress = false;
@@ -539,7 +561,7 @@ export function activeRunSnapshot() {
 
 // Returns null on success, RUN_BUSY_MESSAGE if this call attached to a run already going, or a
 // failure string if this run started and then failed. Never throws.
-async function triggerRun(edition) {
+async function triggerRun(edition, { trigger = "manual" } = {}) {
   // Attach rather than bounce. The caller still gets RUN_BUSY_MESSAGE so the notice can say what
   // happened, but it now awaits the REAL run instead of returning immediately on nothing.
   if (runInProgress && currentRun) {
@@ -554,10 +576,11 @@ async function triggerRun(edition) {
   // and widening this to the memos would be exactly the refactor of existing run types the design
   // constraint rules out.
   const isMemo = ["weekly", "monthly", "education", "analyst"].includes(edition);
+  const isMember = edition === "member" || edition === "member-preview";
   let runId = null;
   if (!isMemo) {
     try {
-      runId = store.startBriefRun({ runKey: `${edition}:${new Date().toISOString().slice(0, 13)}`, edition, trigger: "manual" });
+      runId = store.startBriefRun({ runKey: `${edition}:${new Date().toISOString().slice(0, 13)}`, edition, trigger });
     } catch (err) {
       console.log(`⚠️  Could not open a run record (the run itself proceeds): ${err.message}`);
     }
@@ -565,8 +588,23 @@ async function triggerRun(edition) {
 
   const promise = (async () => {
     try {
+      // Reports run on the day's refreshed data, never yesterday's: if no AM/PM pipeline run has completed
+      // OK today, run the refresh first (collect → series → panels → triage), then the report.
+      if (isMemo || isMember) await ensureTodaysRefresh();
       if (isMemo) await runMemo(edition, process.env);
-      else await runPipeline({ edition, env: process.env, runId });
+      else if (isMember) {
+        if (runId) {
+          store.setCurrentRunId(runId); // the refresh gate's own run cleared the ambient id
+          store.setRunStage(runId, edition === "member-preview" ? "previewing member brief" : "member brief");
+        }
+        let wl = null;
+        try {
+          wl = loadWatchlist();
+        } catch {
+          /* defaults */
+        }
+        await runMemberBrief({ env: process.env, watchlist: wl, preview: edition === "member-preview" });
+      } else await runPipeline({ edition, env: process.env, runId });
       if (runId) store.finishBriefRun(runId, { status: "ok" });
       return null;
     } catch (err) {
@@ -585,6 +623,43 @@ async function triggerRun(edition) {
 
   currentRun = { id: runId, edition, promise, startedAt: Date.now() };
   return promise;
+}
+
+/**
+ * Run today's data refresh (the AM or PM pipeline, by time of day) when none has completed OK today.
+ * Called inside triggerRun's promise, so it holds the run lock. A failed refresh is logged and the report
+ * still runs — on whatever data is stored, which its own staleness rules then label.
+ */
+async function ensureTodaysRefresh() {
+  let tz = V.tz;
+  let pmTime = "16:30";
+  try {
+    const ed = loadWatchlist().briefEditions ?? {};
+    tz = ed.timezone ?? tz;
+    pmTime = ed.pm ?? pmTime;
+  } catch {
+    /* defaults */
+  }
+  const now = new Date();
+  const { date, hhmm } = localClock(now, tz);
+  const today = store
+    .briefRunsSince(new Date(now.getTime() - 2 * 86400e3).toISOString())
+    .filter((r) => localClock(new Date(r.started_at), tz).date === date);
+  if (!needsRefreshFirst(today)) return false;
+  const edition = hhmm >= pmTime ? "pm" : "am";
+  console.log(`🔄 No completed data refresh yet today — running the ${edition.toUpperCase()} refresh before the report.`);
+  let runId = null;
+  try {
+    runId = store.startBriefRun({ runKey: `${edition}:${now.toISOString().slice(0, 13)}`, edition, trigger: "refresh-gate" });
+    await runPipeline({ edition, env: process.env, runId });
+    store.finishBriefRun(runId, { status: "ok" });
+  } catch (err) {
+    console.log(`⚠️  Pre-report refresh failed (${err.message}) — the report will run on stored data.`);
+    if (runId) store.finishBriefRun(runId, { status: "failed", error: err.message });
+  } finally {
+    store.setCurrentRunId(null);
+  }
+  return true;
 }
 
 /**
@@ -737,7 +812,11 @@ function sourcesSection(watchlist, openId) {
     );
     const lastSuccess = successMs ? new Date(successMs).toISOString() : null;
     let dot, status;
-    if (!enabled) {
+    if (!cfg && adapter.fetchItems && !adapter.fetchSeries) {
+      // collect.js skips an item source with no watchlist entry; this used to render as "on".
+      dot = "🟠";
+      status = "not in your watchlist — never collected (turn on to add it)";
+    } else if (!enabled) {
       dot = "⚪";
       status = "turned off";
     } else if (lastSuccess && Date.now() - successMs < 36 * 60 * 60 * 1000) {
@@ -941,7 +1020,7 @@ function settingsSection(watchlist, openId) {
 <details class="topic" id="t-settings"${openId === "settings" ? " open" : ""}>
   <summary>⚙️ Settings <span class="muted">(schedule, thresholds, Teams)</span></summary>
   <form method="post" action="/watchlist/settings">
-    <div class="kicker">Schedule (${esc(ed.timezone ?? "America/Chicago")})</div>
+    <div class="kicker">Schedule (${esc(ed.timezone ?? V.tz)})</div>
     <div class="toolbar">
       <label class="muted">AM <input type="time" name="am" value="${esc(ed.am ?? "06:30")}"></label>
       <label class="muted">PM <input type="time" name="pm" value="${esc(ed.pm ?? "16:30")}"></label>
@@ -964,6 +1043,21 @@ function settingsSection(watchlist, openId) {
         })
         .join("")}
     </div>
+    <div class="kicker">🌾 ${V.short} Member Brief <span class="muted" style="font-weight:400">— farmer-member edition; fails closed rather than send an unsupported claim</span></div>
+    <div class="toolbar">
+      <label class="muted">schedule <input type="text" name="memberSchedule" value="${esc(typeof ed.member === "string" ? ed.member : DEFAULT_MEMBER_SPEC)}" placeholder="Mon,Wed,Fri 06:45 — or off" style="width:190px"></label>
+      <span class="muted" style="font-size:.85em">Runs after the morning data refresh has completed; type <code>off</code> to stop it.</span>
+    </div>
+    <label class="muted" style="display:block;margin-top:4px">member recipients (comma-separated; sent BCC)<br>
+      <textarea name="memberBriefTo" rows="2" style="width:100%;max-width:640px"${process.env.MEMBER_BRIEF_TO ? ' placeholder="also: MEMBER_BRIEF_TO in .env"' : ""}>${esc(out.memberBriefTo ?? "")}</textarea></label>
+    <p class="muted" style="font-size:.82em;margin:2px 0 8px">${(() => {
+      try {
+        const n = memberRecipients(process.env, watchlist).length;
+        return n ? `${n} recipient${n === 1 ? "" : "s"} configured (this box + MEMBER_BRIEF_TO + /data/member-list.txt).` : "No recipients yet — the brief is generated and saved, not emailed.";
+      } catch {
+        return "";
+      }
+    })()}</p>
     <div class="kicker">Where each report goes <span class="muted" style="font-weight:400">— one address per report, so each can land in its own Teams channel</span></div>
     <p class="muted" style="margin:2px 0 6px;font-size:.85em">A Teams channel has its own email address (channel → ⋯ → Get email address). Leave a box blank to use the default below. Saved in watchlist.json on this machine — not in the public repo.</p>
     <div class="sched-grid">
@@ -989,6 +1083,7 @@ function settingsSection(watchlist, openId) {
     <div class="toolbar">
       <label class="muted">min local score <input type="number" name="minLocalScoreForTriage" value="${esc(out.minLocalScoreForTriage ?? 5)}" min="0" max="50" style="width:64px"></label>
       <label class="muted">max items to triage <input type="number" name="maxItemsToTriage" value="${esc(out.maxItemsToTriage ?? 80)}" min="5" max="300" style="width:70px"></label>
+      <label class="muted">monthly AI budget $ <input type="number" name="monthlyBudgetUsd" value="${esc(out.monthlyBudgetUsd ?? budgetMod.DEFAULT_MONTHLY_BUDGET_USD)}" min="1" max="10000" step="1" style="width:76px"${process.env.MONTHLY_BUDGET_USD ? ' disabled title="set in .env (MONTHLY_BUDGET_USD)"' : ""}></label>
       <label class="muted">max items in brief <input type="number" name="maxItemsInBrief" value="${esc(out.maxItemsInBrief ?? 25)}" min="5" max="100" style="width:64px"></label>
     </div>
     <div class="toolbar"><button>Save settings</button></div>
@@ -1071,8 +1166,14 @@ function storylinesSection() {
   } catch {
     return "";
   }
-  if (!lines.length) return "";
   const meta = getStorylinesMeta();
+  const notice = panels.attemptNotice("storylines", fmtCT);
+  if (!lines.length) {
+    return notice
+      ? `<details class="topic" open><summary>🧵 Storylines</summary><p class="stale-warn">${esc(notice)}</p></details>`
+      : "";
+  }
+  const fresh = freshness("storylines", meta?.generatedAt ? fmtCT(meta.generatedAt) : "");
   const cards = lines
     .map((s) => {
       const tl = (s.timeline || [])
@@ -1102,7 +1203,8 @@ function storylinesSection() {
       </div>`;
     })
     .join("");
-  return `<details class="topic"><summary>🧵 Storylines <span class="muted">(${lines.length})${meta?.generatedAt ? ` · updated ${esc(fmtCT(meta.generatedAt))}` : ""}</span></summary>
+  return `<details class="topic"${notice ? " open" : ""}><summary>🧵 Storylines <span class="muted">(${lines.length})</span> ${fresh.badge}</summary>
+    ${notice ? `<p class="stale-warn">${esc(notice)}</p>` : fresh.warn}
     <p class="muted" style="margin:2px 0 8px;font-size:.85em">The ongoing threads behind the headlines — auto-clustered from what's flowing in. <form method="post" action="/storylines" style="display:inline"><button class="ghost tiny">↻ Refresh</button></form></p>
     <div class="storylines">${cards}</div></details>`;
 }
@@ -1131,13 +1233,19 @@ function freshness(kind, dateLabel) {
   return { badge, stale, warn };
 }
 
+/** The "last attempt did not update this panel" line (src/panels.js) — empty when the last attempt succeeded. */
+function attemptLine(kind) {
+  const n = panels.attemptNotice(kind, fmtCT);
+  return n ? `<p class="stale-warn">${esc(n)}</p>` : "";
+}
+
 function marketCardsSection() {
   const cached = getCachedMarketCards();
   if (cached && cached.markdown) {
     const { badge, stale, warn } = freshness("market_cards", cached.date);
     // A stale card starts COLLAPSED. Expanded-by-default is a claim that the content is current.
     return `<details class="topic"${stale ? "" : " open"}><summary>🎯 Signal cards — what's firing${cached.triggers?.length ? ` <span class="muted">(${cached.triggers.length} active)</span>` : ""} ${badge}</summary>
-      <div class="answer market-cards">${warn}${markdownToHtml(cached.markdown)}
+      <div class="answer market-cards">${attemptLine("market_cards")}${warn}${markdownToHtml(cached.markdown)}
         <div class="muted" style="margin-top:6px;font-size:.82em">${esc(cached.date)} · <form method="post" action="/market-cards" style="display:inline"><button class="ghost tiny">↻ Refresh</button></form></div></div></details>`;
   }
   return `<details class="topic"><summary>🎯 Signal cards — what's firing</summary>
@@ -1383,6 +1491,10 @@ function homeBody(notice, openId = null, search = null) {
         .replace(/-(am|pm)$/, (m) => m.replace("-", " · ").toUpperCase())
         .replace(/-weekly$/, " · 📚 WEEKLY")
         .replace(/-monthly$/, " · 🗓️ MONTHLY")
+        .replace(/-member-preview-draft$/, " · ⛔ MEMBER BRIEF PREVIEW (failed closed)")
+        .replace(/-member-draft$/, " · ⛔ MEMBER BRIEF (NOT SENT — failed closed)")
+        .replace(/-member-preview$/, " · 🔍 MEMBER BRIEF PREVIEW")
+        .replace(/-member$/, " · 🌾 MEMBER BRIEF")
         .replace(/-farmer$/, " · 🌾 FARMER")
         .replace(/-education$/, " · 🎓 EDUCATION")
         .replace(/-analyst$/, " · 🔭 ANALYST")
@@ -1428,7 +1540,7 @@ ${homeCalendar()}
 <div class="reports">
   <div class="report">
     <form method="post" action="/run"><input type="hidden" name="edition" value="auto"><button>▶ Run policy brief now</button></form>
-    <span class="muted rdesc">Scans the 7 government sources, flags what's relevant to Iowa soy, and writes it up. Also the twice-daily refresh that keeps Markets, News &amp; alerts current — it now stays quiet on days with no policy movement instead of saving a blank brief.</span>
+    <span class="muted rdesc">Scans the 7 government sources, flags what's relevant to ${V.state} soy, and writes it up. Also the twice-daily refresh that keeps Markets, News &amp; alerts current — it now stays quiet on days with no policy movement instead of saving a blank brief.</span>
     <div id="runstat" class="runstat" hidden></div>
   </div>
   <p class="muted" style="margin:16px 0 0;font-weight:600">On-demand reports</p>
@@ -1446,8 +1558,12 @@ ${homeCalendar()}
       <span class="muted rdesc">Internal deep dive: connects policy to the market mechanism and looks around the corner, naming the reports that would confirm or kill each read.</span>
     </div>
     <div class="report">
+      <form method="post" action="/run"><input type="hidden" name="edition" value="member-preview"><button class="ghost">🔍 Preview Member Brief</button></form>
+      <span class="muted rdesc">Builds the farmer-member edition exactly as it would be sent — evidence packet, lint, adversarial review — and saves it. Never emails anyone.</span>
+    </div>
+    <div class="report">
       <form method="post" action="/run"><input type="hidden" name="edition" value="education"><button class="ghost">🎓 Market-education brief</button></form>
-      <span class="muted rdesc">A plain-language market read for ISA staff who aren't grain-market experts — one real data point, one concept, and the take-away, so the team learns to read the market.</span>
+      <span class="muted rdesc">A plain-language market read for ${V.short} staff who aren't grain-market experts — one real data point, one concept, and the take-away, so the team learns to read the market.</span>
     </div>
   </div>
   ${runInProgress ? '<p class="muted" style="margin-top:10px">a run is in progress…</p>' : ""}
@@ -1578,7 +1694,7 @@ function registryBody(notice) {
 // (the DB may hold only the hand-seed until `registry-refresh`). Read straight from the image.
 function loadCandidateSeed() {
   try {
-    return JSON.parse(fs.readFileSync(new URL("./data/ia-candidates-2026.json", import.meta.url), "utf8"));
+    return JSON.parse(fs.readFileSync(packFile(pack().registry?.candidates), "utf8"));
   } catch {
     return { candidates: [] };
   }
@@ -1598,7 +1714,7 @@ function chamberOfOffice(office) {
 // Canonicalize statewide office labels so the hand-seed incumbent ("Iowa Attorney General")
 // and the candidate-seed challengers ("Attorney General") land in the same race.
 function canonOffice(office) {
-  let o = (office || "Other").trim().replace(/^Iowa\s+/i, "");
+  let o = (office || "Other").trim().replace(new RegExp(`^${escRe(V.state)}\\s+`, "i"), "");
   const alias = { "State Auditor": "Auditor of State" };
   return alias[o] || o;
 }
@@ -1607,7 +1723,7 @@ function canonOffice(office) {
 // the incumbent per district and color the district by the seat-holder's party. Always present.
 function loadIncumbentRoster() {
   try {
-    return JSON.parse(fs.readFileSync(new URL("./data/ia-incumbents.json", import.meta.url), "utf8")).incumbents ?? [];
+    return JSON.parse(fs.readFileSync(packFile(pack().geo?.incumbents), "utf8")).incumbents ?? [];
   } catch {
     return [];
   }
@@ -1617,10 +1733,23 @@ function loadIncumbentRoster() {
 // hover card list the watersheds a district spans when the HUC layer is on. Always present.
 function loadDistrictHucs() {
   try {
-    return JSON.parse(fs.readFileSync(new URL("./data/district-hucs.json", import.meta.url), "utf8"));
+    return JSON.parse(fs.readFileSync(packFile(pack().geo?.districtHucs), "utf8"));
   } catch {
     return { hucNames: {}, house: {}, senate: {}, congress: {} };
   }
+}
+
+// The map's state config, served as /assets/geo/map.json (read by bbmap.js).
+function mapConfig() {
+  const g = pack().geo ?? {};
+  const names = { upper: `${V.state} Senate`, lower: `${V.state} House`, ...pack().legislature?.chamberNames };
+  return {
+    stateAlpha: V.alpha,
+    center: g.center ?? [39.8, -98.6],
+    zoom: g.zoom ?? 7,
+    minZoom: g.minZoom ?? 4,
+    labels: { house: names.lower, senate: names.upper, facilities: `🌱 ${V.state} crush &amp; biodiesel plants` },
+  };
 }
 
 // A district's color "tone" is the seat-holder's party: red (R) or blue (D). Fall back to a
@@ -1770,9 +1899,9 @@ function buildMapData() {
     .sort((a, b) => a.office.localeCompare(b.office));
 
   return {
-    house: finish(house, (k) => `Iowa House District ${k}`, incBy.lower, dHucs.house),
-    senate: finish(senate, (k) => `Iowa Senate District ${k}`, incBy.upper, dHucs.senate),
-    congress: finish(congress, (k) => `Iowa Congressional District ${k}`, null, dHucs.congress),
+    house: finish(house, (k) => `${V.state} House District ${k}`, incBy.lower, dHucs.house),
+    senate: finish(senate, (k) => `${V.state} Senate District ${k}`, incBy.upper, dHucs.senate),
+    congress: finish(congress, (k) => `${V.state} Congressional District ${k}`, null, dHucs.congress),
     statewide,
   };
 }
@@ -1842,8 +1971,8 @@ function mapBody() {
   .map-legend h4 { margin: 0 0 4px; color: var(--isa-dark); font-size: .9em; }
   .leaflet-control-attribution { font-size: .68em; }
 </style>
-<h1>🗺️ Iowa Political Map</h1>
-<p class="map-lead muted">County lines form the base; the political districts lay translucent on top, each shaded <span style="color:#C0392B;font-weight:700">red</span> or <span style="color:#2C6FB0;font-weight:700">blue</span> by the party that currently holds the seat. Pick a boundary (Iowa House, Iowa Senate, U.S. Congress) from the layer control and toggle the HUC8 watershed overlay. <strong>${totalCands}</strong> candidates across ${counts.house} House, ${counts.senate} Senate &amp; ${counts.congress} congressional districts. Hover a district for its incumbent and challenger — with the HUC8 overlay on, the card also lists the watersheds the district spans.</p>
+<h1>🗺️ ${V.state} Political Map</h1>
+<p class="map-lead muted">County lines form the base; the political districts lay translucent on top, each shaded <span style="color:#C0392B;font-weight:700">red</span> or <span style="color:#2C6FB0;font-weight:700">blue</span> by the party that currently holds the seat. Pick a boundary (${V.state} House, ${V.state} Senate, U.S. Congress) from the layer control and toggle the HUC8 watershed overlay. <strong>${totalCands}</strong> candidates across ${counts.house} House, ${counts.senate} Senate &amp; ${counts.congress} congressional districts. Hover a district for its incumbent and challenger — with the HUC8 overlay on, the card also lists the watersheds the district spans.</p>
 <div class="map-wrap">
   <div id="ia-map"></div>
   <div class="side-panel">
@@ -1852,7 +1981,7 @@ function mapBody() {
     ${statewideHtml}
   </div>
 </div>
-<p class="muted" style="margin-top:14px;font-size:.85em">District color is the current seat-holder's party — <span style="color:#C0392B;font-weight:700">Republican</span> or <span style="color:#2C6FB0;font-weight:700">Democratic</span>. Hovering names the incumbent and the 2026 challenger(s); a seat whose incumbent isn't on the 2026 ballot is marked <em>open</em>. Incumbents: current Iowa legislature roster (OpenStates). Boundaries: U.S. Census TIGER (2024 districts), USGS WBD (HUC8 watersheds). Basemap © OpenStreetMap contributors, © CARTO.</p>
+<p class="muted" style="margin-top:14px;font-size:.85em">District color is the current seat-holder's party — <span style="color:#C0392B;font-weight:700">Republican</span> or <span style="color:#2C6FB0;font-weight:700">Democratic</span>. Hovering names the incumbent and the 2026 challenger(s); a seat whose incumbent isn't on the 2026 ballot is marked <em>open</em>. Incumbents: current ${V.state} legislature roster (OpenStates). Boundaries: U.S. Census TIGER (2024 districts), USGS WBD (HUC8 watersheds). Basemap © OpenStreetMap contributors, © CARTO.</p>
 <script id="mapdata" type="application/json">${spec}</script>
 <script src="/assets/leaflet.js?v=${ASSET_VER}"></script>
 <script src="/assets/bbmap.js?v=${ASSET_VER}"></script>`;
@@ -2015,7 +2144,7 @@ function attentionStrip(rows, senderName) {
     const d = new Date(stamp);
     const when = Number.isNaN(d.getTime())
       ? ""
-      : d.toLocaleString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+      : d.toLocaleString("en-US", { timeZone: V.tz, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
     const title = decodeEntities(r.title || "(untitled)");
     return `<li class="att-item">
       <div class="att-head"><span class="att-from">${esc(senderName(r))}</span><span class="muted att-when">${esc(when)}</span></div>
@@ -2042,7 +2171,7 @@ function intelPanel() {
   const { badge, stale, warn } = freshness("market_intel", intel.date);
   return `<details class="topic" style="margin-top:10px">
     <summary style="cursor:pointer;font-weight:600">📈 Market intel from the inbox <span class="muted" style="font-weight:400">— ${stale ? "no longer fed to the Analyst or Ask box (too old)" : "feeds the Analyst &amp; Ask box"}</span> ${badge}</summary>
-    <div class="answer" style="margin-top:8px">${warn}${markdownToHtml(intel.markdown)}
+    <div class="answer" style="margin-top:8px">${attemptLine("market_intel")}${warn}${markdownToHtml(intel.markdown)}
       <div class="muted" style="margin-top:8px;font-size:.85em">Distilled from ${intel.count} newsletter item${intel.count === 1 ? "" : "s"} · ${esc(intel.date)}</div>
     </div>
   </details>`;
@@ -2052,7 +2181,7 @@ function newsBody(notice) {
   const cached = getCachedNewsDigest();
   const digestFresh = cached ? freshness("news_digest", cached.date) : null;
   const digestBlock = cached
-    ? `<div class="answer news-digest">${digestFresh.warn}${markdownToHtml(cached.markdown)}
+    ? `<div class="answer news-digest">${attemptLine("news_digest")}${digestFresh.warn}${markdownToHtml(cached.markdown)}
         <div class="muted" style="margin-top:8px;font-size:.85em">Distilled from ${cached.count} items · ${esc(cached.date)} · <form method="post" action="/news/digest" style="display:inline"><button class="ghost tiny">↻ Refresh</button></form></div></div>`
     : `<form method="post" action="/news/digest"><button class="ghost">🧠 Generate today's digest</button></form>
        <p class="muted" style="font-size:.85em">One cheap Haiku call over the last two days of news.</p>`;
@@ -2320,20 +2449,20 @@ function marketsBody(notice) {
   const charts = [
     chartSection("biofuel_feedstock", "Biofuel feedstock demand", "Lipid feedstocks used in U.S. biodiesel + renewable diesel — soybean oil vs. the competition (corn oil, canola, used cooking oil, tallow…). Hover for the value + month.", 320),
     chartSection("soy_futures", "CBOT soybeans (daily board)", "Front-month soybean futures settle (¢/bu), daily. The price the whole signal board is actually a read ON — before this feed the newest price the tool could see was a monthly average published weeks late. Front-month continuous, so it carries a small step at each contract roll.", 280),
-    chartSection("soy_crush_margin", "Crush margin — board vs. Iowa cash", "What a bushel is worth crushed, minus what it costs ($/bu). BOARD margin is computed from CBOT meal/oil/beans; IOWA CASH uses observed AMS cash quotes. Yields follow the Gordon Denny workbook (meal 0.0221 t/bu, oil 11.71 lb/bu, hulls 0.0018 t/bu). Cash normally reads above board because observed Iowa cash meal and oil run over the synthetic board-plus-basis the workbook assumes. This is the cause side of crush demand — it leads plant utilization.", 280),
-    chartSection("soy_crush_share", "Crush value share — oil vs. meal", "Soybean oil's and meal's share of the product value from a crushed bushel (%), at the same workbook yields as the margin chart (oil 11.71 lb/bu, meal 0.0221 t/bu) — the industry \"oil share\". Meal share is the complement; hulls (~2% of value) are left out so the pair sums to 100. BOARD uses CBOT front-month oil/meal; IOWA CASH uses AMS cash quotes. A rising oil share is the renewable-diesel pull showing up in the crush — it means meal is increasingly the byproduct, and plants run for oil even as meal backs up.", 280),
-    chartSection("soy_basis", "Iowa soybean basis — all bids vs. processors", "Cash bid minus futures (¢/bu), nearby month. The processor line is what crush plants themselves are bidding; when it runs above the all-Iowa average, crushers are paying up to pull beans in — a demand read no other series carries. Negative basis is normal.", 260),
-    chartSection("soy_price", "Soybean price received", "Iowa daily cash ($/bu, AMS) against the monthly average price received — Iowa vs. U.S.", 260),
-    chartSection("soy_corn_ratio", "Soybean:corn price ratio (Iowa)", "Iowa soybean price ÷ corn price — the relative-value read behind acreage decisions. Historically ~2.3–2.5 is the rough pivot between favoring beans and corn.", 240),
+    chartSection("soy_crush_margin", `Crush margin — board vs. ${V.state} cash`, `What a bushel is worth crushed, minus what it costs ($/bu). BOARD margin is computed from CBOT meal/oil/beans; ${V.state.toUpperCase()} CASH uses observed AMS cash quotes. Yields follow the Gordon Denny workbook (meal 0.0221 t/bu, oil 11.71 lb/bu, hulls 0.0018 t/bu). Cash normally reads above board because observed ${V.state} cash meal and oil run over the synthetic board-plus-basis the workbook assumes. This is the cause side of crush demand — it leads plant utilization.`, 280),
+    chartSection("soy_crush_share", "Crush value share — oil vs. meal", `Soybean oil's and meal's share of the product value from a crushed bushel (%), at the same workbook yields as the margin chart (oil 11.71 lb/bu, meal 0.0221 t/bu) — the industry "oil share". Meal share is the complement; hulls (~2% of value) are left out so the pair sums to 100. BOARD uses CBOT front-month oil/meal; ${V.state.toUpperCase()} CASH uses AMS cash quotes. A rising oil share is the renewable-diesel pull showing up in the crush — it means meal is increasingly the byproduct, and plants run for oil even as meal backs up.`, 280),
+    chartSection("soy_basis", `${V.state} soybean basis — all bids vs. processors`, `Cash bid minus futures (¢/bu), nearby month. The processor line is what crush plants themselves are bidding; when it runs above the all-${V.state} average, crushers are paying up to pull beans in — a demand read no other series carries. Negative basis is normal.`, 260),
+    chartSection("soy_price", "Soybean price received", `${V.state} daily cash ($/bu, AMS) against the monthly average price received — ${V.state} vs. U.S.`, 260),
+    chartSection("soy_corn_ratio", "Soybean:corn price ratio", `NASS ${V.state} prices received (monthly) and the CBOT nearby futures ratio (daily). Soybean price ÷ corn price — the relative-value read behind acreage decisions. Historically ~2.3–2.5 is the rough pivot between favoring beans and corn.`, 240),
     chartSection("soy_crush", "U.S. soybean crush", "Monthly crush — the domestic-demand engine, near record highs on renewable-diesel demand.", 260),
     chartSection("soy_balance_stu", "U.S. soybean stocks-to-use (WASDE)", "Ending stocks as a share of total use — the tightness ratio that drives price. Roughly: below ~8% is tight (supportive), above ~15% is ample (a drag).", 240),
-    chartSection("soy_condition", "Soybean crop condition", "In-season % rated good or excellent (USDA Crop Progress) — Iowa vs. U.S. Weather's fingerprint on this year's yield potential.", 260),
-    chartSection("veg_condition", "Crop vegetation index (satellite)", "Weekly VegScape VCI (0–100) of crop vigor vs. the 2000-present range — Iowa + the core belt. MODIS-derived, ~4 days after each week closes, so it leads the NASS condition rating. Low = stress; high = a vigorous crop.", 260),
-    chartSection("soil_moisture", "Root-zone soil moisture (satellite)", "Weekly Crop-CASMA / NASA SMAP volumetric soil moisture (m³/m³) — Iowa root-zone + surface, plus the core belt's root zone. The water available to the crop's roots: a cause-side stress read that leads the vegetation and condition reports.", 260),
-    chartSection("drought", "Iowa drought coverage", "Share of Iowa land area in drought (D1+) and abnormally dry or worse (D0+), from the weekly U.S. Drought Monitor — a fast read on Corn Belt crop stress.", 260),
+    chartSection("soy_condition", "Soybean crop condition", `In-season % rated good or excellent (USDA Crop Progress) — ${V.state} vs. U.S. Weather's fingerprint on this year's yield potential.`, 260),
+    chartSection("veg_condition", "Crop vegetation index (satellite)", `Weekly VegScape VCI (0–100) of crop vigor vs. the 2000-present range — ${V.state} + the core belt. MODIS-derived, ~4 days after each week closes, so it leads the NASS condition rating. Low = stress; high = a vigorous crop.`, 260),
+    chartSection("soil_moisture", "Root-zone soil moisture (satellite)", `Weekly Crop-CASMA / NASA SMAP volumetric soil moisture (m³/m³) — ${V.state} root-zone + surface, plus the core belt's root zone. The water available to the crop's roots: a cause-side stress read that leads the vegetation and condition reports.`, 260),
+    chartSection("drought", `${V.state} drought coverage`, `Share of ${V.state} land area in drought (D1+) and abnormally dry or worse (D0+), from the weekly U.S. Drought Monitor — a fast read on Corn Belt crop stress.`, 260),
     chartSection("soy_exports", "Soybean exports (weekly)", "Weekly export activity in metric tons — inspections (actual loadings) vs. net sales (forward bookings). An export-pace / China-demand read; net sales also stands in for the (currently offline) FAS report.", 280),
-    chartSection("barge_freight", "Mississippi barge freight", "Cost to move grain down the Mississippi ($/ton) — a driver of the Gulf export basis, and so of what Iowa elevators can bid.", 240),
-    chartSection("positioning", "Fund positioning (CFTC)", "CBOT soybean managed-money net position — how the funds are leaning. Extremes can unwind fast.", 240),
+    chartSection("barge_freight", "Barge freight by location", `Cost to move grain down-river ($/ton) at named locations (St. Louis, Illinois River — set in watchlist sources.agtransport.bargeLocations), plus the average of all reported locations. A driver of the Gulf export basis, and so of what ${V.state} elevators can bid.`, 240),
+    chartSection("positioning", "Fund positioning (CFTC)", "CBOT managed-money net position for soybeans, soybean meal and soybean oil (contracts) — how the funds are leaning. Extremes can unwind fast.", 240),
   ].filter(Boolean).join('<hr style="border:none;border-top:1px solid var(--isa-blue-40);margin:18px 0">');
   // Load uPlot + our renderer only on this page, after the chart blobs are in the DOM.
   const chartAssets = charts
@@ -2365,20 +2494,20 @@ function marketsBody(notice) {
 
 // Normalize the inconsistent per-adapter `jurisdiction` strings into a clean state/fed enum for
 // grouping the LRD feed. Source id is the primary signal (jurisdiction text is a fallback).
-const LEVEL_ORDER = ["Federal", "Iowa", "Other states", "Courts", "EU", "Other"];
+const LEVEL_ORDER = ["Federal", V.state, "Other states", "Courts", "EU", "Other"];
 const FEDERAL_SOURCES = new Set(["congress_gov", "congress_hearings", "federal_register", "regulations_gov"]);
 function jurisdictionLevel(sourceId, jurisdiction) {
   const j = String(jurisdiction || "").trim();
   if (sourceId === "legiscan") {
-    if (/^IA$/i.test(j) || /iowa/i.test(j)) return "Iowa";
+    if (HOME_JURIS_RE.test(j)) return V.state;
     if (/^US$/i.test(j) || /federal/i.test(j)) return "Federal";
     return "Other states";
   }
   if (FEDERAL_SOURCES.has(sourceId)) return "Federal";
   if (sourceId === "courtlistener") return "Courts";
   if (sourceId === "eurlex_oj") return "EU";
-  if (sourceId === "iowa_admin_rules") return "Iowa";
-  if (/iowa|^IA$/i.test(j)) return "Iowa";
+  if (HOME_RULES_SOURCE && sourceId === HOME_RULES_SOURCE) return V.state;
+  if (HOME_JURIS_RE.test(j)) return V.state;
   if (/court/i.test(j)) return "Courts";
   if (/^EU$|europe/i.test(j)) return "EU";
   if (/federal|US-Federal|^US$/i.test(j)) return "Federal";
@@ -2388,7 +2517,7 @@ function jurisdictionLevel(sourceId, jurisdiction) {
 // The graded-relevance chip. NULL tier (anything triaged before 1.26.0) shows nothing rather than a
 // misleading default — those rows are still included by the default "top" filter.
 const TIER_META = {
-  must_read: { label: "must read", cls: "lb-must", title: "ISA would act, comment, or brief leadership on this" },
+  must_read: { label: "must read", cls: "lb-must", title: `${V.short} would act, comment, or brief leadership on this` },
   worth_knowing: { label: "worth knowing", cls: "lb-worth", title: "Real but not actionable this week" },
   background: { label: "background", cls: "lb-bg", title: "Procedural or tangential — kept, but out of the daily read" },
 };
@@ -2817,9 +2946,9 @@ function rssFeed(host) {
     .join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"><channel>
-<title>polibrief — ISA policy briefs</title>
+<title>polibrief — ${V.short} policy briefs</title>
 <link>${xmlEscape(base)}</link>
-<description>Twice-daily policy briefs for Iowa soybean priorities</description>
+<description>Twice-daily policy briefs for ${V.state} soybean priorities</description>
 ${entries}
 </channel></rss>`;
 }
@@ -2893,7 +3022,7 @@ function loginPage({ next = "/", error = false } = {}) {
   const safeNext = /^\/($|[^/\\])/.test(String(next ?? "")) ? next : "/"; // never redirect off-site
   const body = `<div class="login-wrap">
   <form class="login-card" method="post" action="/login">
-    <img class="logo" src="/assets/isa-logo-main.png" alt="Iowa Soybean Association">
+    ${LOGO_IMG}
     <h1>The Bean Brief</h1>
     <p class="muted">Sign in to review policy &amp; market intelligence.</p>
     ${error ? '<p class="banner err" role="alert">Incorrect username or password.</p>' : ""}
@@ -2959,7 +3088,7 @@ function seedDataDir() {
   if (store.DATA_DIR === store.PROJECT_ROOT) return;
   const seeds = [
     { from: path.join(store.PROJECT_ROOT, "watchlist.json"), to: path.join(store.DATA_DIR, "watchlist.json") },
-    { from: path.join(store.PROJECT_ROOT, "registry.json"), to: path.join(store.DATA_DIR, "registry.json") },
+    { from: packPath(pack().registry?.seed ?? "registry.json"), to: path.join(store.DATA_DIR, "registry.json") },
     { from: path.join(store.PROJECT_ROOT, ".env.example"), to: path.join(store.DATA_DIR, ".env") },
   ];
   for (const { from, to } of seeds) {
@@ -2973,7 +3102,14 @@ function seedDataDir() {
 // ---------- the server ----------
 export async function startServer({ port = 8484, schedule = true } = {}) {
   captureConsole();
+  claimDataDir(store.DATA_DIR, pack().id); // refuses a data folder that belongs to another state (setup.js)
   seedDataDir();
+  try {
+    const added = migrateWatchlistSources();
+    if (added.length) console.log(`🧩 Watchlist: added ${added.length} source${added.length === 1 ? "" : "s"} that shipped after this install — ${added.join(", ")}`);
+  } catch (err) {
+    console.log(`⚠️  Watchlist source migration skipped: ${err.message}`);
+  }
   try {
     const r = syncRegistryFromSeed();
     console.log(`🗂️  Registry synced: ${r.entities} entities, ${r.channels} channels`);
@@ -3025,15 +3161,38 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
           "images/marker-icon.png": "image/png",
           "images/marker-icon-2x.png": "image/png",
           "images/marker-shadow.png": "image/png",
-          // Vendored Iowa boundary GeoJSON (built by scripts/fetch-geo.mjs).
-          "geo/counties.geojson": "application/json; charset=utf-8",
-          "geo/congress.geojson": "application/json; charset=utf-8",
-          "geo/senate.geojson": "application/json; charset=utf-8",
-          "geo/house.geojson": "application/json; charset=utf-8",
-          "geo/huc8.geojson": "application/json; charset=utf-8",
+          // National plant table (the map filters it to the pack's state).
           "geo/facilities.json": "application/json; charset=utf-8", // soybean crush + biodiesel plant markers
         };
         const name = url.pathname.slice("/assets/".length);
+        // The state's boundary layers ship in its pack (packs/<id>/<ver>/geo, built by scripts/fetch-geo.mjs);
+        // geo/map.json is the map's state config (center, filter, layer labels) so bbmap.js has no state literals.
+        if (name === "geo/map.json") {
+          res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-cache" });
+          res.end(JSON.stringify(mapConfig()));
+          return;
+        }
+        const layer = /^geo\/([a-z0-9]+)\.geojson$/.exec(name)?.[1];
+        if (layer) {
+          try {
+            const buf = fs.readFileSync(packFile(pack().geo?.layers?.[layer]));
+            res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "public, max-age=86400" });
+            res.end(buf);
+          } catch {
+            res.writeHead(404, { "content-type": "text/plain" }).end("not found");
+          }
+          return;
+        }
+        if (LOGO && name === LOGO && !ASSETS[name]) {
+          try {
+            const buf = fs.readFileSync(packFile(LOGO));
+            res.writeHead(200, { "content-type": /\.svg$/i.test(LOGO) ? "image/svg+xml" : /\.jpe?g$/i.test(LOGO) ? "image/jpeg" : "image/png", "cache-control": "public, max-age=86400" });
+            res.end(buf);
+          } catch {
+            res.writeHead(404, { "content-type": "text/plain" }).end("not found");
+          }
+          return;
+        }
         const ctype = ASSETS[name];
         if (!ctype) {
           res.writeHead(404, { "content-type": "text/plain" }).end("not found");
@@ -3166,7 +3325,11 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
         let notice;
         try {
           const s = await generateStorylines(process.env);
-          notice = s ? `Storylines updated (${s.count} active thread${s.count === 1 ? "" : "s"}).` : "Not enough recent items to cluster into storylines yet.";
+          // The old notice mapped EVERY null to "Not enough recent items", which was false for a truncated
+          // or empty model answer — the exact failure that kept the panel frozen on 9/1.
+          notice = s
+            ? `Storylines updated (${s.count} active thread${s.count === 1 ? "" : "s"}).`
+            : `Storylines not updated: ${panels.attemptNotice("storylines", fmtCT) || "no result."}`;
         } catch (err) {
           notice = `Storyline update failed: ${err.message}`;
         }
@@ -3233,6 +3396,29 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
         return;
       }
 
+      if (req.method === "GET" && url.pathname === "/freshness") {
+        let body;
+        try {
+          body = freshnessBody(buildFreshnessReport()) + packSection(setupReport({ dataDir: store.DATA_DIR, envPresent: envPresence([], process.env) }));
+        } catch (err) {
+          body = `<h1>🩺 Data freshness</h1><div class="banner err">⚠️ Could not build the report: ${esc(err.message)}</div>`;
+        }
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.end(page("The Bean Brief · data freshness", body));
+        return;
+      }
+      if (req.method === "GET" && url.pathname === "/setup") {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.end(page("The Bean Brief · setup", setupBody(setupReport({ dataDir: store.DATA_DIR, envPresent: envPresence([], process.env) }), availablePacks())));
+        return;
+      }
+      if (req.method === "GET" && url.pathname === "/freshness.json") {
+        res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+        const { checks, chain, spec, specSource, overlay, overlayIssues, ok } = setupReport({ dataDir: store.DATA_DIR, envPresent: envPresence([], process.env) });
+        res.end(JSON.stringify({ ...buildFreshnessReport(), statePack: { ok, spec, specSource, chain, overlay, overlayIssues, checks } }));
+        return;
+      }
+
       if (req.method === "GET" && url.pathname === "/logs") {
         let settings;
         try {
@@ -3241,6 +3427,8 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
           settings = `<div class="banner err">⚠️ ${esc(err.message)}</div>`;
         }
         const body = `<h1>🛠 Logs &amp; Settings</h1>
+          <p><a href="/freshness">🩺 Data freshness &amp; spend</a> — what is updating, what is stale, and this month's Anthropic spend.</p>
+          <p><a href="/setup">🧭 Setup — state pack</a> — which state this deployment is configured for, its local overlay, and what it still needs.</p>
           ${runLogSection()}
           <h2>Recent activity</h2><pre class="logs">${esc(logBuffer.slice(-300).join("\n") || "(nothing yet)")}</pre>
           ${settings}`;
@@ -3340,7 +3528,7 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
           // the last resort so the text is always reachable by hand.
           const buttons = `<div class="toolbar">
             <button class="ghost" id="bb-copy" type="button">📋 Copy markdown</button>
-            <a href="mailto:?subject=${encodeURIComponent("ISA Policy Brief " + name.replace(".md", ""))}&body=${encodeURIComponent("Brief attached below (or read it at " + `http://${req.headers.host}/brief/${name}` + " on the office network):%0A%0A")}"><button class="ghost" type="button">✉️ Email</button></a>
+            <a href="mailto:?subject=${encodeURIComponent(`${V.short} Policy Brief ` + name.replace(".md", ""))}&body=${encodeURIComponent("Brief attached below (or read it at " + `http://${req.headers.host}/brief/${name}` + " on the office network):%0A%0A")}"><button class="ghost" type="button">✉️ Email</button></a>
             <form method="post" action="/brief/${encodeURIComponent(name)}/teams"><button class="ghost">💬 Post to Teams</button></form>
           </div>
           <div id="bb-copy-fallback" hidden style="margin:8px 0">
@@ -3402,12 +3590,14 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
       // ----- actions -----
       if (req.method === "POST" && url.pathname === "/run") {
         const form = await readForm(req);
-        let edition = ["am", "pm", "auto", "weekly", "monthly", "farmer", "education", "analyst", "pulse"].includes(form.get("edition")) ? form.get("edition") : "auto";
+        // `farmer` and `pulse` were removed in 1.40.0: neither is a memo preset, so triggerRun ran the FULL
+        // policy pipeline under that name (Phase 0 audit §4.2). `member` sends; `member-preview` never does.
+        let edition = ["am", "pm", "auto", "weekly", "monthly", "education", "analyst", "member", "member-preview"].includes(form.get("edition")) ? form.get("edition") : "auto";
         // The single "Run policy brief now" button posts edition="auto"; resolve it to the
         // am or pm slot by time of day so a manual run lines up with (and doesn't clobber)
         // the scheduled editions. The scheduler still fires am + pm on their own times.
         if (edition === "auto") {
-          let tz = "America/Chicago";
+          let tz = V.tz;
           try { tz = loadWatchlist().briefEditions?.timezone ?? tz; } catch { /* default tz */ }
           const hh = Number(new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", hour12: false }).format(new Date()));
           edition = hh >= 12 ? "pm" : "am";
@@ -3723,7 +3913,27 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
               watchlist.briefEditions[edition] = `${day} ${time}`;
             }
           }
+          // Member Brief schedule ("Mon,Wed,Fri 06:45", "off") and recipients.
+          const memberSchedule = form.get("memberSchedule");
+          if (memberSchedule != null) {
+            const v = String(memberSchedule).trim();
+            if (/^off$/i.test(v)) watchlist.briefEditions.member = "off";
+            else {
+              const spec = parseDaySpec(v);
+              if (!spec) throw new Error(`Member Brief schedule "${v}" isn't valid — use days and a time, e.g. "Mon,Wed,Fri 06:45", or "off".`);
+              checkTime("Member Brief", spec.time);
+              watchlist.briefEditions.member = `${spec.days.join(",")} ${spec.time}`;
+            }
+          }
           watchlist.output ??= {};
+          const memberTo = form.get("memberBriefTo");
+          if (memberTo != null) {
+            const list = String(memberTo).split(/[,;\s]+/).map((x) => x.trim()).filter(Boolean);
+            const bad = list.filter((x) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x));
+            if (bad.length) throw new Error(`Member recipients: ${bad.map((b) => `"${b}"`).join(", ")} ${bad.length === 1 ? "doesn't" : "don't"} look like email addresses.`);
+            if (list.length) watchlist.output.memberBriefTo = list.join(", ");
+            else delete watchlist.output.memberBriefTo;
+          }
           // Per-edition recipients — this is what sends the market-education brief to its own Teams
           // channel. Blank clears the override (back to the default BRIEF_EMAIL_TO).
           for (const [edition] of MEMO_EDITIONS) {
@@ -3737,6 +3947,11 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
             if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(addr)) throw new Error(`"${addr}" doesn't look like an email address.`);
             watchlist.output.editionEmail ??= {};
             watchlist.output.editionEmail[edition] = addr;
+          }
+          // Monthly Anthropic budget (src/budget.js). MONTHLY_BUDGET_USD in .env still wins over this.
+          if (form.get("monthlyBudgetUsd") != null && form.get("monthlyBudgetUsd") !== "") {
+            const v = Number(form.get("monthlyBudgetUsd"));
+            if (Number.isFinite(v) && v > 0 && v <= 10000) watchlist.output.monthlyBudgetUsd = v;
           }
           for (const key of ["minLocalScoreForTriage", "maxItemsToTriage", "maxItemsInBrief"]) {
             const value = Number(form.get(key));
@@ -3865,15 +4080,102 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
   return server;
 }
 
+// ---------- data freshness page (/freshness) ----------
+// Backed by src/health.js — the same audit as scripts/audit-freshness.mjs — over a SEPARATE read-only
+// connection, so the page can never write to the store it is describing.
+let healthDb = null;
+function buildFreshnessReport() {
+  if (!healthDb) healthDb = new Database(store.DB_PATH, { readonly: true, fileMustExist: true });
+  let watchlist = null;
+  try {
+    watchlist = loadWatchlist();
+  } catch {
+    /* the report says what it can without it */
+  }
+  let shipped = null;
+  try {
+    shipped = JSON.parse(fs.readFileSync(path.join(store.PROJECT_ROOT, "watchlist.json"), "utf8"));
+  } catch {
+    /* no comparison */
+  }
+  return auditFreshness({
+    db: healthDb,
+    watchlist,
+    defaultWatchlist: store.DATA_DIR === store.PROJECT_ROOT ? null : shipped,
+    envPresent: envPresence([], process.env), // presence only — values never leave process.env
+    dataDir: store.DATA_DIR,
+    budgetUsd: budgetMod.monthlyBudget(process.env, watchlist),
+    logText: logBuffer.join("\n"),
+  });
+}
+
+// ---------- state pack: /setup page + the /freshness section (src/setup.js) ----------
+const SETUP_TONE = { ok: "fr-ok", info: "fr-off", warn: "fr-off", error: "fr-bad" };
+function packChecksTable(r) {
+  return `<table class="fr"><tr><th>Check</th><th>Status</th><th>Detail</th></tr>${r.checks
+    .map((c) => `<tr><td>${esc(c.name)}</td><td class="${SETUP_TONE[c.status]}">${esc(c.status)}</td><td>${esc(c.detail)}</td></tr>`)
+    .join("")}</table>${r.chain.length ? `<p class="muted">Pack chain: ${r.chain.map((l) => `<code>${esc(l.id)}@${esc(l.version)}</code> sha256 <code>${esc(l.sha256.slice(0, 12))}</code>`).join(" → ")}</p>` : ""}`;
+}
+function packSection(r) {
+  return `<h2>State pack</h2>${packChecksTable(r)}<p class="muted">Details and how to switch states: <a href="/setup">/setup</a>.</p>`;
+}
+function setupBody(r, packs) {
+  return `<h1>🧭 Setup — state pack</h1>
+<style>.fr-ok{color:#2e7d32;font-weight:600}.fr-off{color:#8a6d00;font-weight:600}.fr-bad{color:#b3261e;font-weight:700}
+table.fr{border-collapse:collapse;width:100%;font-size:.86em;margin:6px 0 18px}table.fr td,table.fr th{border-bottom:1px solid var(--line,#ddd);padding:4px 6px;text-align:left;vertical-align:top}</style>
+<div class="banner${r.ok ? "" : " err"}">${r.ok ? "Ready" : "Not ready"} — <code>${esc(r.spec)}</code> (${esc(r.specSource)})</div>
+${packChecksTable(r)}
+<h2>Packs in this image</h2><table class="fr"><tr><th>Pack</th><th>State</th><th>Organization</th><th>Valid</th></tr>${packs
+    .map((p) => `<tr><td><code>${esc(p.spec)}</code></td><td>${esc(p.stateName ?? "—")}</td><td>${esc(p.orgName ?? p.error ?? "—")}</td><td class="${p.valid ? "fr-ok" : "fr-bad"}">${p.valid ? "yes" : "no"}</td></tr>`)
+    .join("")}</table>
+<h2>Switching or customizing</h2>
+<p>Run <code>node src/index.js setup --state us-il</code> on the box (or set <code>STATE_PACK=us-il</code> in the data folder's <code>.env</code>) and restart. The pack is checked before it is written, so a typo cannot stop the next start.</p>
+<p>Local changes go in <code>pack-overlay.json</code> in the data folder — it merges over the shipped pack (objects merge, arrays replace, <code>null</code> removes) and survives upgrades. Secrets never go in a pack: name the environment variable instead. Keys are shown as present or missing, never their values.</p>`;
+}
+
+const STATUS_TONE = (st) => (/^(OK|LIVE|ON DEMAND)/.test(st) && !/·/.test(st) ? "ok" : /^(OFF|NEVER \(on demand\))/.test(st) ? "off" : "bad");
+function freshnessBody(r) {
+  const tag = (st) => `<span class="fr-${STATUS_TONE(st)}">${esc(st)}</span>`;
+  const age = (ms) => esc(fmtAge(ms));
+  const badSources = r.sources.filter((x) => STATUS_TONE(x.status) === "bad");
+  const badPanels = r.panels.filter((x) => STATUS_TONE(x.status) === "bad");
+  const b = r.budget;
+  const rows = (list, fn) => list.map(fn).join("");
+  return `<h1>🩺 Data freshness &amp; spend</h1>
+<style>.fr-ok{color:#2e7d32;font-weight:600}.fr-off{color:#777}.fr-bad{color:#b3261e;font-weight:700}
+table.fr{border-collapse:collapse;width:100%;font-size:.86em;margin:6px 0 18px}table.fr td,table.fr th{border-bottom:1px solid var(--line,#ddd);padding:4px 6px;text-align:left;vertical-align:top}
+.fr-wrap{overflow-x:auto}</style>
+<p class="muted">Generated ${esc(fmtCT(r.generatedAt))}. STALE = older than 2× its expected cadence (plus publication lag for data). Keys are reported as present or missing — never their values. Same report as <code>node scripts/audit-freshness.mjs</code>; JSON at <a href="/freshness.json">/freshness.json</a>.</p>
+<div class="banner${badSources.length + badPanels.length ? " err" : ""}">${badPanels.length} panel${badPanels.length === 1 ? "" : "s"} and ${badSources.length} source${badSources.length === 1 ? "" : "s"} need attention · spend $${b.spent.toFixed(2)} of $${b.budget.toFixed(2)} this month (projected $${b.projected.toFixed(2)})</div>
+<h2>Panels &amp; reports</h2><div class="fr-wrap"><table class="fr"><tr><th>Panel</th><th>Last generated</th><th>Expected</th><th>Status</th><th>Last attempt</th><th>Notes</th></tr>
+${rows(r.panels, (p) => `<tr><td>${esc(p.label)}<br><span class="muted">${esc(p.where)}</span></td><td>${p.lastAt ? esc(fmtCT(p.lastAt)) : "—"}<br><span class="muted">${age(p.ageMs)}</span></td><td>${esc(p.expected)}</td><td>${tag(p.status)}</td><td>${p.attempt?.lastAttemptAt ? `${esc(fmtCT(p.attempt.lastAttemptAt))}: ${esc(p.attempt.lastOutcome ?? "")}${p.attempt.lastError ? ` — ${esc(p.attempt.lastError)}` : ""}` : p.attempt?.lastCall ? `model call ${esc(fmtCT(p.attempt.lastCall))}` : "—"}</td><td class="muted">${esc([p.evidence, p.error].filter(Boolean).join(" · "))}</td></tr>`)}
+</table></div>
+<h2>Storylines</h2><p>${esc(r.storylines.verdict)}</p>
+<h2>Sources</h2><div class="fr-wrap"><table class="fr"><tr><th>Source</th><th>Keys</th><th>Last fetch</th><th>Newest data</th><th>Status</th><th>Note / last error</th></tr>
+${rows(r.sources, (x) => `<tr><td>${esc(x.label)}<br><span class="muted">${esc(x.id)} · ${esc(x.cls)} · ${esc(x.kind)}</span></td><td>${x.keys.length ? x.keys.map((k) => `${esc(k.group.replace(/\|/g, " or "))}: ${k.ok ? "✓" : "<strong>missing</strong>"}`).join("<br>") : '<span class="muted">none needed</span>'}</td><td>${x.lastFetch ? esc(fmtCT(x.lastFetch)) : "—"}<br><span class="muted">${age(x.fetchAgeMs)} (expect ${esc(x.expectedFetch)})</span></td><td>${esc(x.newestPeriod ?? "—")}<br><span class="muted">${age(x.dataAgeMs)} (expect ${esc(x.expectedData)})</span></td><td>${tag(x.status)}</td><td class="muted">${esc([x.enabledNote, x.lastError, x.note].filter(Boolean).join(" · "))}</td></tr>`)}
+</table></div>
+<h2>Member Brief market inputs</h2><div class="fr-wrap"><table class="fr"><tr><th>Input</th><th>Series</th><th>Latest</th><th>Current?</th></tr>
+${rows(r.memberInputs, (m) => m.rows.map((row, i) => `<tr><td>${i ? "" : esc(m.label)}</td><td><code>${esc(row.key)}</code></td><td>${esc(row.latest ?? "—")}${row.ageD != null ? ` <span class="muted">(${row.ageD}d)</span>` : ""}</td><td>${row.present ? (row.current ? '<span class="fr-ok">yes</span>' : '<span class="fr-bad">stale</span>') : '<span class="fr-off">absent</span>'}</td></tr>`).join(""))}
+</table></div>
+<h2>Anthropic spend this month</h2><table class="fr"><tr><th>Group</th><th>Allocation</th><th>Spent</th><th></th></tr>
+${rows(b.groups, (g) => `<tr><td>${esc(g.label)}</td><td>$${g.allocation.toFixed(2)}</td><td>$${g.spent.toFixed(2)}</td><td class="muted">${g.essential ? "essential — runs to the hard ceiling" : "discretionary — pauses at its allocation"}</td></tr>`)}
+</table>
+${r.warnings.length ? `<h2>Warnings</h2><ul>${rows(r.warnings, (w) => `<li>${esc(w)}</li>`)}</ul>` : ""}`;
+}
+
 // ---------- scheduler ----------
 function startScheduler() {
-  // Seed "already ran" from the briefs table so a container restart mid-day
-  // doesn't re-run an edition.
-  const ran = new Set();
-  for (const b of store.listBriefs(20)) {
-    const m = path.basename(b.path).match(/^(\d{4}-\d{2}-\d{2})-(am|pm|weekly|monthly|education|analyst)\.md$/);
-    if (m) ran.add(`${m[1]}-${m[2]}`);
+  // A row still `running` at boot cannot be live — the process that owned it is gone. Close it as
+  // interrupted so the run log is honest and seedRan() treats that edition as not yet done.
+  try {
+    const n = store.markInterruptedRuns();
+    if (n) console.log(`🔁 ${n} run${n === 1 ? "" : "s"} interrupted by the last restart — marked failed; due editions will re-run.`);
+  } catch (err) {
+    console.log(`⚠️  Could not close interrupted runs: ${err.message}`);
   }
+  // Editions attempted by THIS process. A failed memo writes no file and has no run row, so without
+  // this it would be retried every 30 s; with it, it is retried only after a restart.
+  const attempted = new Set();
 
   const check = async () => {
     let watchlist;
@@ -3882,51 +4184,41 @@ function startScheduler() {
     } catch {
       return; // bad watchlist edits shouldn't crash the server; run/CLI will report it
     }
-    // The whole tick is guarded: watchlist.json invites hand-editing, and a bad briefEditions
-    // value (e.g. an invalid IANA timezone → Intl throws RangeError) must degrade to a logged,
-    // skipped tick — never an unhandled rejection that would crash-loop the container.
+    // The whole tick is guarded: watchlist.json invites hand-editing, and a bad briefEditions value
+    // (e.g. an invalid IANA timezone → Intl throws RangeError) must degrade to a logged, skipped tick.
     try {
       const editions = watchlist.briefEditions ?? {};
-      const timezone = editions.timezone ?? "America/Chicago";
+      const timezone = editions.timezone ?? V.tz;
       const now = new Date();
-      const dateLabel = new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(now);
-      const hhmm = new Intl.DateTimeFormat("en-GB", { timeZone: timezone, hour: "2-digit", minute: "2-digit", hour12: false }).format(now);
-      const weekday = new Intl.DateTimeFormat("en-US", { timeZone: timezone, weekday: "short" }).format(now); // "Fri"
-
-      for (const edition of ["am", "pm"]) {
-        const key = `${dateLabel}-${edition}`;
-        if (editions[edition] && hhmm >= editions[edition] && !ran.has(key)) {
-          console.log(`\n⏰ Scheduled ${edition.toUpperCase()} edition (${editions[edition]} ${timezone})`);
-          const problem = await triggerRun(edition);
-          // Mark the edition done only once it actually STARTED. A "busy" bounce (a manual run in
-          // flight) stays eligible so a later tick picks it up once the run frees — no dropped brief.
-          if (problem === RUN_BUSY_MESSAGE) console.log(`⏭️  ${edition.toUpperCase()} bounced (run in progress) — retrying next tick`);
-          else { ran.add(key); if (problem) console.log(`⚠️  ${problem}`); }
+      // "Already ran" is re-read from the database every tick (brief_runs + saved files) rather than
+      // seeded once from saved files at boot — see schedule.js for why that dropped quiet AM runs.
+      const ran = seedRan(
+        store.briefRunsSince(new Date(now.getTime() - 3 * 86400e3).toISOString()),
+        store.listBriefs(60).map((b) => path.basename(b.path)),
+        timezone
+      );
+      for (const k of attempted) ran.add(k);
+      // The Member Brief is scheduled by default (Mon,Wed,Fri 06:45) unless set to "off". It sends only
+      // when recipients are configured; otherwise it is generated and saved.
+      const withMember = { member: DEFAULT_MEMBER_SPEC, ...editions };
+      const dayIds = [...DAY_SCHEDULED.map(([e]) => e), ...(withMember.member === "off" ? [] : ["member"])];
+      const { date, due } = dueEditions(withMember, now, ran, dayIds);
+      for (const edition of due) {
+        console.log(`\n⏰ Scheduled ${edition} (${withMember[edition]} ${timezone})`);
+        const problem = await triggerRun(edition, { trigger: "schedule" });
+        // A "busy" bounce stays eligible so a later tick picks it up once the run frees — no dropped brief.
+        if (problem === RUN_BUSY_MESSAGE) {
+          console.log(`⏭️  ${edition} bounced (run in progress) — retrying next tick`);
+          break;
         }
-      }
-
-      // Day-scheduled memo editions, e.g. "Fri 17:00" — weekly, plus the education brief and the
-      // Analyst Note. Education is the one that goes to its own Teams channel, and it had no
-      // schedule at all before (on-demand only, so it only existed if someone clicked). A scheduled
-      // Analyst also keeps the forecast ledger fed: Analyst is the only preset that files claims.
-      // Guard the type: a hand-edited non-string value must not throw.
-      for (const edition of ["weekly", "monthly", "education", "analyst"]) {
-        const spec = editions[edition];
-        if (typeof spec !== "string" || !spec.trim()) continue;
-        const [day, time] = spec.split(/\s+/);
-        const key = `${dateLabel}-${edition}`;
-        if (day === weekday && time && hhmm >= time && !ran.has(key)) {
-          console.log(`\n⏰ Scheduled ${edition} memo (${spec} ${timezone})`);
-          const problem = await triggerRun(edition);
-          if (problem === RUN_BUSY_MESSAGE) console.log(`⏭️  ${edition} bounced (run in progress) — retrying next tick`);
-          else { ran.add(key); if (problem) console.log(`⚠️  ${problem}`); }
-        }
+        attempted.add(`${date}-${edition}`);
+        if (problem) console.log(`⚠️  ${problem}`);
       }
 
       // Nightly backup at 03:15 local.
-      const backupKey = `${dateLabel}-backup`;
-      if (hhmm >= "03:15" && !ran.has(backupKey)) {
-        ran.add(backupKey);
+      const backupKey = `${date}-backup`;
+      if (localClock(now, timezone).hhmm >= "03:15" && !attempted.has(backupKey)) {
+        attempted.add(backupKey);
         try {
           const dir = await store.backupNow();
           console.log(`💾 Nightly backup saved to ${dir} (newest 14 kept)`);

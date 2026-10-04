@@ -49,6 +49,7 @@ import * as fas_export_sales from "./fas_export_sales.js";
 import * as banyan_rin from "./banyan_rin.js";
 import * as carbon_prices from "./carbon_prices.js";
 import * as eu_ets from "./eu_ets.js";
+import { pack } from "../pack.js";
 
 export const adapters = {
   [federal_register.id]: federal_register,
@@ -104,6 +105,12 @@ export const adapters = {
   [eu_ets.id]: eu_ets,
 };
 
+// State-specific adapters (`export const state = "IA"`) exist only under their own state pack — an
+// Illinois deployment must not poll the Iowa Administrative Bulletin even if its watchlist names it.
+for (const [id, a] of Object.entries(adapters)) if (a.state && a.state !== pack().identity.stateAlpha) delete adapters[id];
+const ADMIN_RULES = pack().adminRules?.adapter;
+if (ADMIN_RULES && !adapters[ADMIN_RULES]) console.warn(`⚠️  State pack ${pack().id} names admin-rules adapter "${ADMIN_RULES}", which is not available — admin rules will not be collected.`);
+
 // Information CLASS per source — decides which portal tab an item surfaces on, and
 // keeps the newsletter/market firehose out of the clean regulatory flow:
 //   official = rules, bills, dockets, court, admin rules → Items tab + the policy brief
@@ -148,3 +155,21 @@ export const SOURCE_CLASS = {
 };
 export const classOf = (sourceId) => SOURCE_CLASS[sourceId] ?? "official";
 export const sourceIdsForClass = (cls) => Object.keys(SOURCE_CLASS).filter((s) => SOURCE_CLASS[s] === cls);
+
+// The market_series namespace(s) each series adapter writes, where it differs from `${id}:`. Used to
+// withhold a failed layer's series from the brief's evidence menu (pipeline.js) and by the freshness
+// audit (src/health.js keeps its own copy because it must not import adapters).
+export const SERIES_PREFIXES = {
+  usda_nass: ["nass:"],
+  usda_ams: ["ams:"],
+  fas_export_sales: ["fas:"],
+  cbot_futures: ["cbot:"],
+  cme_settlements: ["cme:"],
+  census_trade: ["census:"],
+  cpc_outlook: ["cpc:"],
+  river_stage: ["river:"],
+  comexstat: ["comex:"],
+  banyan_rin: ["rin:"],
+  carbon_prices: ["lcfs:"],
+  eu_ets: ["euets:"],
+};

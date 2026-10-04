@@ -1,0 +1,261 @@
+{
+ "categories": [
+  {
+   "category": "soy_price",
+   "label": "Soybean price",
+   "series": [
+    {
+     "id": "nass:ia:price",
+     "label": "IA soybean price received",
+     "unit": "$/bu"
+    },
+    {
+     "id": "nass:us:price",
+     "label": "US soybean price received",
+     "unit": "$/bu"
+    }
+   ]
+  },
+  {
+   "category": "soy_corn_ratio",
+   "label": "Soybean : corn ratio",
+   "series": [
+    {
+     "id": "nass:ia:soy-corn-ratio",
+     "label": "IA soy:corn ratio",
+     "unit": "ratio"
+    }
+   ]
+  },
+  {
+   "category": "soy_crush",
+   "label": "Soybean crush",
+   "series": [
+    {
+     "id": "nass:us:crush",
+     "label": "US soybean crush",
+     "unit": "mln bu"
+    }
+   ]
+  },
+  {
+   "category": "soy_balance",
+   "label": "Ending stocks (WASDE)",
+   "series": [
+    {
+     "id": "wasde:us:soy-endstocks",
+     "label": "Ending stocks",
+     "unit": "mln bu"
+    }
+   ]
+  },
+  {
+   "category": "soy_balance_stu",
+   "label": "Stocks-to-use (WASDE)",
+   "series": [
+    {
+     "id": "wasde:us:soy-stocks-to-use",
+     "label": "Stocks-to-use",
+     "unit": "%"
+    }
+   ]
+  },
+  {
+   "category": "soy_condition",
+   "label": "Crop condition",
+   "series": [
+    {
+     "id": "nass:us:condition",
+     "label": "US condition",
+     "unit": "% G/E"
+    }
+   ]
+  },
+  {
+   "category": "weather_us",
+   "label": "U.S. crop weather",
+   "series": [
+    {
+     "id": "open_meteo:us:precip-pctile",
+     "label": "US precip",
+     "unit": "pctile"
+    }
+   ]
+  },
+  {
+   "category": "drought",
+   "label": "Iowa drought",
+   "series": [
+    {
+     "id": "drought_monitor:ia:d1",
+     "label": "IA D1+",
+     "unit": "%"
+    }
+   ]
+  },
+  {
+   "category": "soy_exports",
+   "label": "Exports (weekly)",
+   "series": [
+    {
+     "id": "agtransport:soy-net-export-sales",
+     "label": "Net export sales",
+     "unit": "metric tons"
+    }
+   ]
+  },
+  {
+   "category": "barge_freight",
+   "label": "Barge freight",
+   "series": [
+    {
+     "id": "agtransport:barge-freight:st-louis",
+     "label": "Barge freight — St. Louis",
+     "unit": "$/ton"
+    }
+   ]
+  },
+  {
+   "category": "positioning",
+   "label": "Fund positioning (CFTC)",
+   "series": [
+    {
+     "id": "cftc:soybeans:mm-net",
+     "label": "Managed money net position",
+     "unit": "contracts"
+    }
+   ]
+  },
+  {
+   "category": "corn_curve",
+   "label": "corn_curve",
+   "series": [
+    {
+     "id": "cme:zc:2026-12",
+     "label": "ZC Dec",
+     "unit": "¢/bu"
+    }
+   ]
+  },
+  {
+   "category": "soil_moisture",
+   "label": "soil_moisture",
+   "series": [
+    {
+     "id": "cropcasma:ia:rootzone-sm",
+     "label": "IA root-zone",
+     "unit": "m3/m3"
+    }
+   ]
+  },
+  {
+   "category": "soy_basis",
+   "label": "soy_basis",
+   "series": [
+    {
+     "id": "ams:ia:basis",
+     "label": "IA basis",
+     "unit": "¢/bu"
+    }
+   ]
+  },
+  {
+   "category": "soy_crush_margin",
+   "label": "soy_crush_margin",
+   "series": [
+    {
+     "id": "cbot:crush:board-margin",
+     "label": "Board crush",
+     "unit": "$/bu"
+    }
+   ]
+  },
+  {
+   "category": "soy_curve",
+   "label": "soy_curve",
+   "series": [
+    {
+     "id": "cme:zs:2026-11",
+     "label": "ZS Nov",
+     "unit": "¢/bu"
+    }
+   ]
+  },
+  {
+   "category": "soy_futures",
+   "label": "soy_futures",
+   "series": [
+    {
+     "id": "cbot:zs:front",
+     "label": "Soybeans",
+     "unit": "¢/bu"
+    }
+   ]
+  },
+  {
+   "category": "soy_products",
+   "label": "soy_products",
+   "series": [
+    {
+     "id": "cbot:zm:front",
+     "label": "Meal",
+     "unit": "$/ton"
+    },
+    {
+     "id": "cbot:zl:front",
+     "label": "Oil",
+     "unit": "¢/lb"
+    }
+   ]
+  },
+  {
+   "category": "soy_products_cash",
+   "label": "soy_products_cash",
+   "series": [
+    {
+     "id": "ams:ia:meal",
+     "label": "IA cash meal",
+     "unit": "$/ton"
+    },
+    {
+     "id": "ams:ia:oil",
+     "label": "IA cash oil",
+     "unit": "¢/lb"
+    }
+   ]
+  },
+  {
+   "category": "veg_condition",
+   "label": "veg_condition",
+   "series": [
+    {
+     "id": "vegscape:ia:vci",
+     "label": "IA VCI",
+     "unit": "index"
+    }
+   ]
+  }
+ ],
+ "transforms": [
+  {
+   "id": "none",
+   "label": "None"
+  },
+  {
+   "id": "rebase100",
+   "label": "Rebase to 100"
+  },
+  {
+   "id": "yoy",
+   "label": "YoY %"
+  },
+  {
+   "id": "ratio",
+   "label": "Ratio A ÷ B"
+  },
+  {
+   "id": "seasonal",
+   "label": "Seasonality"
+  }
+ ]
+}

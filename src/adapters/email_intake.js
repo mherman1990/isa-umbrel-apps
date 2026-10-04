@@ -15,6 +15,7 @@ import { createHash } from "node:crypto";
 import { resolveEntity } from "../registry.js";
 import { getEntity } from "../store.js";
 import { sanitizeEmailHtml, textToHtml } from "../emailhtml.js";
+import { pack } from "../pack.js";
 // imapflow + mailparser are lazy-imported inside fetchItems (like nodemailer in
 // deliver.js) so a missing optional dep never breaks the whole adapter registry —
 // it only matters once email-intake is actually enabled.
@@ -88,7 +89,7 @@ export async function fetchItems({ sinceISO, sourceConfig = {}, env = process.en
         summary: body,
         url: "",
         publishedAt: (parsed.date || new Date()).toISOString(),
-        jurisdiction: "Iowa",
+        jurisdiction: pack().identity.stateName,
         docType: "email",
         raw: {
           entityId: resolved?.entityId ?? null,

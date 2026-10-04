@@ -10,6 +10,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import * as store from "./store.js";
+import { voice } from "./pack.js";
+const V = voice(); // org wording from the active state pack
 
 // ---------- markdown → email HTML ----------
 // Self-contained (server.js's richer renderer can't be imported — server.js imports this module)
@@ -62,11 +64,11 @@ export function markdownToEmailHtml(markdown, title = "The Bean Brief") {
   return `<div style="${FONT};color:#1c2b3a;max-width:760px">
 <div style="border-bottom:3px solid #FFC425;padding-bottom:6px;margin-bottom:14px;font-weight:700;color:#004A8D">${escHtml(title)}</div>
 ${out.join("\n")}
-<p style="${FONT};font-size:.8em;color:#6b7c8c;margin-top:20px;border-top:1px solid #d9e2ec;padding-top:8px">The Bean Brief — Iowa Soybean Association · internal monitoring. Informational, not a recommendation.</p>
+<p style="${FONT};font-size:.8em;color:#6b7c8c;margin-top:20px;border-top:1px solid #d9e2ec;padding-top:8px">The Bean Brief — ${V.org} · internal monitoring. Informational, not a recommendation.</p>
 </div>`;
 }
 
-export function saveBrief(markdown, edition, timezone = "America/Chicago") {
+export function saveBrief(markdown, edition, timezone = V.tz) {
   const dateLabel = new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(new Date());
   const dir = path.join(store.DATA_DIR, "briefings");
   fs.mkdirSync(dir, { recursive: true });
@@ -166,7 +168,7 @@ export async function sendEmail(markdown, edition, env, watchlist) {
   }
   await sendMarkdownEmail({
     markdown,
-    subject: `ISA Policy Brief — ${new Intl.DateTimeFormat("en-CA").format(new Date())} (${edition.toUpperCase()})`,
+    subject: `${V.short} Policy Brief — ${new Intl.DateTimeFormat("en-CA").format(new Date())} (${edition.toUpperCase()})`,
     to,
     env,
   });
@@ -223,6 +225,47 @@ export async function sendMemoEmail(markdown, edition, env, watchlist) {
     env,
   });
   return to;
+}
+
+/**
+ * The ISA Member Brief → members. Recipients go in BCC — members must never see each other's addresses —
+ * and the visible To is the sending account itself. A List-Unsubscribe header (mailto) is set so mail
+ * clients show their own unsubscribe button, alongside the line in the footer.
+ * @returns {boolean} false when SMTP is not configured (the brief is still saved)
+ */
+export async function sendMemberBriefEmail({ markdown, subject, recipients, env = process.env, unsubscribeTo = "" }) {
+  if (!(env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS) || !recipients?.length) return false;
+  const { default: nodemailer } = await import("nodemailer");
+  const transport = nodemailer.createTransport({
+    host: env.SMTP_HOST,
+    port: Number(env.SMTP_PORT || 587),
+    secure: Number(env.SMTP_PORT || 587) === 465,
+    auth: { user: env.SMTP_USER, pass: env.SMTP_PASS },
+  });
+  const from = env.SMTP_FROM && env.SMTP_FROM.includes(env.SMTP_USER) ? env.SMTP_FROM : env.SMTP_USER;
+  const message = {
+    from,
+    to: env.SMTP_USER,
+    bcc: recipients,
+    replyTo: env.MEMBER_BRIEF_REPLY_TO || undefined,
+    subject,
+    text: markdown,
+    html: markdownToEmailHtml(markdown, subject),
+  };
+  if (unsubscribeTo) message.list = { unsubscribe: { url: `mailto:${unsubscribeTo}?subject=unsubscribe`, comment: `Unsubscribe from the ${V.short} Member Brief` } };
+  await transport.sendMail(message);
+  return true;
+}
+
+/**
+ * An operational alert to the staff (not members): ALERT_EMAIL_TO, else BRIEF_EMAIL_TO. Used when the
+ * Member Brief fails closed. Returns false when there is nowhere to send it.
+ */
+export async function sendOpsAlert(subject, text, env = process.env) {
+  const to = (env.ALERT_EMAIL_TO || env.BRIEF_EMAIL_TO || "").trim();
+  if (!(env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS && to)) return false;
+  await sendMarkdownEmail({ markdown: text, subject, to, env });
+  return true;
 }
 
 /**

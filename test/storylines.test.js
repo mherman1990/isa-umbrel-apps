@@ -271,6 +271,11 @@ test("storylines: the twice-daily run calls this on AM only", () => {
   // The cost offset that funds evidence packets: ~$0.076/call x 60 calls/mo was $4.56/mo, the largest
   // single line item in the tool, for a 21-day window that does not change between 06:30 and 16:30.
   const src = fs.readFileSync(new URL("../src/pipeline.js", import.meta.url), "utf8");
-  assert.match(src, /if \(edition !== "pm"\) \{\s*try \{\s*await generateStorylines\(env\)/,
+  assert.match(src, /if \(edition !== "pm"\) \{\s*store\.setRunStage\(runId, "storylines"\);\s*try \{\s*await generateStorylines\(env\)/,
     "the scheduled call must be gated to the AM edition");
+  // 1.39.0: it must also come AFTER triage (it clusters triage_verdict='relevant' rows — run before
+  // triage it saw only yesterday's verdicts) and BEFORE the quiet-day early return (or quiet days skip it).
+  const call = src.indexOf("await generateStorylines(env)");
+  assert.ok(call > src.indexOf("await triageItems("), "storylines must run after triage");
+  assert.ok(call < src.indexOf("if (relevant.length === 0) {"), "storylines must run before the quiet-day return");
 });

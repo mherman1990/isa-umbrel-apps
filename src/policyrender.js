@@ -18,6 +18,9 @@
 // arithmetic that the reader will act on.
 
 import { MECHANISM_TERMINALS } from "./prompts/policy-domain.js";
+import { voice } from "./pack.js";
+// State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
+const V = voice();
 
 const TERMINAL_LABEL = new Map(MECHANISM_TERMINALS.map((t) => [t.id, t.label]));
 
@@ -98,7 +101,7 @@ export function renderCard(card, todayISO) {
   if (mech) lines.push(mech);
   if (card.mechanism?.weak_link) lines.push(`*Weak link: ${card.mechanism.weak_link}*`);
 
-  if (card.so_what) lines.push(`**So what, for an Iowa operation:** ${card.so_what}`);
+  if (card.so_what) lines.push(`**So what, for ${V.aState} operation:** ${card.so_what}`);
 
   const w = card.watch_next ?? {};
   if (w.event) {
@@ -127,7 +130,7 @@ export function renderCard(card, todayISO) {
  * @param {string} o.reviewNote set when the adversarial review did not run
  */
 export function renderPolicyBrief({ cards, dateLabel, edition, missingLayers = [], reviewNote = null }) {
-  const out = [`## ISA Policy Brief — ${dateLabel} (${edition.toUpperCase()} edition)`, ""];
+  const out = [`## ${V.short} Policy Brief — ${dateLabel} (${edition.toUpperCase()} edition)`, ""];
 
   if (!cards.length) {
     out.push("No action cleared the evidence bar this scan. Nothing is being withheld — the items collected either had no retrievable substance, no corroborating data, or no development since the last brief.");

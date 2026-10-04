@@ -13,6 +13,9 @@
 import * as store from "./store.js";
 import { weatherSignals } from "./weather.js";
 import { crushSignal, oilShareSignal } from "./crush.js";
+import { voice, seriesKey } from "./pack.js";
+// State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
+const V = voice();
 
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const monthOf = (period) => MON[(Number(String(period).slice(5, 7)) || 1) - 1];
@@ -31,7 +34,7 @@ function isFresh(s, maxDays = 120) {
 // --- individual scorers (each takes the snapshot map) ---
 
 function cropCondition(m) {
-  const s = m.get("nass:us:condition") || m.get("nass:ia:condition");
+  const s = m.get("nass:us:condition") || m.get(seriesKey("nass", "condition"));
   if (!s || s.seasonalDeltaPct == null || !isFresh(s, 25)) return null; // in-season only
   const d = s.seasonalDeltaPct;
   const direction = d >= 3 ? "bearish" : d <= -3 ? "bullish" : "neutral";
@@ -48,7 +51,7 @@ function cropCondition(m) {
 // risk read that supports price; high VCI = a lush crop that weighs on it. Growing-season only
 // (off-season the cropland mask sees bare soil/residue, not the crop).
 function vegCondition(m) {
-  const s = m.get("vegscape:ia:vci");
+  const s = m.get(seriesKey("vegscape", "vci"));
   if (!s || !isFresh(s, 21)) return null; // weekly; a stale series drops off
   const mon = new Date().getUTCMonth() + 1;
   if (mon < 4 || mon > 10) return null; // Apr–Oct — otherwise not the standing crop
@@ -58,7 +61,7 @@ function vegCondition(m) {
   return {
     id: "veg_condition", name: "Crop Vegetation (VCI)", direction, value: v,
     label: `${Math.round(v)}/100 VCI`,
-    detail: `Iowa satellite VCI ${Math.round(v)}/100 (${s.latest.period}) — crop vigor vs. its 2000-present range.${trend} ${direction === "bullish" ? "Stressed vegetation (low VCI) is a supply-risk read that supports price, often ahead of the USDA condition rating." : direction === "bearish" ? "A vigorous crop (high VCI) points to good yield potential and weighs on price." : "Vegetation near the middle of its historical range."}`,
+    detail: `${V.state} satellite VCI ${Math.round(v)}/100 (${s.latest.period}) — crop vigor vs. its 2000-present range.${trend} ${direction === "bullish" ? "Stressed vegetation (low VCI) is a supply-risk read that supports price, often ahead of the USDA condition rating." : direction === "bearish" ? "A vigorous crop (high VCI) points to good yield potential and weighs on price." : "Vegetation near the middle of its historical range."}`,
   };
 }
 
@@ -68,7 +71,7 @@ function vegCondition(m) {
 // until a cross-year baseline exists, fall back to the recent multi-week trajectory. Dry = supply
 // risk = supportive of price; a well-charged profile weighs on it. Growing-season only.
 function soilMoisture(m) {
-  const s = m.get("cropcasma:ia:rootzone-sm");
+  const s = m.get(seriesKey("cropcasma", "rootzone-sm"));
   if (!s || !isFresh(s, 21)) return null;
   const mon = new Date().getUTCMonth() + 1;
   if (mon < 4 || mon > 10) return null;
@@ -88,19 +91,19 @@ function soilMoisture(m) {
   return {
     id: "soil_moisture", name: "Root-Zone Soil Moisture", direction, value: s.latest.value,
     label: `${pctStr(deltaPct)} ${basis === "vs. the seasonal norm" ? "vs norm" : "trend"}`,
-    detail: `Iowa root-zone soil moisture ${s.latest.value.toFixed(3)} m³/m³ (${s.latest.period}), ${pctStr(deltaPct)} ${basis}. ${direction === "bullish" ? "A drying root zone in-season is supply risk that supports price — often ahead of the crop's visible response." : direction === "bearish" ? "A well-charged root zone buffers the crop and weighs on price." : "Root-zone moisture near normal for the window."}`,
+    detail: `${V.state} root-zone soil moisture ${s.latest.value.toFixed(3)} m³/m³ (${s.latest.period}), ${pctStr(deltaPct)} ${basis}. ${direction === "bullish" ? "A drying root zone in-season is supply risk that supports price — often ahead of the crop's visible response." : direction === "bearish" ? "A well-charged root zone buffers the crop and weighs on price." : "Root-zone moisture near normal for the window."}`,
   };
 }
 
 function drought(m) {
-  const s = m.get("drought_monitor:ia:d1");
+  const s = m.get(seriesKey("drought_monitor", "d1"));
   if (!s || !isFresh(s, 21)) return null;
   const chg = s.changeAbs; // change in % area vs prior week
   const direction = chg >= 5 ? "bullish" : chg <= -5 ? "bearish" : s.latest.value >= 40 ? "bullish" : "neutral";
   return {
-    id: "drought", name: "Iowa Drought", direction, value: s.latest.value,
+    id: "drought", name: `${V.state} Drought`, direction, value: s.latest.value,
     label: `${Math.round(s.latest.value)}% D1+`,
-    detail: `${Math.round(s.latest.value)}% of Iowa in drought (${s.latest.period}), ${chg >= 0 ? "▲" : "▼"}${Math.abs(Math.round(chg))}pts wk/wk. ${direction === "bullish" ? "Rising/high stress supports price." : direction === "bearish" ? "Easing drought weighs on price." : "Little change."}`,
+    detail: `${Math.round(s.latest.value)}% of ${V.state} in drought (${s.latest.period}), ${chg >= 0 ? "▲" : "▼"}${Math.abs(Math.round(chg))}pts wk/wk. ${direction === "bullish" ? "Rising/high stress supports price." : direction === "bearish" ? "Easing drought weighs on price." : "Little change."}`,
   };
 }
 
@@ -235,7 +238,7 @@ function dollar(m) {
 
 // The acreage-battle read: the soybean:corn price ratio steers spring planting intentions.
 function soyCornRatio(m) {
-  const s = m.get("nass:ia:soy-corn-ratio");
+  const s = m.get(seriesKey("nass", "soy-corn-ratio"));
   if (!s || s.percentile == null || !isFresh(s, 120)) return null;
   const v = s.latest.value, p = s.percentile;
   // A historically HIGH ratio (beans richly priced vs corn) pulls acres toward soybeans, building
@@ -247,7 +250,7 @@ function soyCornRatio(m) {
   return {
     id: "soy_corn_ratio", name: "Soy:Corn Ratio", direction, value: v,
     label: `${v.toFixed(2)}:1`,
-    detail: `Iowa soybeans are ${v.toFixed(2)}× the corn price (${s.latest.period}), ${ordinal(p)} percentile of its range. ${inWindow ? (direction === "bearish" ? "Richly priced vs corn heading into planting — incentivizes soybean acres (supply-building for the new crop)." : direction === "bullish" ? "Corn favored heading into planting — fewer soybean acres ahead can tighten new-crop supply." : "Near the acreage-neutral pivot — planting incentives balanced.") : "Watched most in late winter/spring, when it steers planting intentions."}`,
+    detail: `${V.state} soybeans are ${v.toFixed(2)}× the corn price (${s.latest.period}), ${ordinal(p)} percentile of its range. ${inWindow ? (direction === "bearish" ? "Richly priced vs corn heading into planting — incentivizes soybean acres (supply-building for the new crop)." : direction === "bullish" ? "Corn favored heading into planting — fewer soybean acres ahead can tighten new-crop supply." : "Near the acreage-neutral pivot — planting incentives balanced.") : "Watched most in late winter/spring, when it steers planting intentions."}`,
   };
 }
 
@@ -299,15 +302,15 @@ const FACTORS = {
 // Which stored series each scorer actually reads — surfaced in signalsText so the model can't
 // misattribute a call to the wrong series (see the note on `lines` in signalsText).
 const SIGNAL_SERIES = {
-  crop_condition: "nass:us:condition / nass:ia:condition",
-  veg_condition: "vegscape:ia:vci",
-  soil_moisture: "cropcasma:ia:rootzone-sm",
-  drought: "drought_monitor:ia:d1",
+  crop_condition: `nass:us:condition / ${seriesKey("nass", "condition")}`,
+  veg_condition: seriesKey("vegscape", "vci"),
+  soil_moisture: seriesKey("cropcasma", "rootzone-sm"),
+  drought: seriesKey("drought_monitor", "d1"),
   export_pace: "agtransport:soy-net-export-sales (NET SALES — not export inspections)",
   stocks_to_use: "wasde:us:soy-stocks-to-use",
   fund_positioning: "cftc:soybeans:mm-net",
   brazil_supply: "ibge_brazil:soy-production",
-  soy_corn_ratio: "nass:ia:soy-corn-ratio",
+  soy_corn_ratio: seriesKey("nass", "soy-corn-ratio"),
   seasonal: "nass:us:price (monthly seasonal averages)",
   crush_utilization: "nass:us:crush ÷ crush_capacity.json nameplate",
   oil_share: "cbot:zl:front vs. cbot:zm:front (oil value ÷ oil+meal value per bu, workbook yields; direction = the leg that drove the 1-month move)",
@@ -321,14 +324,14 @@ const SIGNAL_SERIES = {
 // tendency, not a reading of a series.
 export const SIGNAL_CHART = {
   crop_condition: { series: "nass:us:condition", category: "soy_condition" },
-  veg_condition: { series: "vegscape:ia:vci", category: "veg_condition" },
-  soil_moisture: { series: "cropcasma:ia:rootzone-sm", category: "soil_moisture" },
-  drought: { series: "drought_monitor:ia:d1", category: "drought" },
+  veg_condition: { series: seriesKey("vegscape", "vci"), category: "veg_condition" },
+  soil_moisture: { series: seriesKey("cropcasma", "rootzone-sm"), category: "soil_moisture" },
+  drought: { series: seriesKey("drought_monitor", "d1"), category: "drought" },
   export_pace: { series: "agtransport:soy-net-export-sales", category: "soy_exports" },
   stocks_to_use: { series: "wasde:us:soy-stocks-to-use", category: "soy_balance_stu" },
   fund_positioning: { series: "cftc:soybeans:mm-net", category: "positioning" },
   brazil_supply: { series: "ibge_brazil:soy-production", category: "" },
-  soy_corn_ratio: { series: "nass:ia:soy-corn-ratio", category: "soy_corn_ratio" },
+  soy_corn_ratio: { series: seriesKey("nass", "soy-corn-ratio"), category: "soy_corn_ratio" },
   crush_utilization: { series: "nass:us:crush", category: "soy_crush" },
   // Derived at read time (no stored series) — the scorer carries its own spark + back rows.
   oil_share: { series: "", category: "soy_crush_share" },

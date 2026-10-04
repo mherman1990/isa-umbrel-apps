@@ -17,6 +17,9 @@
 // The domain block is shared with synthesis on purpose — see the note in policy-synthesis.js.
 
 import { POLICY_DOMAIN_CONTEXT } from "./policy-domain.js";
+import { voice } from "../pack.js";
+// State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
+const V = voice();
 
 export const REVIEW_PROMPT_VERSION = "1.0.0";
 
@@ -59,8 +62,8 @@ specific slot that fails, keep the card.
    cited because it was on the menu? Does a quoted passage say what the card uses it to say? Is one
    action cross-filed into several dockets being presented as multiple corroborating signals?
 
-5. SO_WHAT DISCIPLINE. Is the consequence specific to an Iowa operation, or is it national
-   commentary with "for Iowa farmers" appended? Does it instruct rather than explain? (An
+5. SO_WHAT DISCIPLINE. Is the consequence specific to ${V.aState} operation, or is it national
+   commentary with "for ${V.state} farmers" appended? Does it instruct rather than explain? (An
    instruction will also be caught mechanically, but say so if you see it.)
 
 6. WATCH_NEXT. Is the next event named and dated, or is it "monitor developments" wearing a date?

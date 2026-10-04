@@ -41,6 +41,7 @@
 // change detection for free, with no extra state to keep.
 
 import { fetchJSON, isoDateOnly, keywordRegex, sleep } from "../util.js";
+import { pack } from "../pack.js";
 
 export const id = "legiscan";
 export const label = "LegiScan (state bills)";
@@ -113,11 +114,16 @@ export async function fetchItems({ sinceISO, topics, sourceConfig, env }) {
   }
 
   const itemBudget = sourceConfig.maxItemsPerRun ?? 40;
-  const states = sourceConfig.states ?? ["IA"];
+  // The pack's home state is always searched first and always full-text searched, whatever the
+  // watchlist lists: the shipped watchlist is shared across packs, and its neighbour list (IA,IL,MN…)
+  // and full-text list were written for Iowa. Other states in the watchlist stay as extra coverage.
+  const home = pack().legislature.legiscanHome;
+  const homeFirst = (list) => [home, ...list.filter((s) => s !== home)];
+  const states = homeFirst(sourceConfig.states ?? pack().legislature.legiscanStates ?? []);
   const maxQueries = sourceConfig.maxQueriesPerRun ?? DEFAULT_MAX_QUERIES_PER_RUN;
   // Full-text search is the expensive pass — only worth it where state bills are the
   // whole point. Widen once a real month's usage says there's room.
-  const fullTextStates = (sourceConfig.fullTextStates ?? ["IA"]).filter((s) => states.includes(s));
+  const fullTextStates = homeFirst(sourceConfig.fullTextStates ?? pack().legislature.fullTextStates ?? []).filter((s) => states.includes(s));
   const sinceDate = isoDateOnly(sinceISO);
   const budget = new QueryBudget(maxQueries);
 

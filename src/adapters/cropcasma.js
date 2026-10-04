@@ -24,18 +24,15 @@
 
 import { fetchText, sleep } from "../util.js";
 import * as store from "../store.js";
+import { homeRegion, beltRegions } from "../pack.js";
 
 export const id = "cropcasma";
 export const label = "Crop-CASMA (soil moisture)";
 
 const WPS = "https://cloud.csiss.gmu.edu/smap_service";
-const IA = { key: "ia", fips: "19", name: "Iowa" };
-const BELT = [
-  { key: "il", fips: "17", name: "Illinois" },
-  { key: "mn", fips: "27", name: "Minnesota" },
-  { key: "in", fips: "18", name: "Indiana" },
-  { key: "ne", fips: "31", name: "Nebraska" },
-];
+// The pack's state (root zone = the scored signal, plus surface) and its belt states (root zone only).
+const IA = homeRegion();
+const BELT = beltRegions().filter((r) => r.key !== IA.key);
 const BACKFILL_WEEKS = 30; // ~7 months on a cold start → a seasonal baseline + a trend; tiny CSVs.
 const THROTTLE_MS = 200;   // be polite to the academic WPS server between calls.
 
@@ -144,19 +141,19 @@ export async function fetchSeries() {
 /** One summary item for the Markets feed — the latest Iowa root-zone reading. */
 export async function fetchItems() {
   const list = await fetchSeries().catch(() => []);
-  const ia = list.find((s) => s.series === `${id}:ia:rootzone-sm`);
+  const ia = list.find((s) => s.series === `${id}:${IA.key}:rootzone-sm`);
   if (!ia || !ia.points.length) return [];
   const last = ia.points[ia.points.length - 1];
   return [
     {
-      uid: `${id}:ia:${last.period}`,
+      uid: `${id}:${IA.key}:${last.period}`,
       sourceId: id,
       sourceLabel: label,
-      title: `Iowa root-zone soil moisture ${last.value.toFixed(3)} m³/m³ (week ending ${last.period})`,
-      summary: "Crop-CASMA / NASA SMAP root-zone soil moisture for Iowa — the water available to the crop's roots. A cause-side, leading read on crop stress vs. the vegetation and condition reports.",
+      title: `${IA.name} root-zone soil moisture ${last.value.toFixed(3)} m³/m³ (week ending ${last.period})`,
+      summary: `Crop-CASMA / NASA SMAP root-zone soil moisture for ${IA.name} — the water available to the crop's roots. A cause-side, leading read on crop stress vs. the vegetation and condition reports.`,
       url: "https://nassgeo.csiss.gmu.edu/Crop-CASMA-User/",
       publishedAt: new Date(last.period).toISOString(),
-      jurisdiction: "Iowa",
+      jurisdiction: IA.name,
       docType: "data",
       raw: { metric: "rootzone_soil_moisture", value: last.value, period: last.period },
     },

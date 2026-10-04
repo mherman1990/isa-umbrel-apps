@@ -11,15 +11,21 @@
 
 import { fetchJSON } from "../util.js";
 import * as store from "../store.js";
+import { pack } from "../pack.js";
 
 export const id = "socrata";
 export const label = "data.iowa.gov (IA candidates/committees — IECDB)";
 
 // The Socrata dataset id (the 4x4 token in the data.iowa.gov URL). Set once verified.
 const DATASET = process.env.IECDB_DATASET_ID || "";
-const DOMAIN = "data.iowa.gov";
 
 export async function seed({ env = process.env, confirmInformationalUse = false, limit = 5000 } = {}) {
+  // The state pack decides whether campaign-finance seeding exists at all (docs/MULTI_STATE.md §7.7):
+  // off unless the pack names this seeder — another state's data-use terms are not Iowa's.
+  const cf = pack().election?.campaignFinance;
+  if (!cf?.enabled || cf.seeder !== id) {
+    throw new Error(`Campaign-finance seeding is off in state pack ${pack().id} (election.campaignFinance) — counsel must confirm the state's data-use terms first.`);
+  }
   if (!confirmInformationalUse && env.IECDB_INFORMATIONAL_USE !== "true") {
     throw new Error(
       "Socrata/IECDB seeder is compliance-gated (Iowa Code § 68B.32A(7): no commercial use or solicitation). " +
@@ -31,7 +37,7 @@ export async function seed({ env = process.env, confirmInformationalUse = false,
   }
 
   // SODA query — adjust $select/column names to the actual dataset schema on the Pi.
-  const url = `https://${DOMAIN}/resource/${DATASET}.json?$limit=${limit}`;
+  const url = `https://${cf.domain}/resource/${DATASET}.json?$limit=${limit}`;
   const rows = await fetchJSON(url, env.SOCRATA_APP_TOKEN ? { headers: { "X-App-Token": env.SOCRATA_APP_TOKEN } } : {});
   let upserted = 0;
 

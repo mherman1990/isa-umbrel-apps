@@ -1,0 +1,5 @@
+U.S. SOYBEAN BALANCE SHEET (assembled from the latest WASDE line — the anchor for any "this moves carryout by X" claim):
+- WASDE 2026-09: beginning — + production — + imports — = supply —
+  − crush — − exports — − seed — − residual — = use —
+  → ending stocks 339 mln bu, stocks-to-use 9.9%
+- HOUSE NOWCAST: no independent run-rate adjustment yet (crush/commitments pace data incomplete) — house carryout equals WASDE 339 mln bu.

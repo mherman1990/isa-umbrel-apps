@@ -4,6 +4,7 @@
     "am": "06:30",
     "pm": "16:30",
     "weekly": "Fri 17:00",
+    "member": "Mon,Wed,Fri 06:45",
     "timezone": "America/Chicago"
   },
   "sources": {
@@ -112,6 +113,7 @@
     "agtransport": {
       "enabled": true,
       "maxItemsPerRun": 10,
+      "bargeLocations": ["St. Louis", "Illinois River"],
       "_note": "Markets tab — USDA Ag Transport (Socrata, no key): soybean export inspections + net export sales (FAS stand-in) + Mississippi barge freight."
     },
     "drought_monitor": {
@@ -429,6 +431,7 @@
     "email": true,
     "alertEmail": false,
     "farmerBrief": true,
-    "entitySourceBoost": 6
+    "entitySourceBoost": 6,
+    "monthlyBudgetUsd": 75
   }
 }

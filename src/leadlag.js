@@ -28,6 +28,7 @@
 // worth stating, never as a rule.
 
 import * as store from "./store.js";
+import { seriesKey } from "./pack.js";
 
 // Daily price is the target. cbot:zs:front is the only sub-monthly price series in the system;
 // nass:us:price is monthly and ~6 weeks lagged, which cannot support this at all.
@@ -65,10 +66,10 @@ const CACHE_TTL_MS = 7 * 864e5; // the answer moves on the scale of months; reco
 // WASDE balance sheet, Brazilian supply, macro. Those are the series where a measured lead would
 // actually tell you something you didn't already know from the price screen.
 const EXCLUDE_EXACT = new Set([
-  "ams:ia:cash-price", "ams:ia:cash-crush-margin", "ams:ia:basis", "ams:ia:basis-processor",
-  "ams:ia:meal", "ams:ia:oil",
-  "nass:us:price", "nass:ia:price", "nass:us:corn-price", "nass:ia:corn-price",
-  "nass:ia:soy-corn-ratio",
+  seriesKey("ams", "cash-price"), seriesKey("ams", "cash-crush-margin"), seriesKey("ams", "basis"), seriesKey("ams", "basis-processor"),
+  seriesKey("ams", "meal"), seriesKey("ams", "oil"),
+  "nass:us:price", seriesKey("nass", "price"), "nass:us:corn-price", seriesKey("nass", "corn-price"),
+  seriesKey("nass", "soy-corn-ratio"),
 ]);
 // Every cbot:* series is the same futures complex as the target (legs, derived margin, ratio).
 const EXCLUDE_PREFIX = ["cbot:"];

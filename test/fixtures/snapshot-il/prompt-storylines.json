@@ -1,0 +1,147 @@
+[
+ {
+  "label": "storylines",
+  "model": "claude-sonnet-5",
+  "system": "You maintain the \"storylines\" for the Illinois Soybean Association's policy & market monitor — the handful of ongoing THREADS the news is really about (e.g. \"45Z Clean Fuel Production Credit\", \"EU Deforestation Regulation (EUDR)\", \"Summit Carbon CO2 Pipeline\", \"Renewable diesel & soybean-oil demand\", \"China soybean trade\"). Cluster the monitoring items below into AT MOST 6 active storylines — the most material ones; fewer is fine.\n\nYOUR JOB IS THE TRANSITION, NOT A RE-SUMMARY. For each thread you are given its PREVIOUS state — the summary it last carried, what was still open, and what event it was waiting for. Write what MOVED since then: \"whatIsNew\" must contain only what a reader who already knew that previous state would not know, and must be an empty string when nothing moved. Say \"unchanged\" in stateChange honestly rather than manufacturing movement.\n\nCONTINUE existing threads by their EXACT name and key where items fit one — do not rename or fork a thread that already exists. Include a thread only if it has genuine recent activity in these items or its state changed; ignore one-off noise. A prior thread you leave out is kept as-is — omitting it is fine.\n\nBe compact: whatChanged ≤ 3 sentences, whatIsNew ≤ 2 sentences, at most 3 openQuestions. Timeline: at most 3 NEW entries, most-recent-first — the thread's older dated events are already stored and merged, so never repeat one shown under \"known timeline\". Dates come from the item dates. Keys are stable kebab slugs. Use an empty string for a timeline url when the item has none.",
+  "messages": [
+   {
+    "role": "user",
+    "content": "EXISTING THREADS AND THEIR PREVIOUS STATE (continue these by exact name/key; compare against these to find the delta):\n- RFS volumes [rfs-volumes] · last updated 2026-10-07 · materiality decision_changing · previous state advanced\n    previous summary: EPA proposed volumes.\n    known timeline:\n      · 2026-10-06 Proposal\n\n\nMONITORING ITEMS (last 21 days):\n[1] 2026-10-07 · Renewable Fuel Standard: 2027-2028 volumes (proposed rule) — Why Renewable Fuel Standard: 2027-2028 volumes (proposed rule) matters. (https://www.federalregister.gov/d/2026-20001)\n[2] 2026-10-07 · Clean fuel production credit guidance — Why Clean fuel production credit guidance matters. (https://www.federalregister.gov/d/2026-20002)\n[3] 2026-10-07 · IL SF 101: Carbon pipeline eminent domain — Why IL SF 101: Carbon pipeline eminent domain matters. (https://legiscan.com/IL/bill/SF101/2026)\n[4] 2026-10-07 · Nutrient management rule amendment — Why Nutrient management rule amendment matters. (https://example.gov/rule/1)\n[5] 2026-10-07 · China books U.S. soybean cargoes (https://www.farmprogress.com/a2)\n[6] 2026-10-07 · Soybean crush margins widen on renewable diesel demand (https://www.agweb.com/a1)"
+   }
+  ],
+  "output_config": {
+   "format": {
+    "type": "json_schema",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "storylines": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "properties": {
+         "key": {
+          "type": "string",
+          "description": "Stable kebab-case slug; reuse the existing thread's slug when continuing one."
+         },
+         "name": {
+          "type": "string",
+          "description": "Thread name. Match an existing name EXACTLY when continuing that thread."
+         },
+         "focus": {
+          "type": "string",
+          "description": "One line: what this thread is about."
+         },
+         "whatChanged": {
+          "type": "string",
+          "description": "2-3 sentences: what developed recently and why it matters to Illinois soybeans."
+         },
+         "stateChange": {
+          "type": "string",
+          "enum": [
+           "new",
+           "advanced",
+           "stalled",
+           "resolved",
+           "unchanged"
+          ],
+          "description": "How this thread moved since its previous state, which is given to you. Use 'unchanged' honestly when nothing moved — that is useful information, not a failure."
+         },
+         "whatIsNew": {
+          "type": "string",
+          "description": "ONLY the delta since the previous state shown to you — what a reader who already knew that state would not know. Empty string when nothing changed. Do NOT restate the thread."
+         },
+         "openQuestions": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          },
+          "description": "What is still unresolved on this thread. Empty array if nothing."
+         },
+         "nextExpectedEvent": {
+          "type": "object",
+          "properties": {
+           "what": {
+            "type": "string",
+            "description": "The report, hearing, decision or filing that would move this thread. Empty string if unknown."
+           },
+           "when": {
+            "type": "string",
+            "description": "A date (YYYY-MM-DD) or a rough window like 'Q4 2026'. Empty string if unknown."
+           },
+           "why": {
+            "type": "string",
+            "description": "One line: why that event matters to this thread. Empty string if unknown."
+           }
+          },
+          "required": [
+           "what",
+           "when",
+           "why"
+          ],
+          "additionalProperties": false
+         },
+         "materiality": {
+          "type": "string",
+          "enum": [
+           "decision_changing",
+           "monitor",
+           "context"
+          ],
+          "description": "decision_changing = ILSoy would act or brief leadership on this; monitor = worth watching; context = background only."
+         },
+         "timeline": {
+          "type": "array",
+          "items": {
+           "type": "object",
+           "properties": {
+            "date": {
+             "type": "string",
+             "description": "YYYY-MM-DD, taken from the item date."
+            },
+            "event": {
+             "type": "string"
+            },
+            "url": {
+             "type": "string",
+             "description": "Source url, or empty string when the item has none."
+            }
+           },
+           "required": [
+            "date",
+            "event",
+            "url"
+           ],
+           "additionalProperties": false
+          }
+         }
+        },
+        "required": [
+         "key",
+         "name",
+         "focus",
+         "whatChanged",
+         "stateChange",
+         "whatIsNew",
+         "openQuestions",
+         "nextExpectedEvent",
+         "materiality",
+         "timeline"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     "required": [
+      "storylines"
+     ],
+     "additionalProperties": false
+    }
+   }
+  },
+  "thinking": {
+   "type": "disabled"
+  },
+  "max_tokens": 9000
+ }
+]

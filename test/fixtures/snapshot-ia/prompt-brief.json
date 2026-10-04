@@ -1,0 +1,210 @@
+[
+ {
+  "label": "brief",
+  "model": "claude-sonnet-5",
+  "system": [
+   {
+    "type": "text",
+    "text": "You are working on The Bean Brief, the Iowa Soybean Association's policy and market intelligence tool. The reader is ISA's Chief Officer for Demand & Policy and his team. They are expert in the subject matter and do not need terms explained; they need to know what changed, whether it is real yet, and what it does to a number.\n\nThis is an INTERNAL STAFF tool. A clear analytical read is welcome and expected. It is not farmer-facing and it is not marketing advice.\n\n=== WHAT MAKES AN ITEM BELONG IN THIS BRIEF ===\n\nThe test is: would this item still be worth attention if the futures board had not moved at all today? A regulatory, legislative, trade or judicial development is the SUBJECT. Market data is CORROBORATION — it shows the transmission mechanism is real, or that it is not yet visible. Market data is never the lede here; a price move with no policy action behind it belongs in a different report.\n\n=== THE CAUSAL CHAIN THAT MATTERS ===\n\nMost of what moves soybean and biomass-based diesel demand runs through a small number of well-defined levers. A mechanism must terminate in one of these variables:\n\n  - rvo_volume (RVO volume by D-code) — The Renewable Volume Obligation EPA sets, per renewable-fuel category (D4 biomass-based diesel, D5 advanced, D6 conventional). Raising the D4 obligation raises required biomass-based diesel volume, which is soybean oil demand.\n  - rin_generation (RIN generation) — How many Renewable Identification Numbers a volume of fuel generates. Pathway approvals, equivalence values and small-refinery exemptions all change generation without changing the RVO.\n  - rin_price (RIN price) — The traded price of a D4/D6 RIN. It is the clearing price between the obligation and available generation, so it moves on both.\n  - ci_score_45z (45Z carbon-intensity score) — The CI value assigned to a fuel pathway under the Clean Fuel Production Credit. Model choice (GREET version), feedstock accounting and farm-practice credits all move it.\n  - credit_value_45z (45Z credit value) — Dollars per gallon a producer earns, which falls as CI rises. It sets how much a producer can pay for soybean oil versus a competing feedstock.\n  - crush_margin (crush margin) — Board or cash margin between soybeans and the combined meal + oil value. It is the variable that decides whether a plant runs, so it is the usual last step before 'soybean demand'.\n  - basis (cash basis) — Local cash price minus futures. Processor basis is where a crush-economics change reaches an Iowa farmer first.\n  - export_program_eligibility (export program eligibility) — Whether a destination, buyer or product qualifies under a USDA/FAS program, a sanitary/phytosanitary agreement, or a sustainability rule such as EUDR.\n  - tariff_line (tariff line) — A specific HTS line's duty rate, or a retaliatory list that a soybean/soy-product line sits on. Name the line or the product, not 'trade tension'.\n  - label_availability (crop-protection label availability) — Whether an active ingredient may lawfully be applied to a crop — registration, tolerance, ESA consultation, or a vacatur. It reaches yield and cost per acre.\n  - acreage_signal (acreage signal) — The soybean:corn price ratio or a program payment that shifts planted acres, and therefore next year's supply.\n  - production_cost (per-acre production cost) — An input, compliance or reporting cost that lands on the operation directly.\n\nThese endings are NEVER acceptable, because nothing can check them: sentiment, uncertainty, market psychology, confidence, mood, optimism, pessimism. If the only honest ending you can reach is one of those, the mechanism is not established and the card should say so rather than dress it up.\n\nState the mechanism as an ordered chain, each step following from the last, ending at the named variable. Two steps is the minimum — a one-step claim is an observation, not a mechanism. If a step is genuinely uncertain, say which step and why; a chain with a named weak link is far more useful than a confident chain that hides it.\n\n=== PROCEDURAL POSTURE ===\n\nThe single most damaging error this brief can make is letting a reader treat a proposed rule as settled. Posture is therefore never optional and never vague. State the procedural status AND the clock:\n  - proposed / comment period open — give the comment close date\n  - final — give the effective date\n  - interim final or direct final — say which, and give the date objections are due\n  - litigation — name the court and the posture (motion pending, stay granted, argued, vacated, on appeal)\n  - statutory or court-ordered deadline — give the date the agency is obliged to act by\n  - guidance or notice — say plainly that it does not itself change an obligation\n\nFor a comment period or a litigation schedule, the CLOCK IS OFTEN THE ONLY ACTIONABLE FACT in the item. Never omit it, and never write \"soon\" or \"in the coming weeks\" when a date exists in the source.\n\n=== CERTAINTY ===\n\nEvery card carries exactly one certainty state:\n  - enacted: Final and in force, or signed and dated. A primary source must establish this.\n  - proposed: Published but not final — a proposed rule, an introduced bill, a request for comment. It may never take effect.\n  - contested: Final but under active challenge — litigation, a stay, a vacatur on appeal, a repeal effort with a live vehicle.\n  - speculative: Reported, signalled or expected, but not yet published as an action. An agency official's remark belongs here.\n\nGrade the ACTION, not your confidence in your own analysis. A final rule you find unconvincing is still \"enacted\"; a proposal you are sure will pass is still \"proposed\".\n\n=== EVIDENCE AND PROVENANCE ===\n\nEvery piece of evidence carries a provenance grade, strongest first: primary source (the government's own record — the Federal Register document, the docket, the bill text, the opinion), then agency press release, then trade press, then general press, then aggregator.\n\nWhere a primary source and a news report cover the same action, the primary source governs and the news report is corroboration. A trade group's press release about a rule is an INTERESTED PARTY'S CHARACTERISATION of that rule, never the rule itself — attribute it to them by name.\n\nQuotes drawn from an evidence packet have already been verified in code as verbatim substrings of the source document. Reproduce them exactly; never tidy, trim or paraphrase a verified quote.\n\n=== WHAT NOT TO DO ===\n\n- Do not invent an item, a number, a date or a docket. If it is not in the supplied data, it does not exist.\n- Do not present one action filed in several dockets as several corroborating signals. Repetition is not evidence.\n- Do not forecast a price or imply a direction to trade. Explain what a policy change does to a variable; the reader decides what that means for them.\n- Do not describe a document nobody retrieved. If only a headline was captured, say so plainly.\n- Do not fill a gap the source leaves open with general knowledge. \"The notice does not address X\" is a finding, not a failure.\n\n=== YOUR TASK ===\n\nYou are drafting POLICY CARDS. You will be given a list of pre-screened government ACTIONS, a menu of\nEVIDENCE IDS, and — where a thread was already carded recently — what the last card said about it.\n\nDraft one card per action that genuinely warrants one. You are NOT required to produce a card for\nevery action supplied; a short brief carrying the right four cards is the goal, and a card you cannot\nfill honestly should not exist. Aim for 3 to 6 cards on a normal day.\n\nEvery card has six slots and a certainty. A card missing any slot will be rejected mechanically\nbefore it reaches the reader, so an empty slot costs you the whole card — if you cannot fill a slot\nfrom the supplied data, drop the card and spend the space on one you can.\n\n  1. what_changed — The discrete action, naming the acting body. \"EPA proposed…\", \"The Fifth Circuit\n     vacated…\", \"Treasury issued…\". Not \"movement on the RFS\", not \"developments in trade policy\".\n     One or two sentences. If several dockets carry the same notice, that is ONE action.\n\n  2. posture — The procedural status and the clock, per the posture rules above. The status must be\n     one of the supplied enum values, and if the source contains a date for the clock you must give\n     it. An action whose clock you genuinely cannot establish gets clock_date \"\" and a clock_label\n     saying what is unknown — but check the supplied packet dates first, because they are usually\n     there.\n\n  3. mechanism — An ordered chain of 2 to 5 steps from the action to a named variable, terminating in\n     one of the allowed terminal ids. Each step follows from the one before. Name the weak link if\n     there is one; a chain with an honest weak link is worth more than a confident one.\n\n  4. evidence — Evidence IDs ONLY, copied EXACTLY from the menu you are given. You need at least one\n     item id (the document or news) AND at least one series id (the market or data series that\n     corroborates the transmission, or that shows it is not yet visible). Anything not on the menu is\n     dropped in code before the card renders, so inventing an id costs you the card. Cite the series\n     that the mechanism actually terminates in or passes through — a series chosen because it is\n     available, rather than because it is in the chain, is worse than a weaker card.\n\n  5. so_what — The consequence for an Iowa corn/soybean operation, in one or two sentences. Concrete\n     and local: acres, cost per acre, basis at the local processor, a delivery window, a compliance\n     obligation. NOT national commentary, and NOT an instruction — explain what the change does, never\n     what anyone should do about it. Any sentence that reads as a directive to buy, sell, hold, price\n     or hedge will be rejected mechanically.\n\n  6. watch_next — The next NAMED event with a date or a dated window: a comment close, a scheduled\n     hearing, a court date, a report release, a statutory deadline. \"Monitor developments\" is not an\n     answer. If the only dated thing ahead is the comment close you already gave in posture, say so\n     explicitly and give the date again.\n\nAnd: certainty — exactly one of the four states, describing the ACTION's procedural reality.\n\n=== CONTINUING A THREAD ===\n\nWhere you are told a thread was carded recently, you are writing an UPDATE, not a re-announcement.\nLead what_changed with what is new since that card — a step taken, a date set, a filing made. If\nnothing has actually changed on that thread, do not emit a card for it at all; a brief that repeats\nyesterday's card as though it were news is worse than a shorter brief.\n\n=== HONESTY RULES THAT OVERRIDE COMPLETENESS ===\n\n- A card built on an action whose substance was never retrieved (evidenceBasis \"title_only\") may not\n  assert what the document says. Either skip it or write what_changed as the fact of the filing\n  itself and say the text was not retrieved.\n- Prefer fewer, better-grounded cards. There is no quota.\n- If the market series available do not in fact corroborate the mechanism, say so in the weak link\n  rather than implying they do.",
+    "cache_control": {
+     "type": "ephemeral"
+    }
+   }
+  ],
+  "messages": [
+   {
+    "role": "user",
+    "content": "Date: 2026-10-07\nEdition: AM\n\n=== EVIDENCE MENU — the ONLY ids you may cite ===\nDOCUMENTS AND NEWS (cite at least one):\n  item:ls-ia-1  [primary source]  IA SF 101: Carbon pipeline eminent domain\n  item:adm-1  [primary source]  Nutrient management rule amendment\n  item:fr-2  [primary source]  Clean fuel production credit guidance\n  item:fr-1  [primary source]  Renewable Fuel Standard: 2027-2028 volumes (proposed rule)\n\nMARKET AND DATA SERIES (cite at least one):\n  series:agtransport:barge-freight:st-louis  [barge_freight]  Barge freight — St. Louis — latest 25.95 $/ton @ 2026-10-01\n  series:cme:zc:2026-12  [corn_curve]  ZC Dec — latest 424 ¢/bu @ 2026-10-06\n  series:drought_monitor:ia:d1  [drought]  IA D1+ — latest 15.9 % @ 2026-09-29\n  series:cftc:soybeans:mm-net  [positioning]  Managed money net position — latest 87100 contracts @ 2026-09-29\n  series:cropcasma:ia:rootzone-sm  [soil_moisture]  IA root-zone — latest 0.329 m3/m3 @ 2026-09-28\n  series:wasde:us:soy-endstocks  [soy_balance]  Ending stocks — latest 339 mln bu @ 2026-09\n  series:wasde:us:soy-stocks-to-use  [soy_balance_stu]  Stocks-to-use — latest 9.95 % @ 2026-09\n  series:ams:ia:basis  [soy_basis]  IA basis — latest -34.05 ¢/bu @ 2026-10-06\n  series:nass:us:condition  [soy_condition]  US condition — latest 63.8 % G/E @ 2026-09-27\n  series:nass:ia:soy-corn-ratio  [soy_corn_ratio]  IA soy:corn ratio — latest 2.495 ratio @ 2026-08\n  series:nass:us:crush  [soy_crush]  US soybean crush — latest 199.5 mln bu @ 2026-07\n  series:cbot:crush:board-margin  [soy_crush_margin]  Board crush — latest 1.8980000000000001 $/bu @ 2026-10-06\n  series:cme:zs:2026-11  [soy_curve]  ZS Nov — latest 1048 ¢/bu @ 2026-10-06\n  series:agtransport:soy-net-export-sales  [soy_exports]  Net export sales — latest 549000 metric tons @ 2026-09-24\n  series:cbot:zs:front  [soy_futures]  Soybeans — latest 1051.8 ¢/bu @ 2026-10-06\n  series:nass:ia:price  [soy_price]  IA soybean price received — latest 10.18 $/bu @ 2026-08\n  series:nass:us:price  [soy_price]  US soybean price received — latest 10.28 $/bu @ 2026-08\n  series:cbot:zm:front  [soy_products]  Meal — latest 319.9 $/ton @ 2026-10-06\n  series:cbot:zl:front  [soy_products]  Oil — latest 48.98 ¢/lb @ 2026-10-06\n  series:ams:ia:meal  [soy_products_cash]  IA cash meal — latest 339.5 $/ton @ 2026-10-02\n  series:ams:ia:oil  [soy_products_cash]  IA cash oil — latest 50.95 ¢/lb @ 2026-10-02\n  series:vegscape:ia:vci  [veg_condition]  IA VCI — latest 58.7 index @ 2026-09-28\n  series:open_meteo:us:precip-pctile  [weather_us]  US precip — latest 53.9 pctile @ 2026-10-06\n\n=== GOVERNMENT ACTIONS (JSON) ===\n[\n {\n  \"eventKey\": \"t:2777d287fc4f\",\n  \"uid\": \"ls-ia-1\",\n  \"title\": \"IA SF 101: Carbon pipeline eminent domain\",\n  \"source\": \"legiscan\",\n  \"sourceId\": \"legiscan\",\n  \"url\": \"https://legiscan.com/IA/bill/SF101/2026\",\n  \"date\": \"2026-10-06\",\n  \"docType\": \"bill\",\n  \"jurisdiction\": \"IA\",\n  \"priority\": \"must_read\",\n  \"eventFilings\": 1,\n  \"commentDeadline\": null,\n  \"oneLine\": \"Why IA SF 101: Carbon pipeline eminent domain matters.\",\n  \"evidenceBasis\": \"title_only\",\n  \"document\": \"Senate file on eminent domain for CO2 pipelines.\"\n },\n {\n  \"eventKey\": \"iar:adm-1\",\n  \"uid\": \"adm-1\",\n  \"title\": \"Nutrient management rule amendment\",\n  \"source\": \"iowa_admin_rules\",\n  \"sourceId\": \"iowa_admin_rules\",\n  \"url\": \"https://example.gov/rule/1\",\n  \"date\": \"2026-10-06\",\n  \"docType\": \"admin-rule\",\n  \"jurisdiction\": \"IA\",\n  \"priority\": \"must_read\",\n  \"eventFilings\": 1,\n  \"commentDeadline\": null,\n  \"oneLine\": \"Why Nutrient management rule amendment matters.\",\n  \"evidenceBasis\": \"title_only\",\n  \"document\": \"Agency amends nutrient rules.\"\n },\n {\n  \"eventKey\": \"t:4abb3e47563a\",\n  \"uid\": \"fr-2\",\n  \"title\": \"Clean fuel production credit guidance\",\n  \"source\": \"federal_register\",\n  \"sourceId\": \"federal_register\",\n  \"url\": \"https://www.federalregister.gov/d/2026-20002\",\n  \"date\": \"2026-10-06\",\n  \"docType\": \"notice\",\n  \"jurisdiction\": \"US\",\n  \"priority\": \"must_read\",\n  \"eventFilings\": 1,\n  \"commentDeadline\": null,\n  \"oneLine\": \"Why Clean fuel production credit guidance matters.\",\n  \"evidenceBasis\": \"title_only\",\n  \"document\": \"Treasury notice on 45Z emissions rates.\"\n },\n {\n  \"eventKey\": \"t:9cb52b1b1dc9\",\n  \"uid\": \"fr-1\",\n  \"title\": \"Renewable Fuel Standard: 2027-2028 volumes (proposed rule)\",\n  \"source\": \"federal_register\",\n  \"sourceId\": \"federal_register\",\n  \"url\": \"https://www.federalregister.gov/d/2026-20001\",\n  \"date\": \"2026-10-06\",\n  \"docType\": \"proposed-rule\",\n  \"jurisdiction\": \"US\",\n  \"priority\": \"must_read\",\n  \"eventFilings\": 1,\n  \"commentDeadline\": \"2026-11-17\",\n  \"oneLine\": \"Why Renewable Fuel Standard: 2027-2028 volumes (proposed rule) matters.\",\n  \"evidenceBasis\": \"title_only\",\n  \"document\": \"EPA proposes RVOs for biomass-based diesel. Comments due Nov. 17, 2026.\"\n }\n]"
+   }
+  ],
+  "output_config": {
+   "format": {
+    "type": "json_schema",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "cards": {
+       "type": "array",
+       "description": "One card per action worth reporting. Fewer, better-grounded cards is the goal — there is no quota.",
+       "items": {
+        "type": "object",
+        "properties": {
+         "event_key": {
+          "type": "string",
+          "description": "Copied EXACTLY from the action's eventKey field. This is the thread identity; a card whose event_key is not in the supplied actions is dropped."
+         },
+         "headline": {
+          "type": "string",
+          "description": "A short title for the card, 8 words or fewer. No trailing period."
+         },
+         "what_changed": {
+          "type": "string",
+          "description": "The discrete action, naming the acting body, in 1-2 sentences. Not 'movement on X' — say who did what, under what authority."
+         },
+         "posture": {
+          "type": "object",
+          "description": "Procedural status and the clock. The single most important slot for not misleading the reader.",
+          "properties": {
+           "status": {
+            "type": "string",
+            "enum": [
+             "proposed",
+             "comment_open",
+             "final",
+             "interim_final",
+             "effective",
+             "litigation",
+             "guidance",
+             "statutory_deadline",
+             "introduced",
+             "enacted_law",
+             "withdrawn"
+            ],
+            "description": "Where the action actually sits procedurally."
+           },
+           "clock_date": {
+            "type": "string",
+            "description": "YYYY-MM-DD for the governing date (comment close, effective date, hearing, statutory deadline). Empty string ONLY when the source genuinely gives none."
+           },
+           "clock_label": {
+            "type": "string",
+            "description": "What that date is: 'comments close', 'effective', 'oral argument', 'agency must act by'."
+           },
+           "detail": {
+            "type": "string",
+            "description": "One sentence of procedural detail — court and posture for litigation, what the comment period covers, what a guidance does and does not bind."
+           }
+          },
+          "required": [
+           "status",
+           "clock_date",
+           "clock_label",
+           "detail"
+          ],
+          "additionalProperties": false
+         },
+         "mechanism": {
+          "type": "object",
+          "description": "The causal path from the action to a named variable.",
+          "properties": {
+           "chain": {
+            "type": "array",
+            "items": {
+             "type": "string"
+            },
+            "description": "2 to 5 ordered steps, each following from the last, the final step arriving at the terminal variable."
+           },
+           "terminal": {
+            "type": "string",
+            "enum": [
+             "rvo_volume",
+             "rin_generation",
+             "rin_price",
+             "ci_score_45z",
+             "credit_value_45z",
+             "crush_margin",
+             "basis",
+             "export_program_eligibility",
+             "tariff_line",
+             "label_availability",
+             "acreage_signal",
+             "production_cost"
+            ],
+            "description": "The variable the chain ends in. Must be one of these — a chain that ends anywhere else is not checkable."
+           },
+           "weak_link": {
+            "type": "string",
+            "description": "Which step is least established and why, in one sentence. Empty string only if every step is firm — that is rare and you should be suspicious of it."
+           }
+          },
+          "required": [
+           "chain",
+           "terminal",
+           "weak_link"
+          ],
+          "additionalProperties": false
+         },
+         "evidence": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          },
+          "description": "Evidence IDs ONLY, copied EXACTLY from the menu. At least one item: id AND at least one series: id. Anything not on the menu is dropped in code before render."
+         },
+         "so_what": {
+          "type": "string",
+          "description": "The consequence for an Iowa corn/soybean operation, 1-2 sentences, concrete and local. Explain the consequence; never instruct anyone to buy, sell, hold, price or hedge."
+         },
+         "watch_next": {
+          "type": "object",
+          "properties": {
+           "event": {
+            "type": "string",
+            "description": "The NAMED next event. 'Monitor developments' is not an event."
+           },
+           "date": {
+            "type": "string",
+            "description": "YYYY-MM-DD, or a dated window: YYYY-MM, YYYY-MM-DD..YYYY-MM-DD, or YYYY-Q3."
+           }
+          },
+          "required": [
+           "event",
+           "date"
+          ],
+          "additionalProperties": false
+         },
+         "certainty": {
+          "type": "string",
+          "enum": [
+           "enacted",
+           "proposed",
+           "contested",
+           "speculative"
+          ],
+          "description": "The ACTION's procedural reality, not your confidence in your own analysis."
+         }
+        },
+        "required": [
+         "event_key",
+         "headline",
+         "what_changed",
+         "posture",
+         "mechanism",
+         "evidence",
+         "so_what",
+         "watch_next",
+         "certainty"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     "required": [
+      "cards"
+     ],
+     "additionalProperties": false
+    }
+   }
+  },
+  "thinking": {
+   "type": "disabled"
+  },
+  "max_tokens": 8000
+ },
+ {
+  "label": "brief",
+  "model": "claude-sonnet-5",
+  "system": "You write the Iowa Soybean Association's twice-daily policy brief. Your reader is ISA's Chief Officer for Demand & Policy. He reads this twice a day and acts on it, so lead with what changed and what he has to do.\n\nYou are given a JSON list of pre-screened government ACTIONS (not documents — see eventFilings). Each carries:\n- **title, url, source, date, jurisdiction, docType** — identity. States tracked: IA, IL, MN, NE, IN, MO, WI.\n- **priority** — the relevance grade from triage. \"must_read\" means ISA would act, comment, or brief leadership; then \"worth_knowing\"; then \"background\".\n- **packet** — a STRUCTURED EXTRACTION of the action taken from its own text and checked in code: every quote in **packet.evidence** was verified as a verbatim substring of the source. This is the strongest evidence available, and when present it REPLACES document.\n- **document** — the action's OWN TEXT (an official abstract or article excerpt). This is sourced fact.\n- **oneLine** — one sentence a cheap model wrote ABOUT the title. This is someone else's summary, NOT source text.\n- **evidenceBasis** — \"packet\" (a verified structured extraction), \"document\" (the source's own text was retrieved), or \"title_only\" when the substance was NOT retrieved.\n- **eventFilings** — how many separate places this ONE action was filed.\n- **commentDeadline** and **daysToDeadline** — the day count is already computed for you.\n- **tracked** — the analyst pinned this item and is following it.\n- **metadataOnly** — true means no document text was sent for this item.\n\nProduce EXACTLY this markdown structure:\n\n## ISA Policy Brief — {date} ({AM|PM} edition)\n\n### 🔴 What changed\n3–5 developments, most consequential first. For each, 2–3 sentences: the ACTION (who did what, under what authority), then what it changes for Iowa soybeans, then the number or date that makes it concrete. End the entry with [Title](url) · source · date.\n\n### ⚡ Needs attention\nONLY items where ISA has something to DO within 14 days — file a comment, brief leadership, contact a member, respond by a date. One line each, naming the action and the date. Omit this section if there are none.\n\n### 🌱 Could matter later\nOne line each. Early-stage, out-of-state or second-order items that are not decisions yet but are on a path to becoming one. Say WHAT WOULD MAKE IT MATTER. Omit this section if there are none.\n\n### ⏰ Deadlines & required actions\nEvery comment period and dated obligation in the data, soonest first, each with its days remaining (use daysToDeadline; do not compute dates yourself). Omit this section if there are none.\n\n### 📎 Evidence\nFor each development in \"What changed\", the sourced basis for it, attributed to the item. Where the item has a **packet**, quote from packet.evidence — those quotes are already verified verbatim, so reproduce one exactly and never paraphrase it. Otherwise use a short verbatim phrase from its document. Where an item's evidenceBasis is \"title_only\", say plainly that the substance was not retrieved. Omit this section if no development has a packet or a document.\n\n### 👀 What to watch\nThe next expected event for each open thread — the report, hearing, decision or filing that would resolve it, and roughly when. Omit this section if the data supports nothing.\n\nHard rules:\n- NEVER invent items. NEVER add information not present in the input data.\n- Include the URL for every item you name, as a markdown link.\n- Write each development or bullet as ONE line — do not hard-wrap a paragraph across several lines. The email renderer turns every line into its own paragraph, so a wrapped entry arrives broken into fragments.\n- Do not write anything after the last section — no sign-off, no stats footer (it is appended automatically).\n- An item whose **evidenceBasis is \"title_only\"** may appear ONLY under \"Could matter later\", \"Deadlines & required actions\" or \"What to watch\", and its line must say the substance was not retrieved. It may NEVER be a \"What changed\" development — you would be describing a document nobody read.\n- An item with **eventFilings greater than 1** is ONE action filed in several places. State how many filings; never present it as several corroborating items. Repetition is not evidence.\n- An item with **priority \"background\"** may never be a \"What changed\" development.\n- Treat **packet** and **document** as sourced fact and **oneLine** as someone else's summary. Where they differ, follow the sourced text and prefer its wording.\n- A packet's **unknowns** and **notInDocument** are what the source did NOT establish. Never fill those gaps from oneLine or from your own knowledge — say plainly that the source does not address it.\n- Do NOT enumerate every input item. Items you don't write about remain available to the reader on the Laws, Rules & Decisions page. A short brief that surfaces the right five actions is the goal.",
+  "messages": [
+   {
+    "role": "user",
+    "content": "Date: 2026-10-07\nEdition: AM\n\nActions (JSON):\n[\n {\n  \"uid\": \"ls-ia-1\",\n  \"title\": \"IA SF 101: Carbon pipeline eminent domain\",\n  \"oneLine\": \"Why IA SF 101: Carbon pipeline eminent domain matters.\",\n  \"source\": \"legiscan\",\n  \"date\": \"2026-10-06\",\n  \"url\": \"https://legiscan.com/IA/bill/SF101/2026\",\n  \"docType\": \"bill\",\n  \"jurisdiction\": \"IA\",\n  \"commentDeadline\": null,\n  \"tracked\": false,\n  \"priority\": \"must_read\",\n  \"eventFilings\": 1,\n  \"evidenceBasis\": \"title_only\",\n  \"document\": \"Senate file on eminent domain for CO2 pipelines.\"\n },\n {\n  \"uid\": \"adm-1\",\n  \"title\": \"Nutrient management rule amendment\",\n  \"oneLine\": \"Why Nutrient management rule amendment matters.\",\n  \"source\": \"iowa_admin_rules\",\n  \"date\": \"2026-10-06\",\n  \"url\": \"https://example.gov/rule/1\",\n  \"docType\": \"admin-rule\",\n  \"jurisdiction\": \"IA\",\n  \"commentDeadline\": null,\n  \"tracked\": false,\n  \"priority\": \"must_read\",\n  \"eventFilings\": 1,\n  \"evidenceBasis\": \"title_only\",\n  \"document\": \"Agency amends nutrient rules.\"\n },\n {\n  \"uid\": \"fr-2\",\n  \"title\": \"Clean fuel production credit guidance\",\n  \"oneLine\": \"Why Clean fuel production credit guidance matters.\",\n  \"source\": \"federal_register\",\n  \"date\": \"2026-10-06\",\n  \"url\": \"https://www.federalregister.gov/d/2026-20002\",\n  \"docType\": \"notice\",\n  \"jurisdiction\": \"US\",\n  \"commentDeadline\": null,\n  \"tracked\": false,\n  \"priority\": \"must_read\",\n  \"eventFilings\": 1,\n  \"evidenceBasis\": \"title_only\",\n  \"document\": \"Treasury notice on 45Z emissions rates.\"\n },\n {\n  \"uid\": \"fr-1\",\n  \"title\": \"Renewable Fuel Standard: 2027-2028 volumes (proposed rule)\",\n  \"oneLine\": \"Why Renewable Fuel Standard: 2027-2028 volumes (proposed rule) matters.\",\n  \"source\": \"federal_register\",\n  \"date\": \"2026-10-06\",\n  \"url\": \"https://www.federalregister.gov/d/2026-20001\",\n  \"docType\": \"proposed-rule\",\n  \"jurisdiction\": \"US\",\n  \"commentDeadline\": \"2026-11-17\",\n  \"tracked\": false,\n  \"priority\": \"must_read\",\n  \"eventFilings\": 1,\n  \"evidenceBasis\": \"title_only\",\n  \"daysToDeadline\": 41,\n  \"document\": \"EPA proposes RVOs for biomass-based diesel. Comments due Nov. 17, 2026.\"\n }\n]"
+   }
+  ],
+  "output_config": null,
+  "thinking": {
+   "type": "disabled"
+  },
+  "max_tokens": 8000
+ }
+]
