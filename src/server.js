@@ -24,6 +24,7 @@ import * as store from "./store.js";
 import * as panels from "./panels.js";
 import * as budgetMod from "./budget.js";
 import { auditFreshness, envPresence, fmtAge } from "./health.js";
+import { setupReport, availablePacks } from "./setup.js";
 import Database from "better-sqlite3";
 import { seedRan, dueEditions, localClock, needsRefreshFirst, parseDaySpec } from "./schedule.js";
 import { runMemberBrief, DEFAULT_MEMBER_SPEC, memberRecipients } from "./memberbrief.js";
@@ -3384,7 +3385,7 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
       if (req.method === "GET" && url.pathname === "/freshness") {
         let body;
         try {
-          body = freshnessBody(buildFreshnessReport());
+          body = freshnessBody(buildFreshnessReport()) + packSection(setupReport({ dataDir: store.DATA_DIR, envPresent: envPresence([], process.env) }));
         } catch (err) {
           body = `<h1>🩺 Data freshness</h1><div class="banner err">⚠️ Could not build the report: ${esc(err.message)}</div>`;
         }
@@ -3392,9 +3393,15 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
         res.end(page("The Bean Brief · data freshness", body));
         return;
       }
+      if (req.method === "GET" && url.pathname === "/setup") {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.end(page("The Bean Brief · setup", setupBody(setupReport({ dataDir: store.DATA_DIR, envPresent: envPresence([], process.env) }), availablePacks())));
+        return;
+      }
       if (req.method === "GET" && url.pathname === "/freshness.json") {
         res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
-        res.end(JSON.stringify(buildFreshnessReport()));
+        const { checks, chain, spec, specSource, overlay, overlayIssues, ok } = setupReport({ dataDir: store.DATA_DIR, envPresent: envPresence([], process.env) });
+        res.end(JSON.stringify({ ...buildFreshnessReport(), statePack: { ok, spec, specSource, chain, overlay, overlayIssues, checks } }));
         return;
       }
 
@@ -3407,6 +3414,7 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
         }
         const body = `<h1>🛠 Logs &amp; Settings</h1>
           <p><a href="/freshness">🩺 Data freshness &amp; spend</a> — what is updating, what is stale, and this month's Anthropic spend.</p>
+          <p><a href="/setup">🧭 Setup — state pack</a> — which state this deployment is configured for, its local overlay, and what it still needs.</p>
           ${runLogSection()}
           <h2>Recent activity</h2><pre class="logs">${esc(logBuffer.slice(-300).join("\n") || "(nothing yet)")}</pre>
           ${settings}`;
@@ -4085,6 +4093,30 @@ function buildFreshnessReport() {
     budgetUsd: budgetMod.monthlyBudget(process.env, watchlist),
     logText: logBuffer.join("\n"),
   });
+}
+
+// ---------- state pack: /setup page + the /freshness section (src/setup.js) ----------
+const SETUP_TONE = { ok: "fr-ok", info: "fr-off", warn: "fr-off", error: "fr-bad" };
+function packChecksTable(r) {
+  return `<table class="fr"><tr><th>Check</th><th>Status</th><th>Detail</th></tr>${r.checks
+    .map((c) => `<tr><td>${esc(c.name)}</td><td class="${SETUP_TONE[c.status]}">${esc(c.status)}</td><td>${esc(c.detail)}</td></tr>`)
+    .join("")}</table>${r.chain.length ? `<p class="muted">Pack chain: ${r.chain.map((l) => `<code>${esc(l.id)}@${esc(l.version)}</code> sha256 <code>${esc(l.sha256.slice(0, 12))}</code>`).join(" → ")}</p>` : ""}`;
+}
+function packSection(r) {
+  return `<h2>State pack</h2>${packChecksTable(r)}<p class="muted">Details and how to switch states: <a href="/setup">/setup</a>.</p>`;
+}
+function setupBody(r, packs) {
+  return `<h1>🧭 Setup — state pack</h1>
+<style>.fr-ok{color:#2e7d32;font-weight:600}.fr-off{color:#8a6d00;font-weight:600}.fr-bad{color:#b3261e;font-weight:700}
+table.fr{border-collapse:collapse;width:100%;font-size:.86em;margin:6px 0 18px}table.fr td,table.fr th{border-bottom:1px solid var(--line,#ddd);padding:4px 6px;text-align:left;vertical-align:top}</style>
+<div class="banner${r.ok ? "" : " err"}">${r.ok ? "Ready" : "Not ready"} — <code>${esc(r.spec)}</code> (${esc(r.specSource)})</div>
+${packChecksTable(r)}
+<h2>Packs in this image</h2><table class="fr"><tr><th>Pack</th><th>State</th><th>Organization</th><th>Valid</th></tr>${packs
+    .map((p) => `<tr><td><code>${esc(p.spec)}</code></td><td>${esc(p.stateName ?? "—")}</td><td>${esc(p.orgName ?? p.error ?? "—")}</td><td class="${p.valid ? "fr-ok" : "fr-bad"}">${p.valid ? "yes" : "no"}</td></tr>`)
+    .join("")}</table>
+<h2>Switching or customizing</h2>
+<p>Run <code>node src/index.js setup --state us-il</code> on the box (or set <code>STATE_PACK=us-il</code> in the data folder's <code>.env</code>) and restart. The pack is checked before it is written, so a typo cannot stop the next start.</p>
+<p>Local changes go in <code>pack-overlay.json</code> in the data folder — it merges over the shipped pack (objects merge, arrays replace, <code>null</code> removes) and survives upgrades. Secrets never go in a pack: name the environment variable instead. Keys are shown as present or missing, never their values.</p>`;
 }
 
 const STATUS_TONE = (st) => (/^(OK|LIVE|ON DEMAND)/.test(st) && !/·/.test(st) ? "ok" : /^(OFF|NEVER \(on demand\))/.test(st) ? "off" : "bad");

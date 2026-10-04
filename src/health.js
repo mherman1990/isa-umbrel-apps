@@ -32,7 +32,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { summarizeSpend, monthlyBudget } from "./budgetcore.js";
 import { calendarCoverage } from "./calendar.js";
-import { voice, seriesKey } from "./pack.js";
+import { pack, voice, seriesKey } from "./pack.js";
 // State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
 const V = voice();
 
@@ -60,7 +60,7 @@ export const SOURCE_EXPECTATIONS = {
   federal_register: { required: [], dataCadenceD: 1, note: "business-daily FR issues" },
   congress_gov: { required: ["CONGRESS_GOV_API_KEY"], dataCadenceD: null, note: "event-driven; quiet weeks are normal" },
   congress_hearings: { required: ["CONGRESS_GOV_API_KEY"], dataCadenceD: null, note: "event-driven" },
-  legiscan: { required: ["LEGISCAN_API_KEY"], dataCadenceD: null, note: "event-driven; IA session Jan–Apr" },
+  legiscan: { required: ["LEGISCAN_API_KEY"], dataCadenceD: null, note: `event-driven${pack().legislature?.sessionNote ? `; ${pack().legislature.sessionNote}` : ""}` },
   eurlex_oj: { required: [], dataCadenceD: 1, note: "OJ L series, business-daily" },
   iowa_admin_rules: { required: [], dataCadenceD: 14, note: "Iowa Administrative Bulletin, biweekly" },
   regulations_gov: { required: ["REGULATIONS_GOV_API_KEY|CONGRESS_GOV_API_KEY"], dataCadenceD: 1 },

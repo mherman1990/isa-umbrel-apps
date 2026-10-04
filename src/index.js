@@ -272,6 +272,32 @@ program
   });
 
 program
+  .command("setup")
+  .description("Check this deployment's state pack, overlay, map layers and keys (presence only); --state switches packs")
+  .option("--state <spec>", "set STATE_PACK in the data folder's .env (e.g. us-il or us-il@2026.1); takes effect on restart")
+  .option("--list", "list the state packs shipped in this image")
+  .action(async (opts) => {
+    const { setupReport, formatSetupReport, availablePacks, writeStatePack } = await import("./setup.js");
+    if (opts.list) {
+      for (const p of availablePacks()) console.log(`${p.valid ? "✓" : "✗"} ${p.spec.padEnd(20)} ${p.stateName ?? "?"} — ${p.orgName ?? p.error ?? "?"}`);
+      return;
+    }
+    if (opts.state) {
+      try {
+        const f = writeStatePack(DATA_DIR, opts.state);
+        console.log(`STATE_PACK=${opts.state} written to ${f}. Restart the app to apply.\n`);
+      } catch (err) {
+        console.error(`✗ ${opts.state} was not applied:\n${err.message}`);
+        process.exitCode = 1;
+        return;
+      }
+    }
+    const r = setupReport({ dataDir: DATA_DIR, spec: opts.state ?? null });
+    console.log(formatSetupReport(r));
+    if (!r.ok) process.exitCode = 1;
+  });
+
+program
   .command("seed-curriculum")
   .description("Load the education-engine concept bank + glossary into SQLite (idempotent)")
   .action(async () => {

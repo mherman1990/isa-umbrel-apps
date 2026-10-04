@@ -2,6 +2,7 @@
   "id": "us-ia",
   "version": "2026.1",
   "extends": "us-national@2026.1",
+  "abstract": false,
   "description": "Iowa — the original deployment. Every value here reproduces v1.40.0 exactly (proven by test/iowa-snapshot.test.js).",
   "identity": {
     "orgName": "Iowa Soybean Association",
@@ -27,6 +28,7 @@
     "legiscanStates": ["IA"],
     "fullTextStates": ["IA"],
     "openstatesJurisdiction": "Iowa",
+    "sessionNote": "IA session Jan–Apr",
     "chamberNames": { "upper": "Iowa Senate", "lower": "Iowa House", "legislature": "Iowa Legislature" }
   },
   "election": {

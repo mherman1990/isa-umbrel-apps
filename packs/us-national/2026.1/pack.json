@@ -1,6 +1,7 @@
 {
   "id": "us-national",
   "version": "2026.1",
+  "abstract": true,
   "description": "Federal tier shared by every state pack: provenance for federal publishers, the national product name. A state pack extends this and overrides only what differs.",
   "identity": {
     "productName": "The Bean Brief",
