@@ -28,7 +28,12 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  MEMBER BRIEF FIXES FROM THE FIRST LIVE PREVIEW. A hedged sentence ("if enacted, …") is no longer
+  MEMBER BRIEF MARKET COMMENTARY NO LONGER REPEATS THE NUMBERS. The chart and table carry the figures; the
+  written lines now only explain what they mean. Barge segments are named exactly as listed, and an
+  unattributed newsletter reads "From an email newsletter." Tip: set MEMBER_BRIEF_REPLY_TO to the address
+  members should write to. Update only — no new keys.
+  ---
+  1.43.1 — MEMBER BRIEF FIXES FROM THE FIRST LIVE PREVIEW. A hedged sentence ("if enacted, …") is no longer
   mistaken for a claim that something passed; a single sentence that fails the checks is now dropped
   instead of stopping the whole brief; newsletter items name their publisher instead of "source"; the
   oil-share table fills in from Iowa cash prices until the newer CME series has a year of history; a
