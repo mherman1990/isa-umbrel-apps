@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.43.1 — Member Brief: fixes from the first live preview
+
+The first 1.43.0 preview failed closed on a single sentence, and its news items read "Reported by source."
+
+- **Hedged wording is no longer a decision claim.** "If enacted, higher reference prices would…" was rejected as if it said the bill had passed. The decision-language check now skips a word inside a condition or a negation: if, once, unless, until, before, would, could, may, not yet, has not been. "Congress enacted…" and "the rule is final" are still caught.
+- **One bad sentence no longer sinks the edition.** On the last attempt, a sentence that fails the checks is deleted, the same way a reviewer deletion works, and the rest of the brief goes on to review. An item that loses a required sentence is left out. A missing, duplicated or unknown item, or an update with no sentences left, still fails closed.
+- **News publishers are named.** A newsletter or feed item with no link is credited to the registry entity it was attributed to (e.g. the newsletter's publisher). If there is none, it is credited as "Email newsletter" or "News feed", never "source".
+- **Oil share indicators fill in.** CME settlements only started accumulating when `CME_SETTLEMENTS` was switched on, so the table showed "—" for change, past-year position and the 3-year average. USDA AMS Iowa cash, which has years of history, now leads until the CME series spans a year. The chart and the table use the same basis.
+- **A failed-closed draft gets its charts too**, so the saved draft shows the full brief.
+
+Update only — no new keys.
+
 ## 1.43.0 — Member Brief rebuilt for farmers: policy & news, charts, performance indicators
 
 The 1.40.0 Member Brief led with comment deadlines and listed "Comments due" under What to watch, and its markets section was a line of figures with model sentences repeating them. Farmers want what happened, what it means for their operation, and the market picture at a glance.

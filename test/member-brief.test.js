@@ -538,3 +538,66 @@ test("barge: the brief follows the effective selection — a deselected segment 
   assert.doesNotMatch(only, /Cape Girardeau/, "a stored series outside the override is left out");
   assert.match(only, /no location-level barge freight/, "and the section says so rather than showing it");
 });
+
+// ---------------------------------------------------------------- 1.43.1 (first live preview)
+
+test("lint: a HEDGED decision word is not a decision claim ('If enacted, …'); an asserted one still is", () => {
+  const p = pk.policy.get(P_FR);
+  const scope = { band: p.band, allowedCites: p.citeIds };
+  assert.deepEqual(lintMemberSentence({ text: "If enacted, higher volumes would add demand for soybean oil.", cites: [S_FR] }, pk, scope), []);
+  assert.deepEqual(lintMemberSentence({ text: "The proposal has not been finalized.", cites: [S_FR] }, pk, scope), []);
+  assert.ok(lintMemberSentence({ text: "The rule is final.", cites: [S_FR] }, pk, scope).some((f) => f.rule === "proposed_as_decision"));
+  assert.ok(lintMemberSentence({ text: "Congress enacted it.", cites: [S_FUND] }, pk, {}).some((f) => f.rule === "enacted_claim"));
+});
+
+test("last attempt: a sentence that fails lint is deleted, not the whole edition; structural failures still fail closed", async () => {
+  const oneBad = goodDraft();
+  oneBad.policy[0].whatItMeans = { text: "Funds hold 71,500 contracts.", cites: [S_FR] }; // unsourced number
+  oneBad.markets.ratio = [{ text: "{{RATIO_NEWCROP}} vs {{RATIO_IOWA_MONTHLY}}.", cites: [S_RATIO] }]; // restates figures
+  const { calls, restore } = stub([oneBad, oneBad]);
+  try {
+    const r = await mb.runMemberBrief({ env: process.env, preview: true, now: NOW, log: () => {} });
+    assert.equal(r.status, "preview");
+    assert.equal(r.attempts, 2);
+    assert.equal(calls.review, 1, "the salvaged draft is still reviewed");
+    const md = fs.readFileSync(r.path, "utf8");
+    assert.ok(!md.includes("71,500"));
+    assert.ok(!md.includes(`### ${pk.policy.get(oneBad.policy[0].id).headline}`), "an item missing a required sentence is not published");
+    assert.ok(md.includes("### Iowa drainage-well rule final"), "the rest of the brief goes out");
+  } finally {
+    restore();
+  }
+  const { draft, structural } = mb.dropLintedSentences(mb.normalizeDraft(goodDraft()), [{ path: "policy.P9", rule: "missing_policy_item" }]);
+  assert.equal(structural.length, 1, "a missing item is never salvaged");
+  assert.equal(draft.update.length, 2);
+});
+
+test("news publisher: the registry entity, else the channel — never the bare word 'source'", () => {
+  store.upsertEntity({ id: "agbull", type: "news_broad", full_name: "AgBull Commodities", level: "federal", status: "active" });
+  const seed = (uid, entity) => {
+    store.markSeen({ uid, sourceId: "email_intake", title: `Newsletter ${uid}`, summary: "body", url: "", publishedAt: "2026-10-06T00:00:00Z", raw: { entityId: entity } }, { relevant: true, topicIds: [], oneLine: "", tier: "must_read" });
+    raw.prepare("UPDATE seen_items SET first_seen_at = '2026-10-06T14:00:00.000Z' WHERE uid = ?").run(uid);
+  };
+  seed("nl-1", "agbull");
+  seed("nl-2", null);
+  try {
+    const p = mb.buildMemberPacket({ now: NOW, tz: TZ });
+    const pub = (t) => [...p.policy.values()].find((x) => x.headline === t)?.publisher;
+    assert.equal(pub("Newsletter nl-1"), "AgBull Commodities");
+    assert.equal(pub("Newsletter nl-2"), "Email newsletter");
+    assert.ok(![...p.sources.values()].some((s) => s.publisher === "source"));
+  } finally {
+    raw.prepare("DELETE FROM seen_items WHERE uid IN ('nl-1','nl-2')").run();
+  }
+});
+
+test("oil share: AMS cash leads until CME settlements span a year (so the indicators are not empty)", () => {
+  store.saveSeriesPoints("cme:zm:front", { label: "ZM", unit: "$/ton", category: "soy_futures" }, [{ period: "2026-10-05", value: 300 }, { period: "2026-10-06", value: 302 }]);
+  store.saveSeriesPoints("cme:zl:front", { label: "ZL", unit: "¢/lb", category: "soy_futures" }, [{ period: "2026-10-05", value: 50 }, { period: "2026-10-06", value: 51 }]);
+  try {
+    const p = mb.buildMemberPacket({ now: NOW, tz: TZ });
+    assert.match(p.tokens.get("OILSHARE_BASIS").value, /USDA AMS/);
+  } finally {
+    raw.prepare("DELETE FROM market_series WHERE series IN ('cme:zm:front','cme:zl:front')").run();
+  }
+});

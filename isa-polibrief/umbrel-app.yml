@@ -28,7 +28,13 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  MEMBER BRIEF REBUILT FOR FARMERS. The policy section now carries what the daily brief rated must-read —
+  MEMBER BRIEF FIXES FROM THE FIRST LIVE PREVIEW. A hedged sentence ("if enacted, …") is no longer
+  mistaken for a claim that something passed; a single sentence that fails the checks is now dropped
+  instead of stopping the whole brief; newsletter items name their publisher instead of "source"; the
+  oil-share table fills in from Iowa cash prices until the newer CME series has a year of history; a
+  saved draft now includes its charts. Update only — no new keys.
+  ---
+  1.43.0 — MEMBER BRIEF REBUILT FOR FARMERS. The policy section now carries what the daily brief rated must-read —
   federal and state actions and news — each in two or three plain sentences on what happened and what it
   means for an Iowa operation; comment deadlines appear only on the item they belong to. Each market
   section now shows a chart (fund positions 52 weeks, oil share and barge 12 months against their 3-year

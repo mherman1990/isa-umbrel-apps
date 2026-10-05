@@ -182,6 +182,21 @@ function newPacket(window) {
   };
 }
 
+// Who published a news item with no link (a newsletter, or a feed entry without one): the registry
+// entity it was attributed to, else what kind of channel it came through — never the bare word "source".
+const CHANNEL_LABEL = { email_intake: "Email newsletter", rss: "News feed" };
+function publisherOf(it, url, g) {
+  if (PUBLISHER[it.source_id]) return PUBLISHER[it.source_id];
+  let name = "";
+  try {
+    name = it.entity_id ? store.getEntity(it.entity_id)?.full_name ?? "" : "";
+  } catch {
+    name = "";
+  }
+  if (!name) name = url ? hostLabel(url) : CHANNEL_LABEL[it.source_id] ?? "Unattributed source";
+  return g.advocacy ? `${name} (interested party)` : name;
+}
+
 function itemSource(pk, uid, fallback = {}) {
   const it = store.getItemForCitation(uid) ?? {};
   const url = it.url || fallback.url || "";
@@ -189,7 +204,7 @@ function itemSource(pk, uid, fallback = {}) {
   return pk.addSource({
     kind: "item",
     title: it.title || fallback.title || "(untitled)",
-    publisher: PUBLISHER[it.source_id] ?? (g.advocacy ? `${hostLabel(url)} (interested party)` : hostLabel(url)),
+    publisher: publisherOf(it, url, g),
     url,
     date: String(it.published_at || it.first_seen_at || "").slice(0, 10),
     tier: g.grade,
@@ -408,6 +423,11 @@ function addOilShare(pk) {
       source: { title: `USDA AMS National Grain and Oilseed Processor Feedstuff report (3511) — ${V.state} soybean oil and meal`, publisher: "USDA Agricultural Marketing Service", url: "https://mymarketnews.ams.usda.gov/viewReport/3511", tier: "primary_source", tierLabel: "primary source" },
     },
   ];
+  // CME settlements are the exchange of record, but they only began accumulating when CME_SETTLEMENTS
+  // was switched on. Until they span a year, the indicators (change, past-year position, 3-yr average)
+  // come out empty — so the AMS cash pair, which has years of history, leads until then.
+  const span = (pts) => (pts.length ? daysBetween(pts[0].period, pts[pts.length - 1].period) : 0);
+  if (span(oilSharePoints(candidates[0].meal, candidates[0].oil)) < 365) candidates.reverse();
   for (const c of candidates) {
     const pts = oilSharePoints(c.meal, c.oil);
     if (!pts.length) continue;
@@ -433,8 +453,8 @@ function addOilShare(pk) {
   // The chart wants a year of history: the AMS weekly cash pair has years of it (CME settlements only
   // began accumulating when CME_SETTLEMENTS was switched on), so it draws the line whichever basis the
   // indicator row uses.
-  const amsPts = oilSharePoints(candidates[1].meal, candidates[1].oil);
-  const cmePts = oilSharePoints(candidates[0].meal, candidates[0].oil);
+  const amsPts = oilSharePoints(series(seriesKey("ams", "meal")), series(seriesKey("ams", "oil")));
+  const cmePts = oilSharePoints(series("cme:zm:front"), series("cme:zl:front"));
   const chartPts = amsPts.length >= 8 || cmePts.length < amsPts.length ? amsPts : cmePts;
   if (chartPts.length >= 2) {
     const end = chartPts[chartPts.length - 1].period;
@@ -800,6 +820,37 @@ export function draftCompleteness(draft, pk) {
   return out;
 }
 
+/**
+ * On the LAST attempt, a sentence the lint rejects is deleted (as a reviewer deletion would be) instead of
+ * sinking the whole edition: fewer, fully supported sentences beat no brief. Only sentence-level failures
+ * qualify — a missing, duplicated or unknown item, or an empty update, still fails closed. An item that
+ * loses a required sentence is simply not published (the renderer skips it).
+ * @returns {{draft:object, dropped:string[], structural:object[]}}
+ */
+export function dropLintedSentences(draft, failures) {
+  const out = structuredClone(draft);
+  const dropped = [];
+  const structural = [];
+  for (const f of failures) {
+    let m;
+    if ((m = f.path.match(/^update\[(\d+)\]$/))) out.update[Number(m[1])] = null;
+    else if ((m = f.path.match(/^policy\.(P\d+)\.(\w+)\[0\]$/))) {
+      const p = out.policy.find((x) => x.id === m[1]);
+      if (p) p[m[2]] = null;
+    } else if ((m = f.path.match(/^markets\.(\w+)\[(\d+)\]$/)) && out.markets[m[1]]) out.markets[m[1]][Number(m[2])] = null;
+    else if (f.rule === "missing_policy_sentence") continue; // the item just won't be published
+    else {
+      structural.push(f);
+      continue;
+    }
+    dropped.push(`${f.path} ${f.rule}`);
+  }
+  out.update = out.update.filter(Boolean);
+  for (const k of Object.keys(out.markets)) out.markets[k] = out.markets[k].filter(Boolean);
+  if (!out.update.length) structural.push({ path: "update", rule: "update_empty", detail: "every update sentence failed the lint" });
+  return { draft: out, dropped: [...new Set(dropped)], structural };
+}
+
 /** Every sentence of a draft with a stable id, for the reviewer and for applying its decisions. */
 export function sentenceList(draft) {
   const out = [];
@@ -1097,20 +1148,29 @@ export async function runMemberBrief({ env = process.env, watchlist = null, prev
       const lint1 = lintMemberDraft(draft, pk);
       const incomplete = draftCompleteness(draft, pk);
       if (incomplete.length) lint1.failures = [...incomplete, ...lint1.failures];
+      let reviewed = draft;
       if (!lint1.ok || incomplete.length) {
-        priorLint = lint1.failures;
-        failures.push({ attempt, stage: "lint", detail: `${lint1.failures.length} failure(s): ${lint1.failures.slice(0, 6).map((f) => `${f.path} ${f.rule}`).join("; ")}` });
-        log(`   ✋ attempt ${attempt}: draft failed lint (${lint1.failures.length})`);
-        continue;
+        const detail = `${lint1.failures.length} failure(s): ${lint1.failures.slice(0, 6).map((f) => `${f.path} ${f.rule}`).join("; ")}`;
+        // Last attempt: delete the failing sentences rather than lose the edition, if what remains is sound.
+        const salvage = attempt === 2 ? dropLintedSentences(draft, lint1.failures) : null;
+        if (!salvage || salvage.structural.length || !lintMemberDraft(salvage.draft, pk).ok) {
+          priorLint = lint1.failures;
+          failures.push({ attempt, stage: "lint", detail });
+          log(`   ✋ attempt ${attempt}: draft failed lint (${lint1.failures.length})`);
+          continue;
+        }
+        reviewed = salvage.draft;
+        lastDraft = reviewed;
+        log(`   ✂️ attempt ${attempt}: ${salvage.dropped.length} sentence(s) failed lint and were deleted — ${salvage.dropped.join("; ")}`);
       }
-      const review = await callReview(api, reviewModel, pk, draft);
-      const gaps = reviewCoverage(draft, review, pk);
+      const review = await callReview(api, reviewModel, pk, reviewed);
+      const gaps = reviewCoverage(reviewed, review, pk);
       if (gaps.length) {
         failures.push({ attempt, stage: "review incomplete", detail: `${gaps.length} problem(s): ${gaps.slice(0, 6).join("; ")}` });
         log(`   ✋ attempt ${attempt}: review incomplete (${gaps.length}) — an unreviewed sentence is never treated as approved`);
         continue;
       }
-      const applied = applyReview(draft, review, pk);
+      const applied = applyReview(reviewed, review, pk);
       lastDraft = applied.draft;
       const lint2 = lintMemberDraft(applied.draft, pk);
       if (!lint2.ok) {
@@ -1129,6 +1189,8 @@ export async function runMemberBrief({ env = process.env, watchlist = null, prev
   const tzOpt = tz;
   if (!final) {
     const why = failures.map((f) => `attempt ${f.attempt} ${f.stage}: ${f.detail}`).join(" | ") || "no draft produced";
+    // The saved draft is what a human reviews — give it the charts too.
+    await writeCharts(pk, `${new Intl.DateTimeFormat("en-CA", { timeZone: tzOpt }).format(new Date())}-${preview ? "member-preview-draft" : "member-draft"}`, { log });
     const draftMd = renderMemberBrief(lastDraft ?? { update: [], policy: [], markets: { fund: [], oilShare: [], ratio: [], barge: [] } }, pk, { draftFailure: why });
     const file = saveBrief(draftMd, preview ? "member-preview-draft" : "member-draft", tzOpt);
     log(`   ⛔ Member Brief FAILED CLOSED — not sent. Draft saved to ${path.basename(file)}. ${why}`);
