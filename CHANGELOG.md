@@ -1,8 +1,8 @@
 # Changelog
 
-## 1.39.0 — Analyst Note + Ask: oil/meal crush composition in the crush block
+## 1.42.0 — Analyst Note + Ask: oil/meal crush composition in the crush block
 
-_The Analyst Note already saw oil share as one signal-board line (1.38.0). This gives it and Ask the trajectory and context behind that line, in the CRUSH DEMAND block. Auto-tagged `v1.39.0` by `auto-release.yml`._
+_The Analyst Note already saw oil share as one signal-board line (1.38.0). This gives it and Ask the trajectory and context behind that line, in the CRUSH DEMAND block. Auto-tagged `v1.42.0` by `auto-release.yml`._
 
 ### Added
 
@@ -22,10 +22,277 @@ _The Analyst Note already saw oil share as one signal-board line (1.38.0). This 
 - **`src/pipeline.js`** — the block header is now "CRUSH DEMAND (capacity utilization, cause→effect with
   margin, oil/meal composition)" in both the memo and Ask contexts.
 - `shareRows()` / `rowDaysBack()` factored out of `scoreOilShare()` (no behavior change).
+- **Multi-state:** the cash line reads its series via `seriesKey("ams", …)` and labels itself with the pack's
+  state name, so a non-Iowa pack gets its own cash series rather than Iowa's.
 
 ### Notes
 
 - Prompt-content only; no new keys, no new model calls. Adds ~3 lines (~150 tokens) to the crush block.
+
+## 1.41.1 — Barge freight by river segment (the Member Brief's barge lines now fill in)
+
+The 1.40.0 Member Brief asked USDA's barge dataset (Ag Transport `7spn-fbua`) for "St. Louis" and "Illinois River". Those names don't exist in it. The dataset reports $/ton per river **segment** in `river_system_location` (26 segments, checked against the live data). Every per-location lookup therefore came back empty, and the brief said "not updated this cycle".
+
+- **Segments from the state pack** (`markets.barge.locations`): USDA's exact segment name plus a reader-facing label. Iowa follows its own Mississippi reaches plus two benchmarks:
+  - Dubuque – Genoa
+  - Keithsburg – Savanna (Quad Cities)
+  - Winfield – Canton (SE Iowa)
+  - Cape Girardeau – Grafton (St. Louis harbor benchmark)
+  - Hardin – Havana (lower Illinois River benchmark)
+- **Exact matching**, ignoring case and dash style. A loose substring match would let "Grafton" pick up the wrong reach.
+- **Old names ignored:** the 1.40.0 watchlist default (`["St. Louis", "Illinois River"]`) is ignored when found untouched in a live watchlist, and has been removed from the shipped `watchlist.json`. A real override still wins.
+- **Member Brief** lists the barge lines in the pack's order. `/freshness` checks the pack's segments, and the Markets chart caption explains that the all-segment average mixes reaches priced very differently.
+- **Illinois pilot pack** follows Hardin – Havana, Kingston Mines – Peoria and the St. Louis harbor.
+- **One resolver** (`pack.effectiveBargeLocations`) decides which segments are followed: the watchlist override when it's a real choice, else the pack's. The adapter, the Member Brief and `/freshness` all use it, so a segment that is later deselected drops out of the brief and the freshness check instead of lingering.
+
+Update only — no new keys. The new series fill in on the next refresh (or `node src/index.js market-refresh`).
+
+## 1.41.0 — State packs: the Bean Brief can run for another state without a fork
+
+Everything that made a deployment "Iowa" now lives in a versioned **state pack** (`packs/<id>/<version>/pack.json`). Iowa ships as `us-ia`, extending a federal base tier `us-national`. `STATE_PACK` (default `us-ia`) picks the pack. Design: `docs/MULTI_STATE.md`.
+
+**For the Iowa deployment nothing changes.** Every step of the migration had to pass a snapshot test: prompts, Member Brief, text blocks, adapter requests and page HTML stayed **byte-identical** to a baseline recorded before the work (`test/iowa-snapshot.test.js`). Series keys are unchanged, so the database needs no migration. No new keys.
+
+### What moved into the pack
+- **Identity and voice.** Org name, short name, state name, reader title, time zone and logo. Prompts and UI copy interpolate them; there are no state literals left in prompt or page code.
+- **Series keys.** `seriesKey("nass", "soy-corn-ratio")` resolves to `nass:ia:…` under Iowa and `nass:il:…` under Illinois.
+  - The crush-capacity sentence now computes the state's share and rank from the national plant table instead of asserting "the largest of any state".
+- **Legislature.** LegiScan home and full-text states, the OpenStates jurisdiction and chamber names, and the FEC candidate state.
+- **Admin rules.** The pack names its admin-rules adapter. State-specific adapters (`export const state`) load only under their own state, so Illinois never polls the Iowa bulletin.
+- **Provenance.** The primary, agency and advocacy host lists.
+- **Election gate.** Campaign-finance seeding needs `election.campaignFinance` enabled in the pack, in addition to the existing env confirmation. It is off unless a pack turns it on.
+- **Map and registry.** Boundary layers, the district→watershed map, the legislature roster, the candidate list and the registry seed moved into `packs/us-ia/2026.1/`. The map reads its center, plant filter and layer names from `/assets/geo/map.json`. The geo scripts take FIPS, bounding box and output paths from the pack.
+- **Markets.**
+  - AMS cash-grain report, feedstuff report and trade location. A pack without a verified cash report skips those legs rather than reading another state's.
+  - NASS state.
+  - Drought, VegScape and Crop-CASMA home areas and belt states.
+  - Corn Belt weather points, Barchart basis locations and default barge locations.
+- **Calendar.** State-specific policy events carry `state` and show only under that state; shared events can carry a per-state note.
+
+### Customizing and switching
+- **`/data/pack-overlay.json`** merges over the shipped pack: objects merge, arrays replace, `null` removes, and `{inherit, add, remove}` extends a list.
+  - It survives upgrades.
+  - Keys the pack no longer has are reported, not dropped.
+  - Packs refuse secret-looking values: name the env var instead.
+- **`node src/index.js setup`** reports:
+  - the active pack and where `STATE_PACK` came from;
+  - the extends chain with sha256 hashes;
+  - the overlay;
+  - a checklist covering admin rules, map layers, registry seed, AMS cash report, campaign finance and keys (presence only).
+- `setup --list` shows the packs in the image. `setup --state us-il` validates the target pack before writing `STATE_PACK` to the data `.env`.
+- The same report is at **/setup**, as a "State pack" section on /freshness, and as `statePack` in /freshness.json.
+
+### Illinois pilot pack (`us-il`, not deployed)
+- **Filled and verified:** identity, legislature, provenance hosts (ilga.gov, ilsos.gov, agr.illinois.gov, epa.illinois.gov, ilsoy.org), NASS `IL`, belt IA/IN, barge (Illinois River, St. Louis), and the six Illinois crush plants from the national table. Campaign finance is off.
+- **Listed under `verify`, left empty rather than guessed:**
+  - the AMS Illinois cash-grain report id (to probe on MARS);
+  - the Illinois Register adapter;
+  - map layers and roster — build on the box with `STATE_PACK=us-il node scripts/fetch-geo.mjs` and `scripts/fetch-incumbents.mjs`, since this environment's network policy blocks those hosts;
+  - ILSoy's logo, colours and reader title.
+- **`test/illinois-snapshot.test.js`** records Illinois output for ILSoy's review (`test/fixtures/snapshot-il/`) and fails if Iowa organisation or Iowa-only wording appears.
+- **Known gap:** the shipped `watchlist.json` is shared, so Illinois still starts with the `iowa-water-land` focus area. ILSoy defines its replacement (MULTI_STATE.md §14).
+
+### Fixes from review (also in this release)
+- **The budget's hard ceiling now stops the daily run.** Past 110% of the month's budget, the AM/PM run still collects, stores and refreshes market data. It then fails closed, with the reason, before triage: no model call is made. Today's items stay queued for the next run inside budget. Before this fix, only the panels and the Member Brief checked the ceiling.
+- **Member Brief: an incomplete review fails closed.** The reviewer must give exactly one decision for every sentence and every policy band. A sentence it skipped used to count as approved; an empty or partial review now fails the attempt, and after the retry nothing is sent.
+- **LegiScan searches the pack's home state first, and always full-text.** The shared watchlist's Iowa-era state list no longer decides this; the other states it lists stay as extra coverage.
+- **A data folder belongs to one state.** The first start records the pack in `/data/.state-pack`; an existing Iowa install is recognised by its `registry.json`. Starting it under a different `STATE_PACK` is refused with an explanation. `setup --state` refuses the switch, and /setup shows it. Without this, Iowa's registry entities and channels would carry over into another state's deployment.
+
+- **Member Brief: a draft must cover every policy item in the packet**, each exactly once with all four sentences. The renderer used to skip an omitted action silently. A short draft now fails lint and the retry is told what was missing.
+- **No Iowa data leaks into another state's pack:**
+  - The crop-weather composite points (Iowa-weighted) moved from the national tier into `us-ia`; a pack without them has no weather signal, and /setup says so.
+  - The congressional delegation on hearing committees moved into the pack (`legislature.congressionalDelegation`); with none listed, hearings carry no delegation note.
+  - Drought items link to the pack state's map.
+
+- **/freshness reads the persisted source health.** A source whose latest fetch failed shows `FAILING (n×)` with the stored error, even after a restart has cleared the log. Dry runs no longer write source health.
+
+- **The monthly budget set in Settings applies everywhere.** Budget checks that weren't handed the watchlist (the panels) used to fall back to the $75 default; they now read the live watchlist. Past the hard ceiling the daily run also skips the news digest, market intel and market cards outright.
+- **/freshness under another state** leaves out adapters that belong to a different state, reads pack-driven adapter labels correctly, and keeps a failed item fetch visible even after a later successful series refresh.
+
+- **Discretionary model work checks its own allocation.** News ranking (re-checked before every batch), expectation extraction and on-demand item summaries each check their own budget group. They used to run under the essential brief's allowance, or with no check at all for summaries.
+
+### Tests
+- 483 tests (was 450). New files: `pack.test.js`, `pack-gates.test.js` (a non-Iowa overlay switches off the Iowa adapter, hosts, campaign-finance seeding and AMS report), `setup.test.js`, and the two snapshot tests.
+
+### Not in this release
+- The shared data commons (MULTI_STATE.md step 9) and funding channels (step 10) wait on open questions 2 and 4.
+
+## 1.40.0 — The ISA Member Brief (Mon/Wed/Fri): no unsupported claims, by construction
+
+A new scheduled report for farmer-members. Policy and regulatory first, markets second; education, not advice. It goes out under ISA's name, so making an unsupported claim is **structurally hard**, not just discouraged (`src/memberbrief.js`).
+
+### How a sentence earns its place
+- **Numbers are inserted by code.** Market figures are computed from stored series and handed to the model as locked tokens (`{{FUND_SOYBEANS_NET}}`); the renderer substitutes them.
+  - The lint rejects any digit the model writes that is not inside a token or verbatim in a source the sentence cites. Dates are tokens too.
+- **Every sentence cites.** Sentences are `{ text, cites[] }`. Each cite must resolve to a stored record carrying URL, publisher, date and provenance tier (`provenance.js`).
+  - A policy sentence may cite only its own action's sources, and a market sentence only its own data.
+- **Certainty bands are code-rendered** from the policy card: In force / In force — under legal challenge / Proposed — NOT final / Signalled.
+  - Decision language ("final", "in effect", "requires", "approved"…) on a Proposed or Signalled action fails the lint.
+  - "In force" language needs a cited primary source.
+- **Adversarial review.** `REVIEW_MODEL` (default `ANALYST_MODEL`; `.env.example` suggests Opus 5.5) checks the draft against the evidence packet only. No web search. It may delete sentences or lower bands, never add or raise; code enforces both.
+- **Fail closed.** If lint or review still fails after one retry, nothing is sent:
+  - the draft is saved as `<date>-member-draft.md`;
+  - an alert goes to `ALERT_EMAIL_TO` (or `BRIEF_EMAIL_TO`);
+  - the run is marked failed with the reasons, and the red banner shows.
+  - Reaching the budget's hard ceiling also fails closed.
+- **Compliance.** `compliance.scanBanned` runs on every member-facing sentence and again on the rendered brief, and the education footer is appended. This is the farmer-facing product `compliance.js` was reserved for.
+- **Staleness.** Every datum shows its as-of date.
+  - Past its allowance, it is shown with its date and "not updated this cycle".
+  - Past twice the allowance, it is omitted, and its tokens are withheld so the model cannot use them.
+  - The allowances are: CFTC = last Friday's release; barge = 14 days; oil share = 4 days (CME) or 10 days (AMS weekly); new-crop ratio = 4 days.
+
+### Structure (fixed order)
+1. **The update** — at most 3 sentences, enforced by code: entries are split into sentences and capped.
+2. **Policy & regulatory**
+   - **Open comment deadlines** come first (code-rendered).
+   - Then each action: band, what changed, where it stands, what it means for an Iowa corn/soybean operation, and the next dated event.
+3. **Markets** — figures printed by code, each with its as-of date:
+   - **Fund positioning:** soybeans, meal and oil — managed-money net, week-over-week, 52-week percentile.
+   - **Oil share of crush:** CME settlements first, then USDA AMS Iowa cash. Never the Yahoo board legs.
+   - **Soy:corn ratio:** new-crop Nov soybeans ÷ Dec corn from CME settlements, with the contracts and settle date stated. The NASS Iowa monthly ratio follows as dated context.
+   - **Barge freight:** by location (St. Louis, Illinois River), $/ton, week-over-week and the 3-year same-week average.
+4. **What to watch** through the next edition — code-rendered from the report calendar, policy dates, deadlines, hearings and card next-events.
+5. **Sources** — the full numbered list.
+
+**Lookback window:** since the previous Member Brief (Mon covers Fri–Sun, Wed covers Mon–Tue, Fri covers Wed–Thu). If an edition failed closed, the next one reaches back to where the last *sent* window ended, so nothing is skipped.
+
+### Market inputs it needed (Phase 0 audit §4.3)
+- **CFTC** now fetches soybeans, soybean meal and soybean oil (`cftc:<market>:mm-net`).
+  - Markets are matched by contract code or name, with a name-only fallback so today's soybean feed can't break.
+  - A total failure now throws, so it is recorded, instead of returning `[]`.
+- **Barge freight by location** (`agtransport:barge-freight:<location>`, $/ton; `sources.agtransport.bargeLocations`).
+  - The dataset's location column is discovered rather than assumed.
+  - The old series is relabelled honestly as the *average of all reported locations*.
+- **The positioning, barge and soy:corn charts** are relabelled to say what they plot.
+
+### Plumbing
+- **Schedule:** `briefEditions.member` defaults to `"Mon,Wed,Fri 06:45"`; set it in Settings, or `off`.
+  - It always runs after the day's data refresh has completed.
+  - Restart dedup counts `member` runs.
+- **Recipients:** `MEMBER_BRIEF_TO`, Settings → member recipients, and `/data/member-list.txt`.
+  - Sent **BCC**. Subject: "ISA Member Brief — <date>". HTML email.
+  - A List-Unsubscribe header plus an unsubscribe line (`MEMBER_BRIEF_REPLY_TO`).
+  - `scripts/member-list.mjs add|rm|list|unsubscribes`. `unsubscribes` reads replies over IMAP, following `subscribe.mjs`, and removes senders.
+- **🔍 Preview Member Brief** button on Home, and `node src/index.js member-brief --preview`. A preview never emails anyone and never advances the sent window.
+- **`SAFE_BRIEF_NAME`, the Run allow-list and the Saved-briefs labels** include `member`, `member-preview` and `member-draft`.
+  - `farmer` and `pulse` were dropped from the allow-list. They were never memo presets, so posting them ran the full policy pipeline under that name.
+- **`/freshness`** gains a Member Brief row and the updated input checks.
+
+### Cost
+At list prices, per edition:
+
+| Case | Cost | Breakdown |
+|---|---|---|
+| Typical | ≈ $0.15 | Sonnet draft ≈ $0.045 (~10k in / ~2.5k out); Opus 5.5 review at high effort ≈ $0.11 (~12k in / ~3k out) |
+| Worst case | ≈ $0.31 | one retry |
+| Month | ≈ $2.50–3.50 | 13 editions plus a few previews |
+
+That is inside the Member Brief's $12 allocation (`docs/BUDGET.md`).
+
+The cache breakpoint sits after the evidence packet. The system prompt alone (~670 tokens) is under Sonnet 5's 1,024-token cache minimum, so a breakpoint there would cache nothing; placing it after the packet makes a retry read system + packet from cache.
+
+### Tests: 427 → 449
+New `test/member-brief.test.js` (22 tests):
+- section order;
+- ≤3-sentence update;
+- rejection of an uncited sentence, a number not in the packet, decision language on a proposal, advice, a withheld stale token, and cross-section cites;
+- stale-datum omission;
+- review can only delete and lower;
+- fail-closed after one retry, and a retry that recovers;
+- the budget hard ceiling;
+- M/W/F scheduling and restart dedup;
+- the lookback window and a missed edition;
+- the COT as-of rule;
+- the new-crop roll;
+- CFTC fallback, barge location discovery, and the 3-year average.
+
+### Pi go-live: one Update, then
+1. Set `CME_SETTLEMENTS=1` in `/data/.env`. History starts the day it is on.
+2. Click **🔍 Preview Member Brief** and read it.
+3. Add recipients in Settings (or `/data/member-list.txt`).
+
+Until recipients exist, Mon/Wed/Fri editions are generated and saved, not emailed.
+
+## 1.39.0 — Every panel says when it failed; storylines unstuck; fresh data before every report; a $75/month budget
+
+Phase 1 of the audit in `docs/AUDIT-2026-10-04.md`.
+
+### Fixed — storylines frozen since 9/1
+- The model's answer was being cut off at `max_tokens` 4,500 (~720 tokens per thread × up to 7 threads). The cut-off JSON failed to parse and the function returned `null`.
+  - That path never wrote `storylines_meta` and never pruned, so the same threads went back into the next prompt and the next run failed the same way.
+- Now:
+  - output is bounded (≤ 6 threads, ≤ 3 new timeline entries, the unused `whatIsUnchanged` field dropped);
+  - the cap is 9,000;
+  - `stop_reason` is checked before parsing;
+  - pruning runs on every attempt.
+- Storylines also moved **after triage**. Before, it ran in the refresh block ahead of triage, so it clustered yesterday's verdicts.
+- The ↻ Refresh notice no longer says "Not enough recent items" for a truncated or empty answer.
+
+### Added — attempt/outcome on every cached panel (`src/panels.js`)
+- Storylines, the news digest, market intel and signal cards each record `lastAttemptAt`, `lastOutcome` (ok / empty / no_output / truncated / error / skipped), `lastError` and a failure streak.
+- Each panel shows *"Last attempt … failed — showing content from the last success …"* instead of silently showing old output.
+- Storylines now has the same age badge as the others.
+- A truncated digest or intel block is no longer stored as if complete.
+
+### Added — 🩺 Data freshness & spend (`/freshness`, linked from Logs & Settings)
+- Backed by `src/health.js`, the same read-only audit as `scripts/audit-freshness.mjs`. It covers:
+  - every source: key presence, last fetch, newest data, STALE vs. cadence;
+  - every panel, including its last attempt;
+  - the storylines verdict;
+  - the Member Brief inputs;
+  - per-source recorded health;
+  - month-to-date spend.
+- JSON at `/freshness.json`.
+
+### Added — durable per-source health
+A new `source_health` table records every item fetch and series refresh as ok, empty or error, with the last error and a failure streak. Errors used to live only in the in-memory log, which is lost on restart.
+
+### Changed — data is refreshed before any report
+- If no AM/PM refresh has completed OK today, a memo (weekly / monthly / education / Analyst) runs that refresh first. Before, an Analyst Note scheduled for 06:00 was written from yesterday's data.
+- The scheduler reads "already ran" from `brief_runs` instead of saved files. A quiet AM (no file) used to re-run in full on any same-day restart.
+- Runs interrupted by a restart are marked as interrupted and re-run.
+- Day specs accept several days (`"Mon,Wed,Fri 06:45"`, `"Mon-Fri 07:00"`).
+- Scheduled runs are recorded as `trigger='schedule'`.
+
+### Changed — the live watchlist gains sources that shipped after install
+- On start, any `sources` entry in the shipped `watchlist.json` that the live `/data` copy lacks is added. This is additive: an existing entry is never edited.
+- Item sources missing from an older install were silently never collected. The Sources page now flags "not in your watchlist".
+
+### Added — monthly AI budget, $75 (`src/budget.js`, `docs/BUDGET.md`)
+- Spend is allocated to groups:
+
+  | Group | Share | Kind |
+  |---|---|---|
+  | Member Brief | 16% | essential |
+  | Daily brief | 28% | essential |
+  | Panels | 20% | discretionary |
+  | Analysis | 20% | discretionary |
+  | Ask | 12% | discretionary |
+  | Reserve | 4% | — |
+
+- Discretionary groups pause at their allocation.
+- Essential groups run to a hard ceiling of 110%, where the Member Brief fails closed.
+- Set it in Settings, or with `MONTHLY_BUDGET_USD`.
+
+### Fixed — pricing
+`pricing.js` had Sonnet 5 at $3/$15 per MTok; the list price is $2/$10. Every Sonnet cost reported before this release (audit, run log, brief cost ceiling) was 50% too high. Sonnet 5.5 and Opus 5.5 were added.
+
+### Fixed — a model upgrade in .env could no longer silently break five features
+- `thinking: {type:"disabled"}` is rejected by Sonnet 5.5, and Opus 5.5 can't disable thinking at all.
+- `src/modelcfg.js` picks the right thinking-off switch per model for storylines, policy cards, the prose brief and summaries.
+- Signal cards now set thinking explicitly: adaptive, medium effort, 8k cap. Before, an implicit thinking budget could swallow the whole 2.5k answer.
+
+### Smaller fixes
+- `token_usage.stop_reason` is recorded on every call, so truncation is a fact, not an inference.
+- Challenger history-depth context showed `? observations` for every series; it now prints real counts.
+- A market layer that failed this run is withheld from the brief's evidence menu (`missingSeriesPrefixes`, previously never wired).
+- The calendar loads every `<prefix>.<year>.json`. `/freshness` warns when authored USDA dates end within 60 days: today they end 2026-12-10. **The 2027 file is still needed.**
+
+### Tests: 409 → 427
+New `test/phase1-reliability.test.js` (18 tests): storylines null / throw / truncation / recovery / prune; truncated digest; PM-only day; restart after a quiet AM; interrupted vs. failed run; multi-day specs; refresh gate; thinking switch per model; budget; watchlist migration; source health; calendar coverage.
+
+### Pi go-live: one Update
+No new keys. New tables and columns auto-create. Optional: Settings → monthly AI budget.
 
 ## 1.38.0 — Markets: oil vs. meal crush value share — chart + signal-board card
 

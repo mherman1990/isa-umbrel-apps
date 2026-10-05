@@ -4,6 +4,7 @@
     "am": "06:30",
     "pm": "16:30",
     "weekly": "Fri 17:00",
+    "member": "Mon,Wed,Fri 06:45",
     "timezone": "America/Chicago"
   },
   "sources": {
@@ -429,6 +430,7 @@
     "email": true,
     "alertEmail": false,
     "farmerBrief": true,
-    "entitySourceBoost": 6
+    "entitySourceBoost": 6,
+    "monthlyBudgetUsd": 75
   }
 }

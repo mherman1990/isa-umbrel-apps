@@ -36,6 +36,9 @@ export async function collectAll({ watchlist, env, onlySource = null, commit = t
   const targets = [];
   for (const [sourceId, adapter] of Object.entries(adapters)) {
     if (onlySource && sourceId !== onlySource) continue;
+    // Series-only adapters (banyan_rin, carbon_prices, eu_ets, …) have no items to collect — they are
+    // refreshed by refreshMarketSeries. Without this they logged "no entry in watchlist.json" every run.
+    if (typeof adapter.fetchItems !== "function") continue;
     const sourceConfig = watchlist.sources?.[sourceId];
     if (!sourceConfig) {
       console.log(`⚠️  ${adapter.label}: no entry in watchlist.json "sources" — skipping`);
@@ -67,6 +70,8 @@ export async function collectAll({ watchlist, env, onlySource = null, commit = t
         env,
       });
       const fresh = fetched.filter((item) => !store.isSeen(item.uid));
+      // A dry run is a probe: it must not move /freshness, which reports the last REAL collection.
+      if (commit) store.recordSourceAttempt(sourceId, "items", fetched.length ? "ok" : "empty", { count: fetched.length });
       console.log(
         `📥 ${adapter.label}: ${fetched.length} fetched since ${sinceISO.slice(0, 10)}, ${fresh.length} new`
       );
@@ -77,6 +82,7 @@ export async function collectAll({ watchlist, env, onlySource = null, commit = t
       return { fresh, fetched: fetched.length, pending };
     } catch (err) {
       console.log(`⚠️  ${adapter.label}: skipped — ${err.message}`);
+      if (commit) store.recordSourceAttempt(sourceId, "items", "error", { error: err.message });
       return { skipped: { id: sourceId, label: adapter.label, reason: err.message } };
     }
   });

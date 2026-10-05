@@ -15,10 +15,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import * as store from "./store.js";
+import { pack, packPath } from "./pack.js";
 
-/** The live registry seed file: the data-volume copy in Docker/Umbrel, else the project one. */
+/** The live registry seed file: the data-volume copy in Docker/Umbrel, else the state pack's seed. */
 export function registryFilePath() {
-  const candidates = [path.join(store.DATA_DIR, "registry.json"), path.join(store.PROJECT_ROOT, "registry.json")];
+  const seed = pack().registry?.seed;
+  const candidates = [path.join(store.DATA_DIR, "registry.json"), ...(seed ? [packPath(seed)] : [])];
   return candidates.find((p) => fs.existsSync(p)) ?? null;
 }
 

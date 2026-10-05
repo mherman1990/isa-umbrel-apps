@@ -32,6 +32,9 @@ import { fileURLToPath } from "node:url";
 
 import * as store from "./store.js";
 import { CRUSH_YIELDS } from "./adapters/cbot_futures.js";
+import { voice, seriesKey } from "./pack.js";
+// State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
+const V = voice();
 
 const DATA_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "data");
 
@@ -170,7 +173,7 @@ export function crushUtilization() {
 
 /** Percentile of the newest crush-margin reading within its own history, preferring Iowa cash. */
 function marginPercentile() {
-  for (const name of ["ams:ia:cash-crush-margin", "cbot:crush:board-margin"]) {
+  for (const name of [seriesKey("ams", "cash-crush-margin"), "cbot:crush:board-margin"]) {
     let pts = [];
     try {
       pts = store.getSeries(name);
@@ -277,16 +280,24 @@ export function crushSignal() {
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const monthName = (m) => MON[(m || 1) - 1];
 
+const ordinal = (n) => n + ([, "st", "nd", "rd"][(n % 100 >> 3) ^ 1 && n % 10] || "th");
+
 /** Narrative for the Analyst / Ask prompts — the crush chain, cause through effect. */
 export function crushText() {
   const s = crushSignal();
   const lines = s ? [`- ${s.name}: ${s.direction.toUpperCase()} — ${s.detail}`] : [];
   const cap = loadCapacity();
   if (s && cap) {
-    const ia = (cap.currentPlants ?? []).filter((p) => p.state === "IA").reduce((a, p) => a + p.buPerDay, 0);
-    if (ia) {
+    // The home state's share and rank come from the national plant table — not asserted.
+    const byState = new Map();
+    for (const p of cap.currentPlants ?? []) byState.set(p.state, (byState.get(p.state) ?? 0) + (p.buPerDay ?? 0));
+    const home = byState.get(V.alpha) ?? 0;
+    if (home) {
+      const rank = [...byState.values()].filter((v) => v > home).length + 1;
+      const rankText = rank === 1 ? "the largest of any state" : `the ${ordinal(rank)}-largest state`;
+      const tail = rank === 1 ? ` — so national crush economics land disproportionately on ${V.state} basis` : "";
       lines.push(
-        `- Iowa holds ${(ia / 1e6).toFixed(2)}M bu/day of the ${(cap.currentTotalBuPerDay / 1e6).toFixed(2)}M bu/day U.S. installed base (${((ia / cap.currentTotalBuPerDay) * 100).toFixed(0)}%), the largest of any state — so national crush economics land disproportionately on Iowa basis.`
+        `- ${V.state} holds ${(home / 1e6).toFixed(2)}M bu/day of the ${(cap.currentTotalBuPerDay / 1e6).toFixed(2)}M bu/day U.S. installed base (${((home / cap.currentTotalBuPerDay) * 100).toFixed(0)}%), ${rankText}${tail}.`
       );
     }
   }
@@ -309,7 +320,7 @@ export function crushText() {
 const { MEAL_TON_PER_BU: SHARE_MEAL_TON_PER_BU, OIL_LB_PER_BU: SHARE_OIL_LB_PER_BU } = CRUSH_YIELDS;
 
 /** Pure: [{period, value}] oil share (%) from date-aligned meal ($/ton) and oil (¢/lb) points. */
-function oilSharePoints(mealPts, oilPts) {
+export function oilSharePoints(mealPts, oilPts) {
   const oil = new Map(oilPts.map((p) => [p.period, p.value]));
   const out = [];
   for (const m of mealPts) {
@@ -324,7 +335,7 @@ function oilSharePoints(mealPts, oilPts) {
 
 const SHARE_SOURCES = [
   { key: "board", label: "Board", meal: "cbot:zm:front", oil: "cbot:zl:front" },
-  { key: "cash", label: "Iowa cash", meal: "ams:ia:meal", oil: "ams:ia:oil" },
+  { key: "cash", label: `${V.state} cash`, meal: seriesKey("ams", "meal"), oil: seriesKey("ams", "oil") },
 ];
 
 /**
@@ -496,13 +507,14 @@ export function oilShareText({ now = new Date(), board, cash } = {}) {
   ];
   // Iowa cash (weekly AMS 3511) — the share plants actually face. Only quoted when recent enough to
   // compare to the board, and against the board point nearest-before it so the gap isn't a date skew.
-  const c = cash ?? { meal: get("ams:ia:meal"), oil: get("ams:ia:oil") };
+  const cMeal = seriesKey("ams", "meal"), cOil = seriesKey("ams", "oil");
+  const c = cash ?? { meal: get(cMeal), oil: get(cOil) };
   const cRows = shareRows(c.meal, c.oil);
   const cLast = cRows[cRows.length - 1];
   if (cLast && now.getTime() - Date.parse(`${cLast.period}T00:00:00Z`) <= 21 * 864e5) {
     const bAt = rows.filter((r) => r.period <= cLast.period).pop();
     const gap = bAt ? ` (${sg(cLast.share - bAt.share)}pts vs. board on ${bAt.period})` : "";
-    lines.push(`- Iowa CASH oil share (series: ams:ia:oil vs. ams:ia:meal): ${cLast.share.toFixed(1)}% on ${cLast.period}${gap}.`);
+    lines.push(`- ${V.state} CASH oil share (series: ${cOil} vs. ${cMeal}): ${cLast.share.toFixed(1)}% on ${cLast.period}${gap}.`);
   }
   lines.push(
     "- Reading oil share: it is COMPOSITION, not margin. Rising on oil strength = the renewable-diesel pull carrying the crush; rising because meal fell = a meal glut, not demand. The higher the share, the more of crush value — and so of the domestic bid for beans — rests on the policy-set oil leg (RVO volumes, SREs, 45Z), so size policy risk to it; meal is then the byproduct, and meal export competitiveness the release valve."

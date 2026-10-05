@@ -9,16 +9,37 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { pack } from "./pack.js";
 
 const DATA_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "data");
+
+// YEAR-AGNOSTIC (1.39.0). The loader used to open `calendar_events.2026.json` and `policy_events.2026.json`
+// by name, so on 2026-12-11 the calendar, the "Coming up" panel, the pre-report trigger and every
+// "next release" line would have gone silent with no error. It now merges EVERY `<prefix>.<year>.json`
+// in src/data, so adding next year's calendar is dropping in one file — and calendarCoverage() says,
+// on the health page, how far ahead the authored dates actually reach.
+function loadAll(prefix, empty) {
+  const merged = structuredClone(empty);
+  let files = [];
+  try {
+    files = fs.readdirSync(DATA_DIR).filter((f) => new RegExp(`^${prefix}\\.\\d{4}\\.json$`).test(f)).sort();
+  } catch {
+    return merged;
+  }
+  for (const f of files) {
+    try {
+      const j = JSON.parse(fs.readFileSync(path.join(DATA_DIR, f), "utf8"));
+      for (const k of Object.keys(empty)) merged[k].push(...(j[k] ?? []));
+    } catch {
+      /* one malformed year must not blank the others */
+    }
+  }
+  return merged;
+}
+
 let CAL = null;
 function loadCal() {
-  if (CAL) return CAL;
-  try {
-    CAL = JSON.parse(fs.readFileSync(path.join(DATA_DIR, "calendar_events.2026.json"), "utf8"));
-  } catch {
-    CAL = { events: [], recurring_events: [] };
-  }
+  if (!CAL) CAL = loadAll("calendar_events", { events: [], recurring_events: [] });
   return CAL;
 }
 
@@ -26,14 +47,42 @@ function loadCal() {
 // regulatory milestones) — a separate authored file so the homepage calendar shows more than USDA
 // reports. Comment deadlines are NOT here (captured dynamically per-rule in store.upcomingDeadlines).
 let POL = null;
+// State-specific events carry `state` and show only under that state's pack; a shared event may carry
+// `stateNotes` with a state's own wording (the Iowa ballot on the general election, say).
 function loadPolicy() {
-  if (POL) return POL;
-  try {
-    POL = JSON.parse(fs.readFileSync(path.join(DATA_DIR, "policy_events.2026.json"), "utf8"));
-  } catch {
-    POL = { events: [] };
+  if (!POL) {
+    POL = loadAll("policy_events", { events: [] });
+    const alpha = pack().identity.stateAlpha;
+    POL.events = POL.events
+      .filter((e) => !e.state || e.state === alpha)
+      .map((e) => (e.stateNotes?.[alpha] ? { ...e, note: e.stateNotes[alpha] } : e));
   }
   return POL;
+}
+
+/** Test hook: forget the cached files. */
+export function _resetCalendarCache() {
+  CAL = null;
+  POL = null;
+}
+
+/** How far ahead the authored calendars reach. A gap here is invisible in the UI until it bites. */
+export function calendarCoverage(from = new Date(), warnDays = 60) {
+  const today = from.toISOString().slice(0, 10);
+  const horizon = new Date(from.getTime() + warnDays * 86400e3).toISOString().slice(0, 10);
+  const fixed = (loadCal().events ?? []).map((e) => e.date).filter(Boolean).sort();
+  const policy = (loadPolicy().events ?? []).map((e) => e.date).filter(Boolean).sort();
+  const lastFixed = fixed[fixed.length - 1] ?? null;
+  const ahead = fixed.filter((d) => d >= today);
+  return {
+    lastFixedEvent: lastFixed,
+    lastPolicyEvent: policy[policy.length - 1] ?? null,
+    fixedAhead: ahead.length,
+    fixedWithinWarn: ahead.filter((d) => d <= horizon).length,
+    // Warn when the authored USDA dates end within the window — the WASDE that falls just past the
+    // last authored date is exactly the one the brief would fail to mention.
+    warn: !lastFixed || lastFixed < horizon,
+  };
 }
 
 /**

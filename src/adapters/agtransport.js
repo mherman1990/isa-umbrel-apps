@@ -14,6 +14,7 @@
 // public endpoint works without one at our low volume.
 
 import { fetchJSON } from "../util.js";
+import { pack, bargeLocations, effectiveBargeLocations } from "../pack.js";
 
 export const id = "agtransport";
 export const label = "USDA Ag Transport";
@@ -44,12 +45,16 @@ const SERIES = [
   },
   {
     key: "barge-freight",
-    label: "Mississippi barge freight",
+    // ⚠️ RELABELLED 1.40.0: this is avg(price_per_ton) across EVERY reported location on each date — a
+    // cross-river average, not "Mississippi" freight at any point a farmer ships from (Phase 0 audit
+    // §4.3). Kept for chart continuity and alerts; the per-location series below are what the Member
+    // Brief quotes.
+    label: "Barge freight — average of all reported locations",
     unit: "$/ton",
     category: "barge_freight",
     dataset: "7spn-fbua",
     sql: `SELECT date, avg(price_per_ton) AS v WHERE date >= '${SINCE}' GROUP BY date ORDER BY date LIMIT 5000`,
-    headline: (v, p) => `Mississippi barge freight: $${v.toFixed(2)}/ton (${p})`,
+    headline: (v, p) => `Barge freight (all-location average): $${v.toFixed(2)}/ton (${p})`,
   },
 ];
 
@@ -93,17 +98,85 @@ export async function fetchItems({ sourceConfig = {}, env = process.env } = {}) 
   return items;
 }
 
+// ---- barge freight BY RIVER SEGMENT (1.40.0; segments 1.41.1) --------------------------------------
+// The Member Brief quotes barge freight in $/ton. USDA's dataset 7spn-fbua reports it per river SEGMENT
+// in `river_system_location` — "Cape Girardeau – Grafton", "Dubuque – Genoa"… (26 segments, verified on
+// the Pi 2026-10-04). It has NO "St. Louis" or "Illinois River" rows: those are the Grain Transportation
+// Report's headline rate points, which this dataset does not carry. The segments come from the state pack
+// (markets.barge.locations: USDA's exact segment name + a reader label) and match EXACTLY (case and dash
+// style ignored) — a loose substring match would let "Grafton" pick up the wrong reach.
+export const BARGE_DATASET = "7spn-fbua";
+export const DEFAULT_BARGE_LOCATIONS = pack().markets?.barge?.locations ?? [];
+
+const LOCATION_COLUMN = /^(river_system_location|location|loc|segment|river_segment|origin|port|city|river_location)$/i;
+const norm = (v) => String(v ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+export const bargeSlug = (v) => norm(v).replace(/\s+/g, "-");
+
+/** The column that names a location, from one sample row (or null). Exported for tests. */
+export function findLocationColumn(row) {
+  if (!row || typeof row !== "object") return null;
+  const keys = Object.keys(row);
+  return keys.find((k) => LOCATION_COLUMN.test(k)) ?? keys.find((k) => /location|segment/i.test(k)) ?? null;
+}
+
+/** The segments to fetch — the shared resolver (pack.effectiveBargeLocations: override unless legacy, else pack). */
+export const wantedSegments = effectiveBargeLocations;
+
+/** Group rows of {date, loc, v} into one series per WANTED segment (exact match). Exported for tests. */
+export function bargeSeriesFromRows(rows, wanted = bargeLocations(DEFAULT_BARGE_LOCATIONS)) {
+  const want = (wanted.length && typeof wanted[0] === "string" ? bargeLocations(wanted) : wanted).map((w) => ({ ...w, n: norm(w.segment) }));
+  const bySeg = new Map();
+  for (const r of rows ?? []) {
+    const v = Number(r.v);
+    if (!r.date || !Number.isFinite(v)) continue;
+    const hit = want.find((w) => norm(r.loc) === w.n);
+    if (!hit) continue;
+    if (!bySeg.has(hit.series)) bySeg.set(hit.series, { hit, m: new Map() });
+    bySeg.get(hit.series).m.set(String(r.date).slice(0, 10), v); // one value per date per segment
+  }
+  return [...bySeg.values()].map(({ hit, m }) => ({
+    series: hit.series,
+    meta: { label: `Barge freight — ${hit.label}`, unit: "$/ton", category: "barge_freight", family: `${id}:barge-freight` },
+    points: [...m].map(([period, value]) => ({ period, value })).sort((a, b) => a.period.localeCompare(b.period)),
+  }));
+}
+
+async function fetchBargeByLocation(env, wanted) {
+  const tok = env.AGTRANSPORT_APP_TOKEN ? `&$$app_token=${encodeURIComponent(env.AGTRANSPORT_APP_TOKEN)}` : "";
+  const sample = await fetchJSON(`${BASE}/${BARGE_DATASET}.json?$limit=1${tok}`);
+  const col = findLocationColumn(Array.isArray(sample) ? sample[0] : null);
+  if (!col) throw new Error(`barge dataset ${BARGE_DATASET} has no recognisable location column (columns: ${Object.keys(sample?.[0] ?? {}).join(", ") || "none"})`);
+  const sql = `SELECT date, ${col} AS loc, avg(price_per_ton) AS v WHERE date >= '${SINCE}' GROUP BY date, ${col} ORDER BY date LIMIT 50000`;
+  const rows = await fetchJSON(`${BASE}/${BARGE_DATASET}.json?$query=${encodeURIComponent(sql)}${tok}`);
+  return bargeSeriesFromRows(rows, wanted);
+}
+
 /** Returns [{ series, meta:{label,unit,category}, points }] for store.saveSeriesPoints. */
-export async function fetchSeries({ env = process.env } = {}) {
+export async function fetchSeries({ env = process.env, sourceConfig = {} } = {}) {
   const out = [];
+  const errors = [];
   for (const s of SERIES) {
     let pts;
     try {
       pts = await fetchAgg(s, env);
-    } catch {
+    } catch (err) {
+      errors.push(`${s.key}: ${err.message}`);
       continue;
     }
     if (pts.length) out.push({ series: `${id}:${s.key}`, meta: { label: s.label, unit: s.unit, category: s.category }, points: pts });
   }
+  try {
+    const wanted = wantedSegments(sourceConfig.bargeLocations);
+    const byLoc = await fetchBargeByLocation(env, wanted);
+    const missing = wanted.filter((w) => !byLoc.some((s) => s.series === w.series)).map((w) => w.segment);
+    if (missing.length) errors.push(`barge by segment: ${missing.join(", ")} not found in ${BARGE_DATASET} (river_system_location)`);
+    out.push(...byLoc);
+  } catch (err) {
+    errors.push(`barge by location: ${err.message}`);
+  }
+  // Partial failures used to vanish (`catch { continue }`). Log them; throw only when NOTHING came back,
+  // so the source_health row records an error instead of a quiet "empty".
+  if (errors.length) console.log(`⚠️  ${label}: ${errors.join("; ")}`);
+  if (!out.length && errors.length) throw new Error(errors.join("; "));
   return out;
 }

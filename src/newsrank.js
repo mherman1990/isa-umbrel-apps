@@ -51,6 +51,10 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import * as store from "./store.js";
+import * as budget from "./budget.js";
+import { voice } from "./pack.js";
+// State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
+const V = voice();
 
 const BATCH_SIZE = 15;
 const DOC_CHARS = 1200;
@@ -63,11 +67,11 @@ export const NEWS_TIERS = ["must_read", "worth_knowing", "background"];
 // breaking news that I might want to ... determine if a push is needed." So `must_read` is defined as
 // the PUSH CANDIDATE bar — deliberately narrow, because a notification that fires on a personnel
 // announcement is a notification nobody trusts again.
-const SYSTEM_PROMPT = `You are ranking agricultural NEWS for the Chief Officer for Demand & Policy at the Iowa Soybean Association. His remit is (a) soybean DEMAND — crush, soybean oil, soybean meal, biofuel and renewable diesel, exports, end users — and (b) POLICY — federal and state rules, trade measures, tax credits, litigation, and farmers' freedom to operate. He is not looking for farming how-to, equipment, community features, or personnel news.
+const SYSTEM_PROMPT = `You are ranking agricultural NEWS for the ${V.reader} at the ${V.org}. His remit is (a) soybean DEMAND — crush, soybean oil, soybean meal, biofuel and renewable diesel, exports, end users — and (b) POLICY — federal and state rules, trade measures, tax credits, litigation, and farmers' freedom to operate. He is not looking for farming how-to, equipment, community features, or personnel news.
 
 These are news articles, not government documents. The HEADLINE is usually the most informative field — trust it, and use the article text in "document" to confirm or correct what it implies. Where document text is missing, judge from the headline and publisher rather than refusing to judge; saying "substance not retrieved" for a news item is unhelpful, because the headline of a news story generally does carry its point.
 
-For each item return strict JSON: {"uid": "...", "relevant": true|false, "tier": "must_read|worth_knowing|background", "topicIds": [...], "oneLine": "...", "type": "news"} — oneLine states WHAT HAPPENED and why it matters for Iowa soybeans, in one sentence, naming the specific thing (the country, the credit, the ruling, the commodity, the figure). Never restate the headline.
+For each item return strict JSON: {"uid": "...", "relevant": true|false, "tier": "must_read|worth_knowing|background", "topicIds": [...], "oneLine": "...", "type": "news"} — oneLine states WHAT HAPPENED and why it matters for ${V.state} soybeans, in one sentence, naming the specific thing (the country, the credit, the ruling, the commodity, the figure). Never restate the headline.
 
 Grade "tier" strictly:
 - "must_read": a DEVELOPMENT that could move soybean demand, price, cost, or market access, or that changes policy or the freedom to operate. Court rulings and regulatory decisions; trade actions, tariffs, and agreements; biofuel and tax-credit decisions (45Z, RFS, RIN, LCFS, SAF); major USDA data releases (Acreage, Grain Stocks, WASDE, Crop Progress) and material changes in crop condition; crush or renewable-diesel capacity coming on or going off line; China or Brazil supply, demand, or purchasing shifts; farm bill and appropriations movement; input-cost actions on major crop-protection or fertilizer inputs. This tier is the bar for interrupting his day — treat it as such.
@@ -137,6 +141,15 @@ export async function rankNewsItems(items, topics = [], env = process.env, { log
   const systemPrompt = SYSTEM_PROMPT + feedbackGuidance();
 
   for (let i = 0; i < items.length; i += BATCH_SIZE) {
+    // Ranking is discretionary (the panels allocation): re-checked before EVERY batch, so a large pass
+    // stops at its allocation, the monthly budget or the hard ceiling instead of overrunning it.
+    // Unranked items fall through unscored, exactly as on a failed batch.
+    const gate = budget.check("news_rank", { env });
+    if (!gate.ok) {
+      log(`   ⏸ news ranking paused after ${i} item(s) — ${gate.reason}`);
+      stats.budgetPaused = true;
+      break;
+    }
     const batch = items.slice(i, i + BATCH_SIZE);
     const payload = batch.map((it) => ({
       uid: it.uid,
@@ -168,7 +181,7 @@ export async function rankNewsItems(items, topics = [], env = process.env, { log
           messages: [{ role: "user", content: `Valid topicIds:\n${topicList}\n\nNews items to rank:\n${JSON.stringify(payload, null, 1)}` }],
         });
         stats.calls++;
-        store.recordUsage(model, "news_rank", resp.usage.input_tokens, resp.usage.output_tokens);
+        store.recordUsage(model, "news_rank", resp.usage.input_tokens, resp.usage.output_tokens, resp.usage, resp.stop_reason);
         const text = resp.content.find((b) => b.type === "text")?.text ?? "";
         parsed = parseVerdicts(text);
         threw = null;

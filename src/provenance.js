@@ -19,6 +19,8 @@
 // `advocacy` flag is set so a renderer can say so. This is the same distinction `packets.js` draws
 // between `fact` and `assertion_by_party`.
 
+import { pack } from "./pack.js";
+
 /** The ladder, strongest first. Index IS the rank — lower outranks higher. */
 export const GRADES = ["primary_source", "agency_press", "trade_press", "general_press", "aggregator"];
 
@@ -49,47 +51,16 @@ const PRIMARY_SOURCES = new Set([
   "courtlistener",
   "legiscan",
   "eurlex_oj",
-  "iowa_admin_rules",
   "govinfo",
+  // The state's administrative-rules adapter (us-ia: iowa_admin_rules) is primary too.
+  ...(pack().adminRules?.adapter ? [pack().adminRules.adapter] : []),
 ]);
 
 // Hosts that publish the government's own record or its own announcements. Split into two tiers
-// because a rule text and a press release about that rule are not the same evidence.
-const PRIMARY_HOSTS = [
-  "federalregister.gov",
-  "regulations.gov",
-  "congress.gov",
-  "govinfo.gov",
-  "courtlistener.com",
-  "supremecourt.gov",
-  "uscourts.gov",
-  "eur-lex.europa.eu",
-  "legis.iowa.gov",
-  "legiscan.com",
-  "ecfr.gov",
-];
-
-const AGENCY_HOSTS = [
-  "epa.gov",
-  "usda.gov",
-  "fas.usda.gov",
-  "ams.usda.gov",
-  "nass.usda.gov",
-  "fsa.usda.gov",
-  "nrcs.usda.gov",
-  "treasury.gov",
-  "irs.gov",
-  "ustr.gov",
-  "commerce.gov",
-  "trade.gov",
-  "cftc.gov",
-  "eia.gov",
-  "energy.gov",
-  "state.gov",
-  "whitehouse.gov",
-  "iowaagriculture.gov",
-  "iowadnr.gov",
-];
+// because a rule text and a press release about that rule are not the same evidence. The lists live
+// in the state pack (packs/us-national has the federal hosts; a state pack adds its own).
+const PRIMARY_HOSTS = pack().provenance?.primaryHosts ?? [];
+const AGENCY_HOSTS = pack().provenance?.agencyHosts ?? [];
 
 // Trade and farm press, plus the advocacy organisations whose releases arrive through the same feeds.
 const TRADE_HOSTS = [
@@ -108,18 +79,8 @@ const TRADE_HOSTS = [
   "ogj.com",
 ];
 
-// Interested parties. Graded trade_press, flagged advocacy — see the header note.
-const ADVOCACY_HOSTS = [
-  "cleanfuels.org",
-  "growthenergy.org",
-  "soygrowers.com",
-  "iasoybeans.com",
-  "ncga.com",
-  "nbb.org",
-  "api.org",
-  "fuelsamerica.org",
-  "rfa.org",
-];
+// Interested parties. Graded trade_press, flagged advocacy — see the header note. From the pack.
+const ADVOCACY_HOSTS = pack().provenance?.advocacyHosts ?? [];
 
 const GENERAL_HOSTS = [
   "reuters.com",

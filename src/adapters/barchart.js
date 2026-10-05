@@ -17,6 +17,7 @@
 //   getHistory.json  ?apikey=..&symbol=ZSX26&type=daily&startDate=..                       (backfill)
 
 import { fetchJSON } from "../util.js";
+import { pack } from "../pack.js";
 
 export const id = "barchart";
 export const label = "Barchart (futures & basis)";
@@ -26,8 +27,8 @@ const BASE = "https://ondemand.websol.barchart.com";
 // CBOT soybean complex — front several contract months make up the forward curve.
 // (Continuous front month is ZS*1 in Barchart symbology; explicit months build the curve.)
 const CURVE_SYMBOLS = ["ZS*1", "ZS*2", "ZS*3", "ZS*4"];
-// Iowa reference points for local cash bids → basis (cash bid − nearby futures).
-const BASIS_LOCATIONS = [{ name: "Central Iowa", zip: "50010" }, { name: "NW Iowa", zip: "51301" }];
+// The state's reference points for local cash bids → basis (cash bid − nearby futures), from the pack.
+const BASIS_LOCATIONS = pack().markets?.barchart?.basisLocations ?? [];
 
 function keyOf(env) {
   return env.BARCHART_API_KEY || null;

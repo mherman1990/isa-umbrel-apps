@@ -25,6 +25,7 @@
 // validators drifting apart is exactly the kind of bug neither would catch.
 
 import Anthropic from "@anthropic-ai/sdk";
+import { thinkingOffFields } from "./modelcfg.js";
 import * as store from "./store.js";
 import { resolveEvidence } from "./thesis.js";
 import { gradeEvidence } from "./provenance.js";
@@ -32,6 +33,9 @@ import { lintCards, POSTURE_STATUSES } from "./policylint.js";
 import { MECHANISM_TERMINALS, CERTAINTY_STATES } from "./prompts/policy-domain.js";
 import { POLICY_SYNTHESIS_SYSTEM, synthesisUserTurn } from "./prompts/policy-synthesis.js";
 import { POLICY_REVIEW_SYSTEM, reviewUserTurn } from "./prompts/policy-review.js";
+import { voice } from "./pack.js";
+// State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
+const V = voice();
 
 /** Cards drafted per run. A ceiling, not a target — the prompt asks for 3–6. */
 const DRAFT_BUDGET = 8;
@@ -116,7 +120,7 @@ export const POLICY_CARD_SCHEMA = {
           so_what: {
             type: "string",
             description:
-              "The consequence for an Iowa corn/soybean operation, 1-2 sentences, concrete and local. Explain the consequence; never instruct anyone to buy, sell, hold, price or hedge.",
+              `The consequence for ${V.aState} corn/soybean operation, 1-2 sentences, concrete and local. Explain the consequence; never instruct anyone to buy, sell, hold, price or hedge.`,
           },
           watch_next: {
             type: "object",
@@ -288,15 +292,14 @@ async function draftCards({ client, model, dateLabel, edition, actions, evidence
     max_tokens: 8000,
     // Structured extraction over pre-judged items, exactly like brief.js's prose call — adaptive
     // thinking would spend the budget before the cards are written.
-    thinking: { type: "disabled" },
-    output_config: { format: { type: "json_schema", schema: POLICY_CARD_SCHEMA } },
+    ...thinkingOffFields(model, { format: { type: "json_schema", schema: POLICY_CARD_SCHEMA } }),
     // ⚠️ The breakpoint is on the SYSTEM prompt because that is the stable part (~1,900 tokens of
     // domain block + task, comfortably over Sonnet 5's 1,024-token cache minimum). Everything that
     // changes between runs is in the user turn. Reversing this caches nothing.
     system: [{ type: "text", text: POLICY_SYNTHESIS_SYSTEM, cache_control: { type: "ephemeral" } }],
     messages: [{ role: "user", content: synthesisUserTurn({ dateLabel, edition, actions, evidenceMenu, priorThreads, missingLayers }) }],
   });
-  store.recordUsage(model, "policy_cards", resp.usage.input_tokens, resp.usage.output_tokens, resp.usage);
+  store.recordUsage(model, "policy_cards", resp.usage.input_tokens, resp.usage.output_tokens, resp.usage, resp.stop_reason);
   const text = resp.content.filter((b) => b.type === "text").map((b) => b.text).join("");
   try {
     return JSON.parse(text)?.cards ?? [];
@@ -316,7 +319,7 @@ async function reviewCards({ client, model, dateLabel, cards, evidenceMenu }) {
     system: [{ type: "text", text: POLICY_REVIEW_SYSTEM, cache_control: { type: "ephemeral" } }],
     messages: [{ role: "user", content: reviewUserTurn({ dateLabel, cards: payload, evidenceMenu }) }],
   });
-  store.recordUsage(model, "policy_review", resp.usage.input_tokens, resp.usage.output_tokens, resp.usage);
+  store.recordUsage(model, "policy_review", resp.usage.input_tokens, resp.usage.output_tokens, resp.usage, resp.stop_reason);
   const text = resp.content.filter((b) => b.type === "text").map((b) => b.text).join("");
   try {
     return JSON.parse(text)?.verdicts ?? [];

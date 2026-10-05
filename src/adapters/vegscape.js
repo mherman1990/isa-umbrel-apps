@@ -21,6 +21,7 @@
 
 import { fetchText, fetchBuffer } from "../util.js";
 import * as store from "../store.js";
+import { homeRegion, beltRegions } from "../pack.js";
 
 export const id = "vegscape";
 export const label = "VegScape (crop vegetation)";
@@ -29,14 +30,9 @@ const HOST = "https://nassgeo.csiss.gmu.edu";
 const AVAIL = `${HOST}/VegScape/CheckDataAvailability`;
 const GETFILE = `${HOST}/VegService/GetFile`;
 
-// Areas of interest: Iowa (the scored signal) + the core belt for context/Ask/Analyst.
-const AOIS = [
-  { key: "ia", fips: "19", name: "Iowa" },
-  { key: "il", fips: "17", name: "Illinois" },
-  { key: "mn", fips: "27", name: "Minnesota" },
-  { key: "in", fips: "18", name: "Indiana" },
-  { key: "ne", fips: "31", name: "Nebraska" },
-];
+// Areas of interest: the pack's state (the scored signal) + its belt states for context/Ask/Analyst.
+const HOME = homeRegion();
+const AOIS = [HOME, ...beltRegions().filter((r) => r.key !== HOME.key)];
 const BACKFILL_WEEKS = 12; // seed a small trail on a cold start; steady-state fetches only new weeks.
 
 const pad = (n) => String(n).padStart(2, "0");
@@ -192,19 +188,19 @@ export async function fetchSeries() {
 /** One summary item for the Markets feed — the latest Iowa VCI reading. */
 export async function fetchItems() {
   const list = await fetchSeries().catch(() => []);
-  const ia = list.find((s) => s.series === `${id}:ia:vci`);
+  const ia = list.find((s) => s.series === `${id}:${HOME.key}:vci`);
   if (!ia || !ia.points.length) return [];
   const last = ia.points[ia.points.length - 1];
   return [
     {
-      uid: `${id}:ia:${last.period}`,
+      uid: `${id}:${HOME.key}:${last.period}`,
       sourceId: id,
       sourceLabel: label,
-      title: `Iowa crop VCI ${last.value.toFixed(0)}/100 (week ending ${last.period})`,
-      summary: "VegScape satellite Vegetation Condition Index for Iowa cropland — 0–100 vs. the 2000-present range. A leading read on crop vigor, ahead of the weekly NASS condition rating.",
+      title: `${HOME.name} crop VCI ${last.value.toFixed(0)}/100 (week ending ${last.period})`,
+      summary: `VegScape satellite Vegetation Condition Index for ${HOME.name} cropland — 0–100 vs. the 2000-present range. A leading read on crop vigor, ahead of the weekly NASS condition rating.`,
       url: "https://nassgeo.csiss.gmu.edu/VegScape/",
       publishedAt: new Date(last.period).toISOString(),
-      jurisdiction: "Iowa",
+      jurisdiction: HOME.name,
       docType: "data",
       raw: { metric: "vci", value: last.value, period: last.period },
     },

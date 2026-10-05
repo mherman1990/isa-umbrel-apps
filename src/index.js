@@ -16,12 +16,15 @@ import path from "node:path";
 import readline from "node:readline";
 
 import { PROJECT_ROOT, DATA_DIR } from "./store.js";
+import { voice } from "./pack.js";
+// State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
+const V = voice();
 
 // Prefer the data-volume .env (Docker/Umbrel); fall back to the project root.
 dotenv.config({ path: [path.join(DATA_DIR, ".env"), path.join(PROJECT_ROOT, ".env")], quiet: true });
 
 const program = new Command();
-program.name("polibrief").description("Policy intelligence briefings for Iowa soybean priorities");
+program.name("polibrief").description(`Policy intelligence briefings for ${V.state} soybean priorities`);
 
 program
   .command("run")
@@ -224,6 +227,28 @@ program
   });
 
 program
+  .command("member-brief")
+  .description(`Generate the ${V.short} Member Brief (lint + adversarial review; fails closed). --preview never emails.`)
+  .option("--preview", "generate and save without sending", false)
+  .action(async (opts) => {
+    const { runMemberBrief } = await import("./memberbrief.js");
+    const { loadWatchlist } = await import("./pipeline.js");
+    let watchlist = null;
+    try {
+      watchlist = loadWatchlist();
+    } catch {
+      /* defaults */
+    }
+    try {
+      const r = await runMemberBrief({ env: process.env, watchlist, preview: !!opts.preview });
+      console.log(`🌾 ${r.status} — ${path.basename(r.path)} (${r.attempts} attempt(s), ${r.deleted} sentence(s) removed in review)`);
+    } catch (err) {
+      console.error(`⛔ ${err.message}`);
+      process.exitCode = 1;
+    }
+  });
+
+program
   .command("alerts-check")
   .description("Detect material market changes since last check → the 'what changed' feed")
   .action(async () => {
@@ -244,6 +269,40 @@ program
       console.log(`   ${r.stale ? "🟠" : "🟢"} ${r.label.padEnd(34)} last ${r.latest} (${String(r.ageDays).padStart(4)}d, ~${r.cadenceDays}d cadence)`);
     }
     console.log();
+  });
+
+// Every command except `setup` runs only on a data folder that belongs to the active state pack (setup.js).
+program.hook("preAction", async (_program, cmd) => {
+  if (cmd.name() === "setup") return;
+  const { claimDataDir } = await import("./setup.js");
+  const { pack } = await import("./pack.js");
+  claimDataDir(DATA_DIR, pack().id);
+});
+
+program
+  .command("setup")
+  .description("Check this deployment's state pack, overlay, map layers and keys (presence only); --state switches packs")
+  .option("--state <spec>", "set STATE_PACK in the data folder's .env (e.g. us-il or us-il@2026.1); takes effect on restart")
+  .option("--list", "list the state packs shipped in this image")
+  .action(async (opts) => {
+    const { setupReport, formatSetupReport, availablePacks, writeStatePack } = await import("./setup.js");
+    if (opts.list) {
+      for (const p of availablePacks()) console.log(`${p.valid ? "✓" : "✗"} ${p.spec.padEnd(20)} ${p.stateName ?? "?"} — ${p.orgName ?? p.error ?? "?"}`);
+      return;
+    }
+    if (opts.state) {
+      try {
+        const f = writeStatePack(DATA_DIR, opts.state);
+        console.log(`STATE_PACK=${opts.state} written to ${f}. Restart the app to apply.\n`);
+      } catch (err) {
+        console.error(`✗ ${opts.state} was not applied:\n${err.message}`);
+        process.exitCode = 1;
+        return;
+      }
+    }
+    const r = setupReport({ dataDir: DATA_DIR, spec: opts.state ?? null });
+    console.log(formatSetupReport(r));
+    if (!r.ok) process.exitCode = 1;
   });
 
 program

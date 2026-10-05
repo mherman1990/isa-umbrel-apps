@@ -6,9 +6,14 @@
 // Results are cached (see store.item_summaries) until the item's comment deadline.
 
 import Anthropic from "@anthropic-ai/sdk";
+import { thinkingOffFields } from "./modelcfg.js";
 import * as cheerio from "cheerio";
 
 import * as store from "./store.js";
+import * as budget from "./budget.js";
+import { voice } from "./pack.js";
+// State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
+const V = voice();
 
 const MAX_DOC_CHARS = 18000; // keep token cost bounded for long rules
 const FETCH_TIMEOUT_MS = 15000;
@@ -31,7 +36,7 @@ export async function fetchDocumentText(url, { preserveParagraphs = false } = {}
   try {
     const res = await fetch(url, {
       signal: controller.signal,
-      headers: { "user-agent": "the-bean-brief/1.0 (Iowa Soybean Association policy monitor)" },
+      headers: { "user-agent": `the-bean-brief/1.0 (${V.org} policy monitor)` },
     });
     if (!res.ok) return { text: "", note: `couldn't fetch the document (HTTP ${res.status})` };
     const type = res.headers.get("content-type") ?? "";
@@ -69,17 +74,20 @@ export async function fetchDocumentText(url, { preserveParagraphs = false } = {}
   }
 }
 
-const SYSTEM = `You are a policy analyst for the Iowa Soybean Association (ISA). You summarize government rules, notices, dockets, and court filings for ISA staff who advocate for Iowa soybean farmers.
+const SYSTEM = `You are a policy analyst for the ${V.org} (${V.short}). You summarize government rules, notices, dockets, and court filings for ${V.short} staff who advocate for ${V.state} soybean farmers.
 
 Write a clear, factual summary in NO MORE THAN 500 words, in two short parts:
 1. What the document is and what it does (the substance).
-2. Why it matters to Iowa soybean farmers — the significance, plus any action needed or deadline.
+2. Why it matters to ${V.state} soybean farmers — the significance, plus any action needed or deadline.
 
 Be specific and neutral. If the document text is missing and you are working only from the title and metadata, say so briefly and summarize what can reasonably be inferred — do not invent specifics. Use short paragraphs or bullet points. Never exceed 500 words.`;
 
 /** Generate a summary for one stored item (a row from store.getItemByUid). */
 export async function summarizeItem(item, env) {
   if (!env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not set in .env");
+  // On-demand summaries are discretionary (the Ask allocation): checked before the model call, like Ask.
+  const gate = budget.check("summary", { env });
+  if (!gate.ok) throw new Error(`AI summaries are paused for the month — ${gate.reason}. Cached summaries still open.`);
   const { text, note } = await fetchDocumentText(item.url);
 
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
@@ -107,11 +115,11 @@ export async function summarizeItem(item, env) {
     // Disable thinking: condensing a document isn't a reasoning task, and on Sonnet 5 (our default
     // model) adaptive thinking is ON by default and counts against max_tokens — at this small budget
     // it can eat the summary. Off = the full budget goes to the summary, and it's cheaper.
-    thinking: { type: "disabled" },
+    ...thinkingOffFields(model),
     system: SYSTEM,
     messages: [{ role: "user", content: `${meta}\n\n${docBlock}` }],
   });
-  store.recordUsage(model, "summary", response.usage.input_tokens, response.usage.output_tokens);
+  store.recordUsage(model, "summary", response.usage.input_tokens, response.usage.output_tokens, response.usage, response.stop_reason);
 
   const summary = response.content.find((b) => b.type === "text")?.text?.trim() ?? "";
   return { summary, model, note };

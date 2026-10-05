@@ -52,9 +52,13 @@
 // exact failure mode this file's header was written about.
 
 import Anthropic from "@anthropic-ai/sdk";
+import { thinkingOffFields } from "./modelcfg.js";
 import * as store from "./store.js";
 import { buildPolicyCards } from "./policycards.js";
 import { renderPolicyBrief } from "./policyrender.js";
+import { voice } from "./pack.js";
+// State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
+const V = voice();
 
 // Per-item document budget for the brief. Deliberately smaller than the Ask box's 1,200
 // (CONTEXT_BODY_CHARS in pipeline.js): the brief needs enough of the operative paragraph to write
@@ -77,11 +81,11 @@ const DEFAULT_ROSTER_ITEMS = 25;
 const ACTION_WINDOW_DAYS = 14;
 
 function briefSystemPrompt({ statesTracked, actionWindowDays }) {
-  return `You write the Iowa Soybean Association's twice-daily policy brief. Your reader is ISA's Chief Officer for Demand & Policy. He reads this twice a day and acts on it, so lead with what changed and what he has to do.
+  return `You write the ${V.org}'s twice-daily policy brief. Your reader is ${V.short}'s ${V.reader}. He reads this twice a day and acts on it, so lead with what changed and what he has to do.
 
 You are given a JSON list of pre-screened government ACTIONS (not documents — see eventFilings). Each carries:
 - **title, url, source, date, jurisdiction, docType** — identity. States tracked: ${statesTracked}.
-- **priority** — the relevance grade from triage. "must_read" means ISA would act, comment, or brief leadership; then "worth_knowing"; then "background".
+- **priority** — the relevance grade from triage. "must_read" means ${V.short} would act, comment, or brief leadership; then "worth_knowing"; then "background".
 - **packet** — a STRUCTURED EXTRACTION of the action taken from its own text and checked in code: every quote in **packet.evidence** was verified as a verbatim substring of the source. This is the strongest evidence available, and when present it REPLACES document.
 - **document** — the action's OWN TEXT (an official abstract or article excerpt). This is sourced fact.
 - **oneLine** — one sentence a cheap model wrote ABOUT the title. This is someone else's summary, NOT source text.
@@ -93,13 +97,13 @@ You are given a JSON list of pre-screened government ACTIONS (not documents — 
 
 Produce EXACTLY this markdown structure:
 
-## ISA Policy Brief — {date} ({AM|PM} edition)
+## ${V.short} Policy Brief — {date} ({AM|PM} edition)
 
 ### 🔴 What changed
-3–5 developments, most consequential first. For each, 2–3 sentences: the ACTION (who did what, under what authority), then what it changes for Iowa soybeans, then the number or date that makes it concrete. End the entry with [Title](url) · source · date.
+3–5 developments, most consequential first. For each, 2–3 sentences: the ACTION (who did what, under what authority), then what it changes for ${V.state} soybeans, then the number or date that makes it concrete. End the entry with [Title](url) · source · date.
 
 ### ⚡ Needs attention
-ONLY items where ISA has something to DO within ${actionWindowDays} days — file a comment, brief leadership, contact a member, respond by a date. One line each, naming the action and the date. Omit this section if there are none.
+ONLY items where ${V.short} has something to DO within ${actionWindowDays} days — file a comment, brief leadership, contact a member, respond by a date. One line each, naming the action and the date. Omit this section if there are none.
 
 ### 🌱 Could matter later
 One line each. Early-stage, out-of-state or second-order items that are not decisions yet but are on a path to becoming one. Say WHAT WOULD MAKE IT MATTER. Omit this section if there are none.
@@ -181,7 +185,7 @@ function evidenceRank(item, packet = null) {
  * is appended here either way, so its numbers stay exact regardless of which path produced the body.
  */
 export async function generateBrief({ relevantItems, watchlist, edition, env, stats, runId = null, missingLayers = [], missingSeriesPrefixes = [], costCeilingUsd = null, client = null }) {
-  const timezone = watchlist.briefEditions?.timezone ?? "America/Chicago";
+  const timezone = watchlist.briefEditions?.timezone ?? V.tz;
   const dateLabel = new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(new Date());
 
   let body = null;
@@ -383,7 +387,7 @@ async function generateProseBody({ relevantItems, watchlist, edition, env, dateL
     // Not reachable from the scheduled run — `runFullPipeline` returns before calling this when
     // nothing is relevant. Kept because this function is exported: an empty list would otherwise
     // bill for a model call that can only produce a stub.
-    body = `## ISA Policy Brief — ${dateLabel} (${edition.toUpperCase()} edition)\n\nNo new items relevant to the watchlist were found in this scan. Quiet day on the policy front. 🌱\n`;
+    body = `## ${V.short} Policy Brief — ${dateLabel} (${edition.toUpperCase()} edition)\n\nNo new items relevant to the watchlist were found in this scan. Quiet day on the policy front. 🌱\n`;
   } else {
     const response = await client.messages.create({
       model,
@@ -391,7 +395,7 @@ async function generateProseBody({ relevantItems, watchlist, edition, env, dateL
       // Adaptive thinking is ON BY DEFAULT on Sonnet 5 and counts against max_tokens. This is a
       // structured write-up over pre-judged items, not a reasoning task, and the 8k ceiling is
       // sized for prose — leaving thinking on would spend that budget before the brief is written.
-      thinking: { type: "disabled" },
+      ...thinkingOffFields(model),
       system: briefSystemPrompt({ statesTracked, actionWindowDays: ACTION_WINDOW_DAYS }),
       messages: [
         {
@@ -400,7 +404,7 @@ async function generateProseBody({ relevantItems, watchlist, edition, env, dateL
         },
       ],
     });
-    store.recordUsage(model, "brief", response.usage.input_tokens, response.usage.output_tokens);
+    store.recordUsage(model, "brief", response.usage.input_tokens, response.usage.output_tokens, response.usage, response.stop_reason);
     body = response.content.find((b) => b.type === "text")?.text?.trim() ?? "";
   }
 

@@ -13,7 +13,7 @@ import { triageItems } from "./triage.js";
 import { generateBrief } from "./brief.js";
 import { saveBrief, postToTeams, sendEmail, sendAlertEmail, sendMemoEmail } from "./deliver.js";
 import { detectChanges } from "./alerts.js";
-import { adapters, classOf, sourceIdsForClass } from "./adapters/index.js";
+import { adapters, classOf, sourceIdsForClass, SERIES_PREFIXES } from "./adapters/index.js";
 import { syncRegistryFromSeed } from "./registry.js";
 import { EDUCATION_SYSTEM_PROMPT, seedCurriculum } from "./curriculum.js";
 import { signalsText, computeSignals, SIGNAL_CHART } from "./signals.js";
@@ -35,6 +35,12 @@ import { PRICES, CACHE_WRITE_MULTIPLIER, CACHE_READ_MULTIPLIER } from "./pricing
 import { challengeTheses, applyChallenges, renderWeakness } from "./challenger.js";
 import { rankNewsItems } from "./newsrank.js";
 import { eventKeyFor, groupByEvent, pickLead } from "./eventkey.js";
+import { thinkingOff, wasTruncated } from "./modelcfg.js";
+import * as panels from "./panels.js";
+import * as budget from "./budget.js";
+import { voice } from "./pack.js";
+// State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
+const V = voice();
 
 // How many market adapters to refresh at once — independent hosts, so the phase is the slowest
 // adapter, not the sum. (Open-Meteo's OWN per-region calls stay serial; only adapters overlap.)
@@ -137,6 +143,40 @@ export function saveWatchlist(watchlist) {
   }
 }
 
+/**
+ * Add source entries the shipped watchlist has and the live (data-volume) copy lacks. ADDITIVE ONLY:
+ * an existing entry is never touched, so a source Matt turned off stays off.
+ *
+ * WHY. seedDataDir() copies watchlist.json to /data only when it is absent, and collect.js skips any
+ * adapter with no entry — so every item source shipped after an install was silently never collected,
+ * while the Sources page showed it as on (Phase 0 audit, finding 3). Called on server start.
+ * @returns {string[]} the source ids added (empty when nothing changed or there is no separate live copy)
+ */
+export function migrateWatchlistSources() {
+  const live = path.join(store.DATA_DIR, "watchlist.json");
+  const shipped = path.join(store.PROJECT_ROOT, "watchlist.json");
+  if (live === shipped || !fs.existsSync(live) || !fs.existsSync(shipped)) return [];
+  const read = (p) => JSON.parse(fs.readFileSync(p, "utf8").replace(/^\uFEFF/, ""));
+  let liveW;
+  let shippedW;
+  try {
+    liveW = read(live);
+    shippedW = read(shipped);
+  } catch {
+    return []; // a broken live file is reported by loadWatchlist; never "fix" it by rewriting
+  }
+  liveW.sources ??= {};
+  const added = [];
+  for (const [id, cfg] of Object.entries(shippedW.sources ?? {})) {
+    if (!(id in liveW.sources)) {
+      liveW.sources[id] = cfg;
+      added.push(id);
+    }
+  }
+  if (added.length) saveWatchlist(liveW);
+  return added;
+}
+
 export function loadWatchlist() {
   const watchlistPath = watchlistFilePath();
   let text;
@@ -203,6 +243,7 @@ export async function refreshMarketSeries(env = process.env) {
         store.saveSeriesPoints(s.series, s.meta, s.points);
         n++;
       }
+      store.recordSourceAttempt(adapter.id, "series", list.length ? "ok" : "empty", { count: list.length });
       if (list.length) {
         console.log(`📈 ${adapter.label}: refreshed ${list.length} market series`);
         // Record the successful series refresh so the /sources dot can show this adapter as healthy —
@@ -212,6 +253,7 @@ export async function refreshMarketSeries(env = process.env) {
       return n;
     } catch (err) {
       console.log(`⚠️  ${adapter.label} series refresh failed: ${err.message}`);
+      store.recordSourceAttempt(adapter.id, "series", "error", { error: err.message });
       failed.push({ id: adapter.id, label: adapter.label, message: err.message });
       return 0;
     }
@@ -318,6 +360,12 @@ export async function runAlertsCheck(env = process.env, output = null) {
 
 export async function runPipeline({ edition = "am", dryRun = false, source = null, env = process.env, runId = null }) {
   const watchlist = loadWatchlist();
+  // HARD CEILING (budget.js): past 110% of the month's budget no step of this run may call a model.
+  // The free work still runs — collection, enrichment, news/markets storage, market series, alerts —
+  // and runFullPipeline then fails the run closed with the reason, before triage. Official items stay
+  // unseen and watermarks unadvanced, so nothing is lost: the next run inside budget picks them up.
+  const ceiling = dryRun ? { ok: true } : budget.check("brief", { env, watchlist });
+  if (!ceiling.ok) console.log(`⛔ Budget: ${ceiling.reason} — model calls are off for this run.`);
   // Market layers that failed this run — named in the brief, so a missing layer is never silent.
   // Declared out here because it is set inside the `!dryRun` block and read at the very end.
   let failedMarketLayers = [];
@@ -432,7 +480,7 @@ export async function runPipeline({ edition = "am", dryRun = false, source = nul
   // Soybean quality fades lower" (score 3) — 3 of the 8 highest-value items — because focus-area terms
   // are written for policy documents and news says the same things in different words. See newsrank.js.
   const newsVerdicts = new Map();
-  if (!dryRun && sideItems.length) {
+  if (!dryRun && sideItems.length && ceiling.ok) {
     const newsItems = sideItems.filter((it) => classOf(it.sourceId) === "news");
     if (newsItems.length) {
       try {
@@ -469,32 +517,23 @@ export async function runPipeline({ edition = "am", dryRun = false, source = nul
     const refresh = await refreshMarketSeries(env);
     failedMarketLayers = refresh.failed;
     await runAlertsCheck(env, watchlist.output);
-    try {
-      await generateNewsDigest(env);
-    } catch (err) {
-      console.log(`⚠️  News digest skipped: ${err.message}`);
-    }
-    try {
-      await extractMarketIntel(env);
-    } catch (err) {
-      console.log(`⚠️  Market-intel extraction skipped: ${err.message}`);
-    }
-    try {
-      await generateMarketCards(env);
-    } catch (err) {
-      console.log(`⚠️  Market cards skipped: ${err.message}`);
-    }
-    // ⚠️ AM EDITION ONLY, AND THIS IS WHAT PAYS FOR THE EVIDENCE PACKETS BELOW. Measured from
-    // `token_usage`: storylines is the single largest line item in the whole tool — ~10.6k in / 2.9k
-    // out per call on Sonnet 5 ≈ $0.076, and it was running on BOTH daily editions ≈ $4.56/mo. A
-    // 21-day clustering window does not meaningfully change between 06:30 and 16:30, so the PM call
-    // was re-deriving the same threads for the same money. Halving it funds packets outright.
-    // The homepage "Update storylines" button and the `storylines` CLI still run on demand.
-    if (edition !== "pm") {
+    // The model-backed panels: skipped outright past the hard ceiling (they gate themselves too, but
+    // "no model calls were made" must be literally true for this run).
+    if (ceiling.ok) {
       try {
-        await generateStorylines(env);
+        await generateNewsDigest(env);
       } catch (err) {
-        console.log(`⚠️  Storylines skipped: ${err.message}`);
+        console.log(`⚠️  News digest skipped: ${err.message}`);
+      }
+      try {
+        await extractMarketIntel(env);
+      } catch (err) {
+        console.log(`⚠️  Market-intel extraction skipped: ${err.message}`);
+      }
+      try {
+        await generateMarketCards(env);
+      } catch (err) {
+        console.log(`⚠️  Market cards skipped: ${err.message}`);
       }
     }
     // Judge any forecasts whose horizon has elapsed. Pure arithmetic over stored series — no model
@@ -514,7 +553,7 @@ export async function runPipeline({ edition = "am", dryRun = false, source = nul
     }
     // Pre-report consensus in, surprises out. Extraction costs one cheap Haiku call; scoring is free.
     try {
-      await extractExpectations(env);
+      if (ceiling.ok) await extractExpectations(env);
     } catch (err) {
       console.log(`⚠️  Expectation extraction skipped: ${err.message}`);
     }
@@ -568,6 +607,11 @@ export async function runPipeline({ edition = "am", dryRun = false, source = nul
 // Re-exported below so `audit`'s arithmetic is untouched.
 
 export async function runFullPipeline({ watchlist, env, edition, kept, items, skippedSources, fetchedCount, pendingWatermarks = [], runId = null, failedMarketLayers = [] }) {
+  // The daily run's own hard-ceiling gate (see runPipeline): fail closed before the first model call.
+  const gate = budget.check("brief", { env, watchlist });
+  if (!gate.ok) {
+    throw new Error(`Budget hard ceiling — ${gate.reason}. No model calls were made; collection and market data still refreshed, and today's items stay queued for the next run inside budget.`);
+  }
   if (!env.ANTHROPIC_API_KEY) {
     throw new Error("ANTHROPIC_API_KEY is not set in .env — get one at console.anthropic.com (or use --dry-run to test without it)");
   }
@@ -681,6 +725,21 @@ export async function runFullPipeline({ watchlist, env, edition, kept, items, sk
     store.setLastSuccess(sourceId, ts);
   }
 
+  // 3c. STORYLINES — after triage (moved in 1.39.0). They cluster `triage_verdict = 'relevant'` items, and
+  // this used to run in the refresh block BEFORE triage — so every morning's storylines were built from
+  // yesterday's verdicts and missed whatever this run had just found. Runs on quiet days too (it is
+  // above the early return below). AM edition only: measured as the largest single line item when it
+  // ran twice a day, and a 21-day window does not move between 06:30 and 16:30. The homepage button
+  // and the `storylines` CLI still run it on demand.
+  if (edition !== "pm") {
+    store.setRunStage(runId, "storylines");
+    try {
+      await generateStorylines(env);
+    } catch (err) {
+      console.log(`⚠️  Storylines skipped: ${err.message}`);
+    }
+  }
+
   // 4. Sonnet brief — only when there's something to report. On a quiet scan we
   // skip the brief entirely: no file, no clutter in Saved briefs. The run still did
   // its real work above (collect + refresh markets/news/alerts/cards + triage), so
@@ -714,6 +773,9 @@ export async function runFullPipeline({ watchlist, env, edition, kept, items, sk
     stats,
     runId,
     missingLayers,
+    // Series from a market layer that failed THIS run are withheld from the card evidence menu, rather
+    // than offered as current until they age into staleness (this was declared but never wired).
+    missingSeriesPrefixes: failedMarketLayers.flatMap((f) => SERIES_PREFIXES[f.id] ?? [`${f.id}:`]),
     // A per-run dollar ceiling with a hard abort. Configurable in watchlist.json; absent = no
     // ceiling, which is the shipped default so a code-only Update never starts killing runs.
     costCeilingUsd: watchlist.output?.briefCostCeilingUsd ?? null,
@@ -721,7 +783,7 @@ export async function runFullPipeline({ watchlist, env, edition, kept, items, sk
   store.setRunStage(runId, "delivering");
 
   // 5. Deliver.
-  const timezone = watchlist.briefEditions?.timezone ?? "America/Chicago";
+  const timezone = watchlist.briefEditions?.timezone ?? V.tz;
   const filePath = saveBrief(markdown, edition, timezone);
   let deliveredTo = [path.relative(store.DATA_DIR, filePath)];
 
@@ -1109,6 +1171,10 @@ export async function answerQuery(question, env, source = "ui") {
   if (!env.ANTHROPIC_API_KEY) {
     throw new Error("ANTHROPIC_API_KEY is not set in .env — get one at console.anthropic.com");
   }
+  {
+    const b = budget.check("query", { env });
+    if (!b.ok) throw new Error(`Paused by the monthly AI budget: ${b.reason}. Raise it in Logs & Settings → Settings (or MONTHLY_BUDGET_USD).`);
+  }
 
   // 1. Stored items (LRD + News), RANKED by how well they match the question — see
   //    store.searchItemsRanked for what the old path did wrong (in short: it dropped every
@@ -1164,7 +1230,7 @@ export async function answerQuery(question, env, source = "ui") {
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   const model = env.BRIEF_MODEL || "claude-sonnet-5";
   const system =
-    "You are the senior market-and-policy analyst for an Iowa Soybean Association professional whose remit is BOTH policy and demand/markets. This is an INTERNAL analysis tool for staff — give a sharp, direct answer, not a hedged briefing. Draw on the stored monitoring data provided below, which spans three streams: (1) LAWS/RULES/DECISIONS + NEWS items, (2) MARKET DATA (soybean price, crush, stocks, biofuel feedstock share, basis, fund positioning, exports, barge freight, crop condition, weather), and (3) recent BRIEFS, plus tracked items and comment deadlines. The market data carries trend context per series — change vs. prior, year-over-year, the historical range with the latest value's percentile, and a seasonal read (vs. the same month across years). USE that context to explain trends and whether a value is seasonally normal or unusual, not just the latest number. Synthesize across streams — connect policy/trade developments to the market MECHANISM and the numbers, go second-order, and where the data supports it give a directional read: the most likely interpretation, the risk to it, and the report or data that would confirm or kill it. Distinguish FACT from your INTERPRETATION, and be honest about confidence rather than hedging into mush. Each item states what its substance rests on in \"evidenceBasis\": \"packet\" means a structured extraction of the source document is attached in \"packet\"; \"document\" means the source's own text is in \"document\"; \"title_only\" means the substance was NOT retrieved and you must say so rather than inferring it from the title. A \"why\" field is a prior one-line note ABOUT the item — someone else's summary, not source text — so prefer the packet or document when they differ. Inside a packet, every string in \"evidence\" has been mechanically verified as a verbatim quote from the source, so those are safe to quote directly; \"claims\" are labelled fact / projection / assertion_by_party and an assertion_by_party is a named party's position, NOT an established fact; \"unknowns\" and \"notInDocument\" tell you what the source does not support, and you should respect them rather than filling the gap. An item with \"alsoFiledAs\" is ONE action filed in several places, not several corroborating items — never treat repetition as evidence. Cite item titles as markdown links when a URL is available; when you cite a market figure, name the series and its period (e.g. \"U.S. crush 210M bu, Apr 2026\"). Plain, professional English. You also have a WEB SEARCH tool — lean on the stored monitoring data first, but use the web to fill what it doesn't cover: the latest futures/cash prices, breaking news, or a figure or date worth verifying — anything more current than the last pipeline run. Reach for it when it makes the answer materially better or more current, not reflexively. Cite any web source inline as a markdown link so staff can tell web-sourced facts from the internal streams. Don't invent numbers — pull them.";
+    `You are the senior market-and-policy analyst for an ${V.org} professional whose remit is BOTH policy and demand/markets. This is an INTERNAL analysis tool for staff — give a sharp, direct answer, not a hedged briefing. Draw on the stored monitoring data provided below, which spans three streams: (1) LAWS/RULES/DECISIONS + NEWS items, (2) MARKET DATA (soybean price, crush, stocks, biofuel feedstock share, basis, fund positioning, exports, barge freight, crop condition, weather), and (3) recent BRIEFS, plus tracked items and comment deadlines. The market data carries trend context per series — change vs. prior, year-over-year, the historical range with the latest value's percentile, and a seasonal read (vs. the same month across years). USE that context to explain trends and whether a value is seasonally normal or unusual, not just the latest number. Synthesize across streams — connect policy/trade developments to the market MECHANISM and the numbers, go second-order, and where the data supports it give a directional read: the most likely interpretation, the risk to it, and the report or data that would confirm or kill it. Distinguish FACT from your INTERPRETATION, and be honest about confidence rather than hedging into mush. Each item states what its substance rests on in "evidenceBasis": "packet" means a structured extraction of the source document is attached in "packet"; "document" means the source's own text is in "document"; "title_only" means the substance was NOT retrieved and you must say so rather than inferring it from the title. A "why" field is a prior one-line note ABOUT the item — someone else's summary, not source text — so prefer the packet or document when they differ. Inside a packet, every string in "evidence" has been mechanically verified as a verbatim quote from the source, so those are safe to quote directly; "claims" are labelled fact / projection / assertion_by_party and an assertion_by_party is a named party's position, NOT an established fact; "unknowns" and "notInDocument" tell you what the source does not support, and you should respect them rather than filling the gap. An item with "alsoFiledAs" is ONE action filed in several places, not several corroborating items — never treat repetition as evidence. Cite item titles as markdown links when a URL is available; when you cite a market figure, name the series and its period (e.g. "U.S. crush 210M bu, Apr 2026"). Plain, professional English. You also have a WEB SEARCH tool — lean on the stored monitoring data first, but use the web to fill what it doesn't cover: the latest futures/cash prices, breaking news, or a figure or date worth verifying — anything more current than the last pipeline run. Reach for it when it makes the answer materially better or more current, not reflexively. Cite any web source inline as a markdown link so staff can tell web-sourced facts from the internal streams. Don't invent numbers — pull them.`;
   // ⚠️ BLOCK ORDER IS LOAD-BEARING — IT IS WHAT MAKES PROMPT CACHING POSSIBLE (1.29.0).
   //
   // Caching is a PREFIX match, rendered `tools` → `system` → `messages`, and any byte change
@@ -1227,7 +1293,7 @@ export async function answerQuery(question, env, source = "ui") {
       tools: env.WEB_SEARCH === "off" ? undefined : [{ type: "web_search_20260209", name: "web_search", max_uses: 5 }], // WEB_SEARCH=off → stored-data-only
       messages,
     });
-    store.recordUsage(model, "query", response.usage.input_tokens, response.usage.output_tokens, response.usage);
+    store.recordUsage(model, "query", response.usage.input_tokens, response.usage.output_tokens, response.usage, response.stop_reason);
     webSearches += response.content.filter((b) => b.type === "server_tool_use").length;
     if (response.stop_reason !== "pause_turn") break;
     messages.push({ role: "assistant", content: response.content }); // echo blocks back unchanged to resume
@@ -1297,7 +1363,7 @@ export const MEMO_PRESETS = {
     edition: "weekly",
     scopeDays: 7,
     maxTokens: 6000,
-    system: (dateLabel) => `You write The Bean Brief's WEEKLY policy & market memo for Iowa Soybean Association colleagues and board members who did not follow the daily flow. Use ONLY the stored monitoring data provided (laws/rules/decisions + news items, the market timeseries, tracked items, comment deadlines, recent briefs). Structure exactly:
+    system: (dateLabel) => `You write The Bean Brief's WEEKLY policy & market memo for ${V.org} colleagues and board members who did not follow the daily flow. Use ONLY the stored monitoring data provided (laws/rules/decisions + news items, the market timeseries, tracked items, comment deadlines, recent briefs). Structure exactly:
 
 ## The Bean Brief — Weekly Memo (week ending ${dateLabel})
 
@@ -1305,7 +1371,7 @@ export const MEMO_PRESETS = {
 ### 📈 Markets & demand
 What the market data did this week — crush, soybean & soy-oil prices, biofuel feedstock share, basis, fund positioning — with the numbers (name the series + period).
 ### 🏛️ Policy & regulatory
-What changed in laws/rules/decisions and why it matters to Iowa soy.
+What changed in laws/rules/decisions and why it matters to ${V.state} soy.
 ### 🔴 What needs attention next week
 Comment deadlines approaching, votes scheduled, rules expected.
 ### 📋 Everything else worth knowing
@@ -1318,7 +1384,7 @@ Rules: never invent items or numbers; keep every markdown link; cite a market fi
     edition: "monthly",
     scopeDays: 30,
     maxTokens: 6000,
-    system: (dateLabel) => `You write The Bean Brief's MONTHLY policy & market review for Iowa Soybean Association leadership — a higher-altitude "month in review," trends over the month, not a day-by-day list. Use ONLY the stored monitoring data provided. Structure exactly:
+    system: (dateLabel) => `You write The Bean Brief's MONTHLY policy & market review for ${V.org} leadership — a higher-altitude "month in review," trends over the month, not a day-by-day list. Use ONLY the stored monitoring data provided. Structure exactly:
 
 ## The Bean Brief — Monthly Review (as of ${dateLabel})
 
@@ -1343,7 +1409,7 @@ Rules: never invent items or numbers; keep every markdown link; cite a market fi
     // The stable "teach, don't tell" identity (§1) + the daily-brief task structure (§3).
     system: (dateLabel) => `${EDUCATION_SYSTEM_PROMPT}
 
-TASK: Write today's BeanBrief daily market-education brief for Iowa Soybean Association staff who aren't grain-market experts, using ONLY the data context provided. Structure exactly:
+TASK: Write today's BeanBrief daily market-education brief for ${V.org} staff who aren't grain-market experts, using ONLY the data context provided. Structure exactly:
 
 ## BeanBrief — Market Education, ${dateLabel}
 
@@ -1396,7 +1462,7 @@ Length: scannable in ~90 seconds (250–400 words). No preamble, no sign-off. St
     // because the valuable checks are INTER-thesis (two theses resting on one datapoint) and a
     // per-thesis call cannot see them.
     challengeTheses: true,
-    system: (dateLabel) => `You are the senior market-and-policy analyst for the Iowa Soybean Association's demand & policy team — an INTERNAL audience (sharp, no hand-holding, wants to see around the corner). Write a forward-looking ANALYST NOTE grounded in the stored data provided (the market signal board, full-history trend stats, laws/rules/decisions + news, the release calendar, tracked items, recent briefs). You also have a WEB SEARCH tool: when the stored data leaves a gap that matters to the read — a very recent development, a number more current than the last pipeline run, or a fact worth verifying — search for it, and cite any web source inline as a markdown link so it stands apart from the internal streams. Lean on the stored data first; reach for the web only when it sharpens the analysis.
+    system: (dateLabel) => `You are the senior market-and-policy analyst for the ${V.org}'s demand & policy team — an INTERNAL audience (sharp, no hand-holding, wants to see around the corner). Write a forward-looking ANALYST NOTE grounded in the stored data provided (the market signal board, full-history trend stats, laws/rules/decisions + news, the release calendar, tracked items, recent briefs). You also have a WEB SEARCH tool: when the stored data leaves a gap that matters to the read — a very recent development, a number more current than the last pipeline run, or a fact worth verifying — search for it, and cite any web source inline as a markdown link so it stands apart from the internal streams. Lean on the stored data first; reach for the web only when it sharpens the analysis.
 
 Do NOT summarize the period. Do the analysis a headline can't give:
 - Connect across streams — tie a policy/trade development to the market MECHANISM and the numbers (name the series, period, percentile, YoY, seasonal read).
@@ -1432,13 +1498,17 @@ export async function generateMemo(presetId, env) {
   if (!env.ANTHROPIC_API_KEY) {
     throw new Error("ANTHROPIC_API_KEY is not set in .env — get one at console.anthropic.com");
   }
+  {
+    const b = budget.check("memo", { env });
+    if (!b.ok) throw new Error(`Paused by the monthly AI budget: ${b.reason}. Raise it in Logs & Settings → Settings (or MONTHLY_BUDGET_USD).`);
+  }
   const preset = MEMO_PRESETS[presetId];
   if (!preset) {
     throw new Error(`Unknown memo preset "${presetId}" — choose one of: ${Object.keys(MEMO_PRESETS).join(", ")}`);
   }
 
   const watchlist = loadWatchlist();
-  const timezone = watchlist.briefEditions?.timezone ?? "America/Chicago";
+  const timezone = watchlist.briefEditions?.timezone ?? V.tz;
   const dateLabel = new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(new Date());
 
   // Retrieve across all streams, scoped to the preset's window (memo mode).
@@ -1546,7 +1616,7 @@ export async function generateMemo(presetId, env) {
     // Analyst runs at 64k with web search; `.finalMessage()` gives back the identical Message
     // object, so the pause_turn resume loop below is unchanged.
     response = await client.messages.stream(request).finalMessage();
-    store.recordUsage(model, "memo", response.usage.input_tokens, response.usage.output_tokens, response.usage);
+    store.recordUsage(model, "memo", response.usage.input_tokens, response.usage.output_tokens, response.usage, response.stop_reason);
     if (response.stop_reason !== "pause_turn") break;
     request.messages.push({ role: "assistant", content: response.content }); // echo blocks back unchanged to resume
   }
@@ -1598,7 +1668,7 @@ export async function generateMemo(presetId, env) {
         universe,
         env,
         client,
-        recordUsage: (m, kind, i, o, usage) => store.recordUsage(m, kind, i, o, usage),
+        recordUsage: (m, kind, i, o, usage, stop) => store.recordUsage(m, kind, i, o, usage, stop),
       });
       theses = built?.theses?.length ? built.theses : null;
     } catch (err) {
@@ -1622,13 +1692,16 @@ export async function generateMemo(presetId, env) {
         `=== MARKET SERIES HISTORY DEPTH (for history_sufficient) ===\n` +
         store
           .marketSnapshot()
-          .map((s) => `${s.series}: ${s.history?.n ?? "?"} observations, range ${s.history?.min ?? "?"}–${s.history?.max ?? "?"}`)
+          // Snapshot rows carry count / historyYears / firstPeriod / min / max — there is no `history`
+          // field, so this used to print "? observations, range ?–?" for every series and the
+          // Challenger's history_sufficient check judged blind (Phase 0 audit §4.2).
+          .map((s) => `${s.series}: ${s.count ?? "?"} observations over ${s.historyYears ?? "?"} year(s) since ${s.firstPeriod ?? "?"}, range ${s.min?.value ?? "?"}–${s.max?.value ?? "?"}`)
           .join("\n");
       const challenged = await challengeTheses(theses, {
         context,
         env,
         client,
-        recordUsage: (m, kind, i, o, usage) => store.recordUsage(m, kind, i, o, usage),
+        recordUsage: (m, kind, i, o, usage, stop) => store.recordUsage(m, kind, i, o, usage, stop),
       });
       if (challenged) {
         applied = applyChallenges(theses, challenged.challenges);
@@ -1759,9 +1832,19 @@ export async function runWeekly(env) {
  * kv_state (regenerated on demand). @returns {{ markdown, date, count } | null}
  */
 export async function generateNewsDigest(env = process.env) {
+  return panels.tracked("news_digest", () => generateNewsDigestInner(env));
+}
+async function generateNewsDigestInner(env) {
   if (!env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not set in .env — get one at console.anthropic.com");
+  if (!budget.allow("news_digest")) {
+    panels.recordAttempt("news_digest", "skipped", { detail: "monthly budget for this feature is spent" });
+    return null;
+  }
   const items = store.listItems({ days: 2, sourceIds: sourceIdsForClass("news"), limit: 70 });
-  if (!items.length) return null;
+  if (!items.length) {
+    panels.recordAttempt("news_digest", "empty", { detail: "no news items in the last 2 days" });
+    return null;
+  }
 
   // Go beyond headlines: use the stored body (email bodies) where we have it, and for the rest
   // fetch the linked article's readable text (capped, in parallel) so the digest distills real
@@ -1806,15 +1889,25 @@ export async function generateNewsDigest(env = process.env) {
   const model = env.TRIAGE_MODEL || "claude-haiku-4-5";
   const resp = await client.messages.create({
     model,
-    max_tokens: 1600,
+    max_tokens: 2400,
     system:
-      "You distill the last couple of days of ag news for the Iowa Soybean Association team. Each item below gives a headline and — where available — the email body or the article's actual text; read the CONTENT, not just the headline. DISTILL, do not relist: group into 2–4 themes, a couple of sentences each on what's actually developing and why it matters to Iowa soybeans (draw on the specifics in the content), and link out to the 1–2 most important sources per theme as markdown links. Skip noise, ads, and duplicates. Plain, tight, no preamble — start at the first theme heading.",
+      `You distill the last couple of days of ag news for the ${V.org} team. Each item below gives a headline and — where available — the email body or the article's actual text; read the CONTENT, not just the headline. DISTILL, do not relist: group into 2–4 themes, a couple of sentences each on what's actually developing and why it matters to ${V.state} soybeans (draw on the specifics in the content), and link out to the 1–2 most important sources per theme as markdown links. Skip noise, ads, and duplicates. Plain, tight, no preamble — start at the first theme heading.`,
     messages: [{ role: "user", content: `Recent ag news (headline + content where available):\n\n${enriched.join("\n\n")}` }],
   });
-  store.recordUsage(model, "news_digest", resp.usage.input_tokens, resp.usage.output_tokens);
+  store.recordUsage(model, "news_digest", resp.usage.input_tokens, resp.usage.output_tokens, resp.usage, resp.stop_reason);
   const markdown = resp.content.find((b) => b.type === "text")?.text?.trim() ?? "";
-  const date = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date());
+  // A truncated digest used to be stored as if complete. Keep the previous one instead and say why.
+  if (wasTruncated(resp)) {
+    panels.recordAttempt("news_digest", "truncated", { detail: `${resp.usage.output_tokens} output tokens` });
+    return null;
+  }
+  if (!markdown) {
+    panels.recordAttempt("news_digest", "no_output");
+    return null;
+  }
+  const date = new Intl.DateTimeFormat("en-CA", { timeZone: V.tz }).format(new Date());
   store.setState("news_digest", JSON.stringify({ date, markdown, createdAt: new Date().toISOString(), count: items.length, withContent }));
+  panels.recordAttempt("news_digest", "ok", { detail: `${items.length} items` });
   return { markdown, date, count: items.length, withContent };
 }
 
@@ -1838,10 +1931,20 @@ export function getCachedNewsDigest() {
  * Cheap Haiku call; cached/regenerated on demand alongside the news digest. @returns {{markdown,date,count}|null}
  */
 export async function extractMarketIntel(env = process.env) {
+  return panels.tracked("market_intel", () => extractMarketIntelInner(env));
+}
+async function extractMarketIntelInner(env) {
   if (!env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not set in .env — get one at console.anthropic.com");
+  if (!budget.allow("market_intel")) {
+    panels.recordAttempt("market_intel", "skipped", { detail: "monthly budget for this feature is spent" });
+    return null;
+  }
   const items = store.listItems({ days: 3, sourceIds: sourceIdsForClass("news"), limit: 80 });
   const withBody = items.filter((it) => emailBodyToText(it.body).length > 80);
-  if (!withBody.length) return null;
+  if (!withBody.length) {
+    panels.recordAttempt("market_intel", "empty", { detail: "no newsletter bodies in the last 3 days" });
+    return null;
+  }
 
   const lines = withBody.map((it, i) => {
     const when = (it.published_at || it.first_seen_at || "").slice(0, 10);
@@ -1853,15 +1956,24 @@ export async function extractMarketIntel(env = process.env) {
   const model = env.TRIAGE_MODEL || "claude-haiku-4-5";
   const resp = await client.messages.create({
     model,
-    max_tokens: 1500,
+    max_tokens: 2400,
     system:
       "You are a grain-market analyst mining the last few days of ag newsletters and press for MARKET INTELLIGENCE that bears on soybean (and corn) price — the concrete signals a trading desk cares about. From the bodies below, extract only substantive, decision-relevant facts and group them under these headings (omit a heading if it has nothing): **Price & basis**, **Demand & crush**, **Exports & trade (China)**, **Weather & crop**, **Policy & regulatory (biofuels/45Z/RFS/tariffs)**, **Other**. One tight bullet per fact, each ending with a source+date tag in parentheses. Prefer numbers, cash bids, spreads, margins, sales figures, dates. Skip opinion, ads, boilerplate, and anything already obvious. If there's little of substance, return only the headings that apply with 1–2 bullets. No preamble — start at the first heading.",
     messages: [{ role: "user", content: `News bodies (headline — date (url) + text):\n\n${lines.join("\n\n")}` }],
   });
-  store.recordUsage(model, "market_intel", resp.usage.input_tokens, resp.usage.output_tokens);
+  store.recordUsage(model, "market_intel", resp.usage.input_tokens, resp.usage.output_tokens, resp.usage, resp.stop_reason);
   const markdown = resp.content.find((b) => b.type === "text")?.text?.trim() ?? "";
-  const date = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date());
+  if (wasTruncated(resp)) {
+    panels.recordAttempt("market_intel", "truncated", { detail: `${resp.usage.output_tokens} output tokens` });
+    return null;
+  }
+  if (!markdown) {
+    panels.recordAttempt("market_intel", "no_output");
+    return null;
+  }
+  const date = new Intl.DateTimeFormat("en-CA", { timeZone: V.tz }).format(new Date());
   store.setState("market_intel", JSON.stringify({ date, markdown, createdAt: new Date().toISOString(), count: withBody.length }));
+  panels.recordAttempt("market_intel", "ok", { detail: `${withBody.length} bodies` });
   return { markdown, date, count: withBody.length };
 }
 
@@ -1907,7 +2019,13 @@ export function marketIntelText() {
 
 /** Age in days of a cached kv_state panel, for the UI's freshness badge. Infinity if never run. */
 export function cachedAgeDays(kind) {
-  const get = { news_digest: getCachedNewsDigest, market_intel: getCachedMarketIntel, market_cards: getCachedMarketCards }[kind];
+  const get = {
+    news_digest: getCachedNewsDigest,
+    market_intel: getCachedMarketIntel,
+    market_cards: getCachedMarketCards,
+    // Storylines had no age badge at all — the panel said "updated 9/1" in muted text and nothing more.
+    storylines: () => ({ createdAt: getStorylinesMeta()?.generatedAt }),
+  }[kind];
   return get ? ageDays(get()?.createdAt) : Infinity;
 }
 
@@ -1921,15 +2039,25 @@ export const STALE_PANEL_DAYS = CACHED_TEXT_MAX_AGE_DAYS;
  * Cached in kv_state. @returns {{ markdown, date, triggers } | null}
  */
 export async function generateMarketCards(env = process.env) {
+  return panels.tracked("market_cards", () => generateMarketCardsInner(env));
+}
+async function generateMarketCardsInner(env) {
   if (!env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not set in .env — get one at console.anthropic.com");
+  if (!budget.allow("cards")) {
+    panels.recordAttempt("market_cards", "skipped", { detail: "monthly budget for this feature is spent" });
+    return null;
+  }
   const now = new Date();
   const fired = evaluateTriggers(now);
   const cal = upcomingReports(7, now);
-  if (!fired.length && !cal.length) return null;
+  if (!fired.length && !cal.length) {
+    panels.recordAttempt("market_cards", "empty", { detail: "no active trigger and no report within 7 days" });
+    return null;
+  }
 
   const marketBlock = formatMarketSnapshot(store.marketSnapshot());
   const system =
-    `You write BeanBrief's internal SIGNAL cards for the Iowa Soybean Association demand & policy team. Turn the ACTIVE triggers below into 1–3 short signal cards; the headline card is the one with the lowest priority number (or the nearest high-impact report). Each card: what fired, what it means for soybean supply/demand/price, and the analytical read — including the likely direction and the risk to it. For a card resting on a seasonal/statistical pattern, state the sample and the caveat (e.g. "in X of the last Y years… not every year"). This is an internal analyst tool — a clear directional read is welcome; flag it as interpretation, not certainty.\n\nFormat: markdown. Begin each card with "### " and a short bold-worthy title, then 2–4 sentences grounded in the provided data (never invent a figure). No preamble, no footer.`;
+    `You write BeanBrief's internal SIGNAL cards for the ${V.org} demand & policy team. Turn the ACTIVE triggers below into 1–3 short signal cards; the headline card is the one with the lowest priority number (or the nearest high-impact report). Each card: what fired, what it means for soybean supply/demand/price, and the analytical read — including the likely direction and the risk to it. For a card resting on a seasonal/statistical pattern, state the sample and the caveat (e.g. "in X of the last Y years… not every year"). This is an internal analyst tool — a clear directional read is welcome; flag it as interpretation, not certainty.\n\nFormat: markdown. Begin each card with "### " and a short bold-worthy title, then 2–4 sentences grounded in the provided data (never invent a figure). No preamble, no footer.`;
   const user =
     `Today: ${now.toISOString().slice(0, 10)}.\n\n` +
     `ACTIVE TRIGGERS (ranked; lowest priority number = headline):\n${triggersText(now) || "(none)"}\n\n` +
@@ -1938,20 +2066,33 @@ export async function generateMarketCards(env = process.env) {
 
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   const model = env.BRIEF_MODEL || "claude-sonnet-5";
-  // max_tokens headroom for Sonnet 5's default adaptive thinking (counts against the budget) + the cards.
-  const synth = async (sys) => {
-    const resp = await client.messages.create({ model, max_tokens: 2500, system: sys, messages: [{ role: "user", content: user }] });
-    store.recordUsage(model, "cards", resp.usage.input_tokens, resp.usage.output_tokens);
-    return resp.content.find((b) => b.type === "text")?.text?.trim() ?? "";
-  };
+  // ⚠️ THINKING IS NOW EXPLICIT (1.39.0). This call used to omit `thinking`, which on Sonnet 5 means
+  // adaptive thinking ON — and that thinking counted against a 2,500-token cap, so a hard trigger day could
+  // spend the whole budget thinking and return EMPTY text, which then read as "no cards" with no record.
+  // Thinking stays on (a directional read is reasoning), at medium effort, with room to finish, and a
+  // truncation is now recorded instead of passing as an empty answer.
+  const resp = await client.messages.create({
+    model,
+    max_tokens: 8000,
+    thinking: { type: "adaptive" },
+    output_config: { effort: "medium" },
+    system,
+    messages: [{ role: "user", content: user }],
+  });
+  store.recordUsage(model, "cards", resp.usage.input_tokens, resp.usage.output_tokens, resp.usage, resp.stop_reason);
+  const markdown = resp.content.find((b) => b.type === "text")?.text?.trim() ?? "";
+  if (wasTruncated(resp)) {
+    panels.recordAttempt("market_cards", "truncated", { detail: `${resp.usage.output_tokens} output tokens` });
+    return null;
+  }
+  if (!markdown) {
+    panels.recordAttempt("market_cards", "no_output");
+    return null;
+  }
 
-  // Internal signal cards — no compliance filter (this is a staff analysis tool; compliance.js is
-  // decoupled for the future farmer tool). One synthesis call; the trigger read speaks for itself.
-  const markdown = await synth(system);
-  if (!markdown) return null;
-
-  const date = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(now);
+  const date = new Intl.DateTimeFormat("en-CA", { timeZone: V.tz }).format(now);
   store.setState("market_cards", JSON.stringify({ date, markdown, createdAt: new Date().toISOString(), triggers: fired.map((f) => f.id) }));
+  panels.recordAttempt("market_cards", "ok", { detail: `${fired.length} trigger(s)` });
   return { markdown, date, triggers: fired.map((f) => f.id) };
 }
 
@@ -1972,26 +2113,43 @@ export function getCachedMarketCards() {
  * key and CONTINUED by name across runs (existing names fed in), so a storyline accumulates memory
  * rather than resetting. Stored in the storylines table; a homepage panel reads it. @returns {{count}|null}
  */
+// Output bounds (1.39.0). The 1.30.0 schema made one thread ≈720 output tokens, and the prompt asked for
+// 3–7 threads PLUS any prior thread that moved, out of 10 prior threads fed in — which crossed the old
+// 4,500-token cap at 6–7 threads. A cut-off JSON body failed to parse, the run returned null without
+// pruning or writing meta, the same frozen threads went back into the next prompt, and it failed again
+// the next morning (docs/AUDIT-2026-10-04.md §3). Bounded now on every axis, with room to spare.
+export const STORYLINE_MAX_THREADS = 6;
+export const STORYLINE_PRIOR_THREADS = 8;
+export const STORYLINE_MAX_NEW_EVENTS = 3;
+export const STORYLINE_MAX_TOKENS = 9000;
+
 export async function generateStorylines(env = process.env) {
+  return panels.tracked("storylines", () => generateStorylinesInner(env));
+}
+
+async function generateStorylinesInner(env) {
   if (!env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not set in .env — get one at console.anthropic.com");
+  // Prune FIRST, on every attempt. It used to run only after a successful generation, so a failing run
+  // kept threads alive indefinitely — and kept feeding them back in as "previous state".
+  const pruned = store.pruneStorylines(30);
+  if (!budget.allow("storylines")) {
+    panels.recordAttempt("storylines", "skipped", { detail: "monthly budget for this feature is spent" });
+    return null;
+  }
   // Recent relevant items across LRD (triaged relevant) + news. News is never triaged, so pull by class.
   const official = store.listItems({ verdict: "relevant", days: 21, sourceIds: sourceIdsForClass("official"), limit: 60 });
   const news = store.listItems({ days: 21, sourceIds: sourceIdsForClass("news"), limit: 40 });
   const items = [...official, ...news];
-  if (items.length < 3) return null; // too little to cluster into threads
+  if (items.length < 3) {
+    panels.recordAttempt("storylines", "empty", { detail: `${items.length} item(s) in the 21-day window; need 3` });
+    return null;
+  }
   const lines = items.map((it, i) =>
     `[${i + 1}] ${(it.first_seen_at || "").slice(0, 10)} · ${it.title}${it.one_line ? ` — ${it.one_line}` : ""}${it.url ? ` (${it.url})` : ""}`
   );
-  // ⚠️ THE PRIOR STATE IS THE FIX (1.30.0). This used to be `listStorylines(20).map(s => s.name)` — a
-  // bare list of NAMES. The model was told to "continue existing threads" while being given no idea
-  // what any of them previously said, so it could only re-summarize the current 21-day window from
-  // scratch. That is why the panel restated whole threads instead of showing what moved: a delta was
-  // literally not computable from the inputs.
-  //
-  // Now each thread arrives with its previous summary, open questions and expected next event, so
-  // "what is new" is a comparison the model can actually make. ~700 chars x 10 threads ≈ 1,750 input
-  // tokens, which is the cheapest part of this call.
-  const priorThreads = store.listStorylines(10);
+  // Each prior thread arrives with its previous summary, open questions and expected next event, so
+  // "what is new" is a comparison the model can actually make (1.30.0).
+  const priorThreads = store.listStorylines(STORYLINE_PRIOR_THREADS);
   const priorBlock = priorThreads.length
     ? priorThreads
         .map((s) => {
@@ -2009,44 +2167,50 @@ export async function generateStorylines(env = process.env) {
     : "(no threads yet — everything you produce is new)";
 
   const system =
-    `You maintain the "storylines" for the Iowa Soybean Association's policy & market monitor — the handful of ongoing THREADS the news is really about (e.g. "45Z Clean Fuel Production Credit", "EU Deforestation Regulation (EUDR)", "Summit Carbon CO2 Pipeline", "Renewable diesel & soybean-oil demand", "China soybean trade"). Cluster the monitoring items below into 3–7 active storylines.\n\n` +
-    `YOUR JOB IS THE TRANSITION, NOT A RE-SUMMARY. For each thread you are given its PREVIOUS state — the summary it last carried, what was still open, and what event it was waiting for. Write what MOVED since then: "whatIsNew" must contain only what a reader who already knew that previous state would not know, and must be an empty string when nothing moved. Say "unchanged" in stateChange honestly rather than manufacturing movement — a thread that genuinely did not move is useful information.\n\n` +
-    `CONTINUE existing threads by their EXACT name and key where items fit one — do not rename or fork a thread that already exists. Only include storylines with genuine recent activity in these items, PLUS any existing thread whose state changed; ignore one-off noise that belongs to no thread.\n\n` +
-    `Timeline most-recent-first, max 5 NEW entries — the thread's older dated events are already stored and will be merged, so do not repeat entries already shown to you under "known timeline". Dates come from the item dates. Keys are stable kebab slugs. Use an empty string for a timeline url when the item has none.`;
+    `You maintain the "storylines" for the ${V.org}'s policy & market monitor — the handful of ongoing THREADS the news is really about (e.g. "45Z Clean Fuel Production Credit", "EU Deforestation Regulation (EUDR)", "Summit Carbon CO2 Pipeline", "Renewable diesel & soybean-oil demand", "China soybean trade"). Cluster the monitoring items below into AT MOST ${STORYLINE_MAX_THREADS} active storylines — the most material ones; fewer is fine.\n\n` +
+    `YOUR JOB IS THE TRANSITION, NOT A RE-SUMMARY. For each thread you are given its PREVIOUS state — the summary it last carried, what was still open, and what event it was waiting for. Write what MOVED since then: "whatIsNew" must contain only what a reader who already knew that previous state would not know, and must be an empty string when nothing moved. Say "unchanged" in stateChange honestly rather than manufacturing movement.\n\n` +
+    `CONTINUE existing threads by their EXACT name and key where items fit one — do not rename or fork a thread that already exists. Include a thread only if it has genuine recent activity in these items or its state changed; ignore one-off noise. A prior thread you leave out is kept as-is — omitting it is fine.\n\n` +
+    `Be compact: whatChanged ≤ 3 sentences, whatIsNew ≤ 2 sentences, at most 3 openQuestions. Timeline: at most ${STORYLINE_MAX_NEW_EVENTS} NEW entries, most-recent-first — the thread's older dated events are already stored and merged, so never repeat one shown under "known timeline". Dates come from the item dates. Keys are stable kebab slugs. Use an empty string for a timeline url when the item has none.`;
   const user =
     `EXISTING THREADS AND THEIR PREVIOUS STATE (continue these by exact name/key; compare against these to find the delta):\n${priorBlock}\n\n` +
     `MONITORING ITEMS (last 21 days):\n${lines.join("\n")}`;
 
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   const model = env.BRIEF_MODEL || "claude-sonnet-5";
-  // STRUCTURED OUTPUTS replace what used to be "ask for a JSON array, then slice between the first
-  // '[' and last ']' inside a try/catch". That parse failed silently — a stray sentence or a response
-  // truncated mid-object produced `arr = []` and the run logged "model returned no parseable threads"
-  // with no way to tell a genuinely quiet news week from a formatting accident. Schema-constrained
-  // decoding removes the failure mode entirely.
-  //
-  // Thinking stays disabled: this is clustering, not reasoning, and on Sonnet 5 adaptive thinking is
-  // on by default and counts against max_tokens — left on, it ate the budget and returned empty text.
-  const resp = await client.messages.create({
-    model,
-    max_tokens: 4500,
-    thinking: { type: "disabled" },
-    output_config: { format: { type: "json_schema", schema: STORYLINE_SCHEMA } },
-    system,
-    messages: [{ role: "user", content: user }],
-  });
-  store.recordUsage(model, "storylines", resp.usage.input_tokens, resp.usage.output_tokens);
-  const text = resp.content.filter((b) => b.type === "text").map((b) => b.text).join("");
-  let arr = [];
-  try {
-    arr = JSON.parse(text)?.storylines ?? [];
-  } catch {
-    arr = [];
-  }
-  if (!Array.isArray(arr) || !arr.length) {
-    console.log("⚠️  Storylines: no threads returned (a genuinely quiet window, not a parse failure — the schema guarantees shape)");
+  // Structured outputs guarantee the SHAPE only when the model finishes (stop_reason "end_turn"). A
+  // max_tokens stop cuts the JSON mid-object — so stop_reason is checked before anything is parsed.
+  // Thinking is off (clustering, not reasoning) via thinkingOff(), which picks the right off-switch for
+  // the configured model — `{type:"disabled"}` is a 400 on Sonnet 5.5.
+  const resp = await client.messages.create(
+    thinkingOff({
+      model,
+      max_tokens: STORYLINE_MAX_TOKENS,
+      output_config: { format: { type: "json_schema", schema: STORYLINE_SCHEMA } },
+      system,
+      messages: [{ role: "user", content: user }],
+    })
+  );
+  store.recordUsage(model, "storylines", resp.usage.input_tokens, resp.usage.output_tokens, resp.usage, resp.stop_reason);
+  if (wasTruncated(resp)) {
+    console.log(`⚠️  Storylines: the answer was CUT OFF at max_tokens (${resp.usage.output_tokens} tokens) — nothing saved; previous threads kept.`);
+    panels.recordAttempt("storylines", "truncated", { detail: `${resp.usage.output_tokens}/${STORYLINE_MAX_TOKENS} output tokens` });
     return null;
   }
+  const text = resp.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+  let arr;
+  try {
+    arr = JSON.parse(text)?.storylines;
+  } catch (err) {
+    console.log(`⚠️  Storylines: response did not parse (${err.message}) — nothing saved.`);
+    panels.recordAttempt("storylines", "no_output", { error: `unparseable response: ${err.message}` });
+    return null;
+  }
+  if (!Array.isArray(arr) || !arr.length) {
+    console.log("⚠️  Storylines: the model returned zero threads — nothing saved.");
+    panels.recordAttempt("storylines", "no_output", { detail: "zero threads returned" });
+    return null;
+  }
+  arr = arr.slice(0, STORYLINE_MAX_THREADS); // belt and braces: the prompt bounds it; code enforces it
   const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
   let saved = 0;
   let moved = 0; // threads whose state actually changed — the number worth reporting
@@ -2057,7 +2221,7 @@ export async function generateStorylines(env = process.env) {
     const timeline = Array.isArray(s.timeline)
       ? s.timeline
           .filter((e) => e && e.event)
-          .slice(0, 5)
+          .slice(0, STORYLINE_MAX_NEW_EVENTS)
           .map((e) => ({
             date: String(e.date || "").slice(0, 10),
             event: String(e.event).slice(0, 240),
@@ -2065,10 +2229,8 @@ export async function generateStorylines(env = process.env) {
           }))
       : [];
     const clampStr = (v, n) => (v ? String(v).slice(0, n) : null);
-    // ⚠️ The delta gets its OWN column — it is not folded into `summary`. An earlier pass prefixed the
-    // summary with a markdown "**What's new:**", which the homepage panel renders through `esc()` and
-    // would have displayed as literal asterisks. Storage should not encode one consumer's formatting.
-    // An empty `whatIsNew` is the honest "nothing moved" case and must stay empty.
+    // The delta gets its OWN column (what_is_new) — storage should not encode one consumer's formatting,
+    // and an empty `whatIsNew` is the honest "nothing moved" case.
     store.upsertStoryline({
       key,
       name: String(s.name).slice(0, 120),
@@ -2091,8 +2253,18 @@ export async function generateStorylines(env = process.env) {
     saved++;
     if (s.stateChange && s.stateChange !== "unchanged") moved++;
   }
-  const pruned = store.pruneStorylines(30);
-  store.setState("storylines_meta", JSON.stringify({ generatedAt: new Date().toISOString(), count: saved, moved }));
+  if (!saved) {
+    panels.recordAttempt("storylines", "no_output", { detail: "threads returned without names" });
+    return null;
+  }
+  let prevMeta = {};
+  try {
+    prevMeta = JSON.parse(store.getState("storylines_meta") || "{}") ?? {};
+  } catch {
+    prevMeta = {};
+  }
+  store.setState("storylines_meta", JSON.stringify({ ...prevMeta, generatedAt: new Date().toISOString(), count: saved, moved }));
+  panels.recordAttempt("storylines", "ok", { detail: `${saved} threads, ${moved} moved` });
   console.log(
     `🧵 Storylines: ${saved} active thread${saved === 1 ? "" : "s"} — ${moved} moved, ${saved - moved} unchanged` +
       (pruned ? ` (${pruned} aged off)` : "")
@@ -2192,7 +2364,7 @@ export async function extractForecasts(markdown, { edition, briefPath, env = pro
       },
     ],
   });
-  store.recordUsage(model, "forecast_extract", resp.usage.input_tokens, resp.usage.output_tokens);
+  store.recordUsage(model, "forecast_extract", resp.usage.input_tokens, resp.usage.output_tokens, resp.usage, resp.stop_reason);
 
   const text = resp.content.filter((b) => b.type === "text").map((b) => b.text).join("");
   let parsed;
@@ -2431,6 +2603,12 @@ const EXPECTATION_SCHEMA = {
  */
 export async function extractExpectations(env = process.env) {
   if (!env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not set in .env");
+  // Discretionary (panels allocation) — its own gate, not the essential brief's.
+  const gate = budget.check("expectations", { env });
+  if (!gate.ok) {
+    console.log(`   ⏸ expectation extraction paused — ${gate.reason}`);
+    return { stored: 0, scanned: 0, paused: gate.reason };
+  }
   const items = store.listItems({ days: 10, sourceIds: sourceIdsForClass("news"), limit: 80 });
   const withBody = items.filter((it) => emailBodyToText(it.body).length > 120);
   if (!withBody.length) return { stored: 0, scanned: 0 };
@@ -2454,7 +2632,7 @@ export async function extractExpectations(env = process.env) {
       "If a range is given use estLow/estHigh; if only an average is given, repeat it in all three fields. Return an empty array if there are no genuine pre-report estimates — that is a valid and common answer, and a wrong extraction is far worse than none.",
     messages: [{ role: "user", content: `AVAILABLE MARKET SERIES (exact ids for \`series\`):\n${seriesList}\n\n=== RECENT NEWS BODIES ===\n${lines.join("\n\n")}` }],
   });
-  store.recordUsage(model, "expectations", resp.usage.input_tokens, resp.usage.output_tokens);
+  store.recordUsage(model, "expectations", resp.usage.input_tokens, resp.usage.output_tokens, resp.usage, resp.stop_reason);
 
   let parsed;
   try {
@@ -2601,7 +2779,7 @@ const STORYLINE_SCHEMA = {
           key: { type: "string", description: "Stable kebab-case slug; reuse the existing thread's slug when continuing one." },
           name: { type: "string", description: "Thread name. Match an existing name EXACTLY when continuing that thread." },
           focus: { type: "string", description: "One line: what this thread is about." },
-          whatChanged: { type: "string", description: "2-3 sentences: what developed recently and why it matters to Iowa soybeans." },
+          whatChanged: { type: "string", description: `2-3 sentences: what developed recently and why it matters to ${V.state} soybeans.` },
           // --- the delta fields (1.30.0): what makes this a state TRANSITION rather than a re-summary
           stateChange: {
             type: "string",
@@ -2613,10 +2791,6 @@ const STORYLINE_SCHEMA = {
             type: "string",
             description:
               "ONLY the delta since the previous state shown to you — what a reader who already knew that state would not know. Empty string when nothing changed. Do NOT restate the thread.",
-          },
-          whatIsUnchanged: {
-            type: "string",
-            description: "Which parts of the previous read still hold. Empty string if this is a brand-new thread.",
           },
           openQuestions: {
             type: "array",
@@ -2637,7 +2811,7 @@ const STORYLINE_SCHEMA = {
             type: "string",
             enum: ["decision_changing", "monitor", "context"],
             description:
-              "decision_changing = ISA would act or brief leadership on this; monitor = worth watching; context = background only.",
+              `decision_changing = ${V.short} would act or brief leadership on this; monitor = worth watching; context = background only.`,
           },
           timeline: {
             type: "array",
@@ -2660,7 +2834,6 @@ const STORYLINE_SCHEMA = {
           "whatChanged",
           "stateChange",
           "whatIsNew",
-          "whatIsUnchanged",
           "openQuestions",
           "nextExpectedEvent",
           "materiality",

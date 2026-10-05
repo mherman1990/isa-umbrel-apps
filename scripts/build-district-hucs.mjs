@@ -1,8 +1,8 @@
 // scripts/build-district-hucs.mjs — precompute which HUC8 watersheds each political district
 // overlaps, so the /map hover card can list them (a district typically spans several HUC8s).
 //
-// Reads the vendored boundary GeoJSON (src/assets/geo/{house,senate,congress,huc8}.geojson) and
-// writes src/data/district-hucs.json: a code→name map plus, per layer, district-key → [huc codes].
+// Reads the active state pack's boundary GeoJSON (geo.layers {house,senate,congress,huc8}) and
+// writes its geo.districtHucs file: a code→name map plus, per layer, district-key → [huc codes].
 // Self-contained geometry (bbox prefilter + point-in-polygon + segment-intersection) — no deps,
 // matching the repo's no-build-tooling philosophy. Re-run if the boundaries change:
 //   node scripts/build-district-hucs.mjs
@@ -10,12 +10,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { pack, packPath } from "../src/pack.js";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
-const GEO = path.join(ROOT, "src", "assets", "geo");
-const OUT = path.join(ROOT, "src", "data", "district-hucs.json");
+const OUT = packPath(pack().geo.districtHucs);
 
-const read = (name) => JSON.parse(fs.readFileSync(path.join(GEO, `${name}.geojson`), "utf8"));
+const read = (name) => JSON.parse(fs.readFileSync(packPath(pack().geo.layers[name]), "utf8"));
 
 // --- geometry helpers (lon/lat treated as planar x/y — fine for overlap tests at this scale) ---
 
@@ -112,7 +112,7 @@ function overlapsFor(layerName) {
 }
 
 const doc = {
-  generatedFrom: "src/assets/geo/{house,senate,congress,huc8}.geojson",
+  generatedFrom: `packs/${pack().id}: geo.layers {house,senate,congress,huc8}`,
   note: "Per political district, the HUC8 watersheds it overlaps (a district usually spans several). Codes map to hucNames.",
   hucNames,
   house: overlapsFor("house"),

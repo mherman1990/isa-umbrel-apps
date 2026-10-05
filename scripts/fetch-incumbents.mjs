@@ -1,18 +1,20 @@
 // scripts/fetch-incumbents.mjs — one-off builder for the /map page's incumbent roster.
 //
-// The 2026 candidate seed (src/data/ia-candidates-2026.json) reliably lists who FILED, but not
+// The 2026 candidate seed (the pack's registry.candidates file) reliably lists who FILED, but not
 // who currently HOLDS each seat — so the map can't name incumbents or color a district by the
 // seat-holder's party from it alone. This distills the current Iowa legislature roster from the
 // OpenStates bulk export (keyless) down to monitoring-core fields only — name / party / chamber /
-// district, no contact PII — and writes src/data/ia-incumbents.json (vendored, like the candidates).
+// district, no contact PII — and writes the active state pack's geo.incumbents file (vendored, like the candidates).
 // Re-run after an election seats a new legislature:  node scripts/fetch-incumbents.mjs
 
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { pack, packPath } from "../src/pack.js";
 
-const OUT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "data", "ia-incumbents.json");
-const SRC = "https://data.openstates.org/people/current/ia.csv";
+// Paths and the roster URL come from the active state pack (STATE_PACK, default us-ia).
+const OUT = packPath(pack().geo.incumbents);
+const SRC = pack().geo.openstatesRosterCsv;
+const STATE = pack().identity.stateName;
 
 // Minimal RFC-4180-ish CSV parser (handles quoted fields with commas/quotes; no embedded newlines
 // in the columns we keep).
@@ -67,9 +69,9 @@ async function main() {
   incumbents.sort((a, b) => a.chamber.localeCompare(b.chamber) || Number(a.district) - Number(b.district));
 
   const doc = {
-    source: "OpenStates current people (data.openstates.org), Iowa",
+    source: `OpenStates current people (data.openstates.org), ${STATE}`,
     generatedAt: "2026-07-10",
-    note: "Current Iowa legislature roster for incumbent identification on /map — name/party/chamber/district only; contact PII intentionally omitted.",
+    note: `Current ${STATE} legislature roster for incumbent identification on /map — name/party/chamber/district only; contact PII intentionally omitted.`,
     count: incumbents.length,
     incumbents,
   };

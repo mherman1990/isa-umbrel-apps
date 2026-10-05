@@ -1,3 +1,6 @@
+import { voice } from "./pack.js";
+// State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
+const V = voice();
 // util.js — small shared helpers for adapters (HTTP with timeouts + friendly errors,
 // plus the shared keyword matcher used by both score.js and the legiscan adapter).
 
@@ -17,7 +20,7 @@ async function fetchWithTimeout(url, options = {}) {
     return await fetch(url, {
       ...options,
       signal: controller.signal,
-      headers: { "user-agent": "polibrief/1.0 (policy monitoring; Iowa Soybean Association)", ...options.headers },
+      headers: { "user-agent": `polibrief/1.0 (policy monitoring; ${V.org})`, ...options.headers },
     });
   } catch (err) {
     if (err.name === "AbortError") {

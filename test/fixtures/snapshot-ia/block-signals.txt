@@ -1,0 +1,24 @@
+Overall tilt: MIXED — weighted-factor net +0.01 on a −1..+1 scale (raw scorer headcount, for reference only: 1 bullish / 1 bearish / 9 neutral).
+The tilt is computed by FACTOR, not by counting scorers, because several scorers measure the same variable — notably five reads on U.S. belt moisture stress, which are averaged into one factor rather than voting five times.
+
+FACTORS (most influential first):
+- Fund positioning (weight 0.5): BULLISH, score +1.00
+- Domestic crush demand (weight 0.9): BEARISH, score -0.50 [Crush Utilization=bearish, Oil Share of Crush=neutral]
+- U.S. crop stress (weight 1.0): NEUTRAL, score +0.00 [Crop Vegetation (VCI)=neutral, Root-Zone Soil Moisture=neutral, Iowa Drought=neutral, U.S. Crop Weather=neutral]
+- Balance sheet (weight 1.0): NEUTRAL, score +0.00
+- Export demand (weight 0.9): NEUTRAL, score +0.00
+- Acreage incentive (weight 0.4): NEUTRAL, score +0.00
+- Seasonal tendency (weight 0.3): NEUTRAL, score +0.00
+
+INDIVIDUAL SIGNALS:
+- Crop Vegetation (VCI): NEUTRAL (59/100 VCI) [scored from vegscape:ia:vci] — Iowa satellite VCI 59/100 (2026-09-28) — crop vigor vs. its 2000-present range. ▲0pts wk/wk. Vegetation near the middle of its historical range.
+- Root-Zone Soil Moisture: NEUTRAL (+0.8% trend) [scored from cropcasma:ia:rootzone-sm] — Iowa root-zone soil moisture 0.329 m³/m³ (2026-09-28), +0.8% vs. the last few weeks. Root-zone moisture near normal for the window.
+- Export Sales Pace: NEUTRAL (+10.5% YoY) [scored from agtransport:soy-net-export-sales (NET SALES — not export inspections)] — Weekly soybean net export sales 549,000 MT (2026-09-24), +10.5% vs. a year ago. Sales near last year's pace.
+- Stocks-to-Use: NEUTRAL (9.9% S/U) [scored from wasde:us:soy-stocks-to-use] — The Sep 2026 WASDE puts U.S. soybean ending stocks at 9.9% of total use. A middling balance sheet — neither tight nor burdensome.
+- Fund Positioning: BULLISH (100th pctile) [scored from cftc:soybeans:mm-net] — CBOT managed-money net 87,100 contracts (2026-09-29) — 100th percentile of its range. Funds leaning long.
+- Iowa Drought: NEUTRAL (16% D1+) [scored from drought_monitor:ia:d1] — 16% of Iowa in drought (2026-09-29), ▲0pts wk/wk. Little change.
+- Soy:Corn Ratio: NEUTRAL (2.50:1) [scored from nass:ia:soy-corn-ratio] — Iowa soybeans are 2.50× the corn price (2026-08), 100th percentile of its range. Watched most in late winter/spring, when it steers planting intentions.
+- Seasonal Pattern: NEUTRAL (Oct→Nov +0.2%) [scored from nass:us:price (monthly seasonal averages)] — Historically, prices move +0.2% on average from Oct to Nov. No strong seasonal bias.
+- Crush Utilization: BEARISH (0.0% (-1.5σ)) [scored from nass:us:crush ÷ crush_capacity.json nameplate] — U.S. soybean crush at 0.0% of the 8.58M bu/day installed base in 2026-07, -1.51σ against 4 prior Juls (which averaged 0.0%). For scale, the industry's ~90.0%-of-nameplate working assumption is ~86.3% restated per calendar day (it assumes ~350 operating days), and crush is seasonally lightest in late spring/summer. Plants running softer than normal for the season. Crush VOLUME can still be near a record on a bigger plant base while utilization slips — it is utilization that says whether demand is actually pulling beans. ⚠️ Crush margin is in the top third of its range (100th pctile) while utilization is soft — margins say run hard and plants are not, which points at a physical constraint (new capacity still ramping, downtime, or bean availability) rather than economics.
+- Oil Share of Crush: NEUTRAL (44.8% oil (+0.1pts)) [scored from cbot:zl:front vs. cbot:zm:front (oil value ÷ oil+meal value per bu, workbook yields; direction = the leg that drove the 1-month move)] — Soybean oil is 44.8% of board crush product value (2026-10-06), ▲0.1pts since 2026-09-06, driven by oil (oil value +1.2%/bu vs. meal +0.9%/bu). Crush composition roughly steady over the month. At the 100th percentile of its range, crush economics lean unusually hard on the policy-driven oil leg (RVO/45Z) — that is where the margin's risk sits.
+- U.S. Crop Weather: NEUTRAL (54th precip) [scored from open_meteo:us:precip-pctile / heat-pctile] — U.S. soybean belt: 30-day precipitation at the 54th percentile and heat at the 50th, during planting/maturity. Weather near normal for the window.

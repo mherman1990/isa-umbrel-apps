@@ -1,0 +1,87 @@
+{
+  "id": "us-ia",
+  "version": "2026.1",
+  "extends": "us-national@2026.1",
+  "abstract": false,
+  "description": "Iowa — the original deployment. Every value here reproduces v1.40.0 exactly (proven by test/iowa-snapshot.test.js).",
+  "identity": {
+    "orgName": "Iowa Soybean Association",
+    "orgShort": "ISA",
+    "stateName": "Iowa",
+    "stateAlpha": "IA",
+    "stateFips": "19",
+    "timezone": "America/Chicago",
+    "website": "https://www.iasoybeans.com",
+    "branding": { "logo": "isa-logo-main.png", "logoAlt": "Iowa Soybean Association" }
+  },
+  "prompts": {
+    "reader": "ISA's Chief Officer for Demand & Policy",
+    "operation": "an Iowa corn/soybean operation"
+  },
+  "provenance": {
+    "primaryHosts": { "inherit": true, "add": ["legis.iowa.gov"] },
+    "agencyHosts": { "inherit": true, "add": ["iowaagriculture.gov", "iowadnr.gov"] },
+    "advocacyHosts": { "inherit": true, "add": ["iasoybeans.com"] }
+  },
+  "legislature": {
+    "legiscanHome": "IA",
+    "legiscanStates": ["IA"],
+    "fullTextStates": ["IA"],
+    "openstatesJurisdiction": "Iowa",
+    "sessionNote": "IA session Jan–Apr",
+    "chamberNames": { "upper": "Iowa Senate", "lower": "Iowa House", "legislature": "Iowa Legislature" },
+    "congressionalDelegation": {
+      "hsag": ["Rep. Nunn", "Rep. Feenstra"],
+      "ssaf": ["Sen. Grassley", "Sen. Ernst"],
+      "hsap01": ["Rep. Hinson"],
+      "hswm": ["Rep. Feenstra"],
+      "ssfi": ["Sen. Grassley"],
+      "hsif": ["Rep. Miller-Meeks"]
+    }
+  },
+  "election": {
+    "campaignFinance": {
+      "enabled": true, "seeder": "socrata", "domain": "data.iowa.gov", "flag": "IECDB_INFORMATIONAL_USE",
+      "useRestriction": "Iowa Code § 68B.32A(7): informational use only, never solicitation"
+    }
+  },
+  "adminRules": { "adapter": "iowa_admin_rules", "label": "Iowa Administrative Bulletin" },
+  "geo": {
+    "center": [42.02, -93.55], "zoom": 7, "minZoom": 6,
+    "bbox": [-96.65, 40.37, -90.14, 43.51],
+    "layers": { "counties": "geo/counties.geojson", "congress": "geo/congress.geojson", "senate": "geo/senate.geojson", "house": "geo/house.geojson", "huc8": "geo/huc8.geojson" },
+    "districtHucs": "data/district-hucs.json",
+    "incumbents": "data/ia-incumbents.json",
+    "openstatesRosterCsv": "https://data.openstates.org/people/current/ia.csv"
+  },
+  "registry": { "seed": "registry.json", "candidates": "data/ia-candidates-2026.json" },
+  "markets": {
+    "nass": { "stateAlpha": "IA" },
+    "ams": { "cashReportId": 2850, "feedstuffReportId": 3511, "feedstuffTradeLoc": "Iowa" },
+    "cropRegions": {
+      "belt": [
+        { "key": "il", "fips": "17", "name": "Illinois" },
+        { "key": "mn", "fips": "27", "name": "Minnesota" },
+        { "key": "in", "fips": "18", "name": "Indiana" },
+        { "key": "ne", "fips": "31", "name": "Nebraska" }
+      ]
+    },
+    "barge": {
+      "locations": [
+        { "segment": "Dubuque – Genoa", "label": "Upper Mississippi, NE Iowa (Dubuque – Genoa)" },
+        { "segment": "Keithsburg – Savanna", "label": "Mississippi, Quad Cities reach (Keithsburg – Savanna)" },
+        { "segment": "Winfield – Canton", "label": "Mississippi, SE Iowa reach (Winfield – Canton)" },
+        { "segment": "Cape Girardeau –Grafton", "label": "St. Louis harbor benchmark (Cape Girardeau – Grafton)" },
+        { "segment": "Hardin – Havana", "label": "Lower Illinois River benchmark (Hardin – Havana)" }
+      ]
+    },
+    "weatherRegions": [
+      { "name": "Illinois", "lat": 40.0, "lon": -89.0, "w": 0.30 },
+      { "name": "Central Iowa", "lat": 41.88, "lon": -93.6, "w": 0.22 },
+      { "name": "Minnesota", "lat": 44.5, "lon": -94.5, "w": 0.18 },
+      { "name": "NW Iowa", "lat": 43.0, "lon": -95.6, "w": 0.15 },
+      { "name": "SE Iowa", "lat": 41.0, "lon": -91.5, "w": 0.15 }
+    ],
+    "barchart": { "basisLocations": [{ "name": "Central Iowa", "zip": "50010" }, { "name": "NW Iowa", "zip": "51301" }] }
+  }
+}

@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-polibrief
 category: automation
 name: The Bean Brief
-version: "1.37.5"
+version: "1.41.1"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
@@ -29,10 +29,43 @@ defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
   THE ANALYST NOTE NOW READS THE OIL-vs-MEAL SPLIT OF THE CRUSH. Along with the Oil Share signal card, the
-  Analyst Note (and Ask) now get the oil share's 1-, 3- and 12-month trend, Iowa cash vs. the board, and
-  which product drove the latest move — so the note can say how much of the crush, and of the domestic bid
-  for beans, is riding on biofuel policy. Update only — no new keys, and no extra AI cost beyond a few
-  lines of context.
+  Analyst Note (and Ask) now get the oil share's 1-, 3- and 12-month trend, your state's cash oil share vs.
+  the board, and which product drove the latest move — so the note can say how much of the crush, and of
+  the domestic bid for beans, is riding on biofuel policy. Update only — no new keys, and no extra AI cost
+  beyond a few lines of context.
+  ---
+  PREVIOUS RELEASE (1.41.1) — BARGE FREIGHT NOW FILLS IN. The Member Brief's barge lines looked for "St. Louis" and "Illinois River",
+  but USDA reports barge freight by river segment, so they always came back empty. The brief now follows
+  Iowa's own Mississippi reaches (Dubuque – Genoa, Keithsburg – Savanna, Winfield – Canton) plus the
+  St. Louis harbor and lower Illinois River benchmarks, in $/ton. Update only — no new keys.
+  ---
+  1.41.0 — STATE PACKS — NOTHING CHANGES FOR IOWA. Everything that made the Bean Brief "Iowa" (the organization
+  and state names in every prompt and page, the legislature, map, market reports, crop regions and
+  calendar) now lives in one swappable state pack, so another state association can run the same app
+  without a fork. Every step was checked against a recording of today's Iowa output and had to match it
+  byte for byte, so your briefs, charts and data are unchanged and the database needs no migration. A new
+  Setup page (Logs & Settings → Setup) shows which state the box is configured for and what it still
+  needs. An Illinois pilot pack ships but is not active. Update only — no new keys.
+  ---
+  1.40.0 — NEW: THE ISA MEMBER BRIEF (MON/WED/FRI). A short policy-first, markets-second update for farmer-members,
+  built so it can't say anything the stored record doesn't support: every number is filled in by code,
+  every sentence cites a source, proposed rules can never read as final, and a second AI reviewer can
+  only delete or downgrade. If anything fails a check after one retry, it is NOT sent — the draft is saved
+  and you get an alert. Fund positioning now covers soybeans, meal and oil; barge freight is reported by
+  location (St. Louis, Illinois River) in $/ton. Try "Preview Member Brief" on the home page, add
+  recipients in Settings, and set CME_SETTLEMENTS=1 in .env so the new-crop soy:corn ratio starts building
+  history. Also includes 1.39.0 (below).
+  ---
+  1.39.0 — STORYLINES UPDATE AGAIN, AND EVERY PANEL NOW SAYS WHEN IT FAILED. Storylines had been stuck on Sept 1:
+  each morning the AI's answer ran past its length limit, the result was thrown away, and the panel kept
+  showing the old threads as if they were current. That is fixed, and storylines now run after the
+  morning's relevance pass so they include that day's items. Storylines, the news digest, market intel
+  and signal cards each now show "last attempt failed — showing content from <date>" instead of quietly
+  showing old output. A new Data freshness & spend page (Logs & Settings) shows every source and panel,
+  what is stale, and this month's AI spend against a new monthly budget (default $75, set in Settings).
+  Reports always run on the day's refreshed data: if the morning refresh has not finished, a report runs
+  it first. Sources added in recent releases are now added to your watchlist automatically. Update only —
+  no new keys.
   ---
   PREVIOUS RELEASE (1.38.0) — NEW MARKETS CHART: HOW MUCH OF THE CRUSH IS OIL VS. MEAL. The Markets tab now charts soybean oil's and
   meal's share of the value from a crushed bushel over time (the industry "oil share"), for both the CBOT

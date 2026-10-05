@@ -16,6 +16,9 @@
 
 import fs from "node:fs";
 import * as store from "./store.js";
+import { voice } from "./pack.js";
+// State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
+const V = voice();
 
 const MAX_SERIES = 8; // guardrail: a spec can't request an unbounded number of series
 
@@ -33,7 +36,7 @@ const CAT_LABEL = {
   soy_price: "Soybean price", corn_price: "Corn price", soy_corn_ratio: "Soybean : corn ratio",
   soy_crush: "Soybean crush", biofuel_feedstock: "Biodiesel feedstocks (EIA)",
   soy_stocks: "Soybean stocks", soy_balance: "Ending stocks (WASDE)",
-  soy_balance_stu: "Stocks-to-use (WASDE)", soy_condition: "Crop condition", drought: "Iowa drought",
+  soy_balance_stu: "Stocks-to-use (WASDE)", soy_condition: "Crop condition", drought: `${V.state} drought`,
   weather_us: "U.S. crop weather", weather_sa: "S. America crop weather", soy_exports: "Exports (weekly)",
   barge_freight: "Barge freight", positioning: "Fund positioning (CFTC)", macro_usd: "U.S. dollar index",
   macro_rates: "10-year Treasury", brazil_production: "Brazil production",

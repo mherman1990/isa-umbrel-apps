@@ -12,7 +12,7 @@
   },
   "events": [
     {
-      "id": "ia-filing-state-federal-2026",
+      "id": "ia-filing-state-federal-2026", "state": "IA",
       "category": "election",
       "type": "FILING_DEADLINE",
       "title": "Iowa candidate filing deadline (state & federal offices)",
@@ -22,7 +22,7 @@
       "tags": ["election", "iowa", "candidates", "filing"]
     },
     {
-      "id": "ia-filing-county-2026",
+      "id": "ia-filing-county-2026", "state": "IA",
       "category": "election",
       "type": "FILING_DEADLINE",
       "title": "Iowa candidate filing deadline (county offices)",
@@ -32,7 +32,7 @@
       "tags": ["election", "iowa", "candidates", "filing"]
     },
     {
-      "id": "ia-primary-2026",
+      "id": "ia-primary-2026", "state": "IA",
       "category": "election",
       "type": "ELECTION",
       "title": "Iowa Primary Election",
@@ -48,7 +48,10 @@
       "title": "General Election",
       "date": "2026-11-03",
       "impact": "very_high",
-      "note": "Midterm general election — Governor, Secretary of Agriculture, all 4 Iowa U.S. House seats, Iowa House + half the Iowa Senate. Reshapes the delegation the Bean Brief tracks.",
+      "note": "Midterm general election — every U.S. House seat and a third of the Senate. Reshapes the delegation the Bean Brief tracks.",
+      "stateNotes": {
+        "IA": "Midterm general election — Governor, Secretary of Agriculture, all 4 Iowa U.S. House seats, Iowa House + half the Iowa Senate. Reshapes the delegation the Bean Brief tracks."
+      },
       "tags": ["election", "iowa", "general", "midterm"]
     },
     {
@@ -102,7 +105,7 @@
       "tags": ["appropriations", "shutdown", "deadline", "usda-funding"]
     },
     {
-      "id": "ia-legislature-convenes-2027",
+      "id": "ia-legislature-convenes-2027", "state": "IA",
       "category": "legislative",
       "type": "SESSION",
       "title": "Iowa Legislature convenes (2027 session)",
