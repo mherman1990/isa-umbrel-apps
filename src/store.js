@@ -1365,6 +1365,38 @@ export function priorCardsFor(eventKeys, hours = 36) {
  * Policy cards KEPT (published) in [startISO, endISO), newest first — the Member Brief's policy section.
  * One per event_key: the newest card for a thread wins, so an action updated twice in a window is one item.
  */
+/**
+ * Member Brief candidates: items first seen in the window that triage graded must-read or worth-knowing
+ * (and relevant), one per event — the copy with the most stored text. Newest first.
+ */
+export function memberItemsBetween(startISO, endISO, limit = 60) {
+  const rows = db
+    .prepare(
+      `SELECT uid, source_id, title, url, doc_type, item_type, jurisdiction, published_at, first_seen_at,
+              comment_deadline, one_line, event_key, triage_tier, LENGTH(COALESCE(body,'')) AS body_len
+         FROM seen_items
+        WHERE triage_tier IN ('must_read', 'worth_knowing')
+          AND triage_verdict = 'relevant'
+          AND COALESCE(archived, 0) = 0
+          AND first_seen_at >= ? AND first_seen_at < ?
+        ORDER BY first_seen_at DESC`
+    )
+    .all(startISO, endISO);
+  const byKey = new Map(); // insertion order = newest first
+  for (const r of rows) {
+    const key = r.event_key || r.uid;
+    const prev = byKey.get(key);
+    if (!prev) {
+      byKey.set(key, r);
+      continue;
+    }
+    const tier = r.triage_tier === "must_read" || prev.triage_tier === "must_read" ? "must_read" : "worth_knowing";
+    // Keep whichever copy carries real document text; the event keeps its highest tier either way.
+    byKey.set(key, { ...((r.body_len ?? 0) > (prev.body_len ?? 0) ? r : prev), triage_tier: tier });
+  }
+  return [...byKey.values()].slice(0, limit);
+}
+
 export function keptCardsBetween(startISO, endISO) {
   const rows = db
     .prepare("SELECT * FROM policy_cards WHERE status = 'kept' AND created_at >= ? AND created_at < ? ORDER BY created_at DESC, id DESC")

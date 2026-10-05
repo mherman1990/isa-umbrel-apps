@@ -1,5 +1,39 @@
 # Changelog
 
+## 1.43.0 — Member Brief rebuilt for farmers: policy & news, charts, performance indicators
+
+The 1.40.0 Member Brief led with comment deadlines and listed "Comments due" under What to watch, and its markets section was a line of figures with model sentences repeating them. Farmers want what happened, what it means for their operation, and the market picture at a glance.
+
+### Policy & news
+- **What the daily brief rated must-read or worth-knowing** in the window, federal and state actions **and** news, one entry per event. Staff policy cards come first, then must-read items, then worth-knowing, official before news. At most 8 entries, of which at most 4 are news.
+- **Two or three plain sentences each:**
+  - what happened;
+  - what it means for an Iowa corn and soybean operation;
+  - optionally, the next dated step.
+  
+  Every sentence is cited.
+- **Labels set by code.** A staff card keeps its reviewed certainty band. An uncarded official record is labelled with its publisher and document type (a proposed rule is banded Proposed). A news story is "Reported by <publisher>". A Reported item may not be described as decided (the lint rejects decision language), and the reviewer has no band to lower.
+- **Comment deadlines only inline**, on the item they belong to (⏰ Comments due … — how to comment). The global "Open comment deadlines" list is gone. Comment periods are dropped from What to watch, which keeps the USDA/CFTC report calendar and hearings.
+
+### Markets: a chart plus an indicator table per section
+- **Charts drawn on the Pi** (SVG → PNG via resvg, DejaVu fonts in the image) and embedded in the email as inline images, so no remote fetch is needed:
+  - Fund positioning: managed-money net, soybeans/meal/oil, 52 weeks, with a zero line.
+  - Oil share of crush: 12 months against the 3-year same-week average.
+  - Soybean:corn ratio: Iowa prices received over 5 years, with the new-crop futures ratio marked.
+  - Barge freight: one panel per followed river segment, 12 months against the 3-year same-week average.
+- **Indicator table** under each chart, all computed by code: Latest | Change (w/w or m/m) | Past-year position (percentile) | vs. 3-yr avg (same week) | As of.
+- **Model sentences explain, they don't restate.** At most one figure per market sentence (lint `restates_figures`).
+- A chart that fails to draw is left out; the table still carries the numbers and the brief still goes.
+
+### Wording
+- **Doubled wording rejected.** The lint (`doubled_wording`) catches a token wrapped in words its value already contains ("a net long position of net long 246,558 contracts", "as of the week ending week ending …", "rose by up …"). The prompt tells the model each token is a complete phrase.
+- **Member email footer** is now "ISA Member Brief — Iowa Soybean Association. Education, not advice." The staff "internal monitoring" footer no longer appears in member mail.
+
+### Web view
+- `/brief/<name>` renders tables and chart images; charts are served from `/brief/charts/<file>.png` (name-checked).
+
+Update only — no new keys. Charts are written to `briefings/charts/` next to the saved briefs.
+
 ## 1.42.0 — Analyst Note + Ask: oil/meal crush composition in the crush block
 
 _The Analyst Note already saw oil share as one signal-board line (1.38.0). This gives it and Ask the trajectory and context behind that line, in the CRUSH DEMAND block. Auto-tagged `v1.42.0` by `auto-release.yml`._

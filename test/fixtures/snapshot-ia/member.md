@@ -7,37 +7,52 @@
 
 Policy activity continued this week. [1]
 
-## Policy & regulatory
-
-### ⏰ Open comment deadlines
-
-- **Nov. 17, 2026** — [Renewable Fuel Standard: 2027-2028 volumes (proposed rule)](https://www.federalregister.gov/d/2026-20001) [1]
+## Policy & news
 
 ### EPA proposes 2027-28 RFS volumes
 **Proposed — NOT final.** _Published but not in effect. It may change substantially or never take effect._
 
-The agency acted on this item. [1] It is at the stage its band shows. [1] It bears on soybean demand. [1] The next step is not yet scheduled. [1]
+The source reports action on this item. [1] It bears on soybean demand. [1]
+
+⏰ **Comments due Nov. 17, 2026** — [how to comment](https://www.federalregister.gov/d/2026-20001) [1]
 
 ## Markets
 
 ### Fund positioning
 
-- Soybeans: net long 87,100 contracts, up 900 contracts from the prior week; 100th percentile of the past 52 weeks (week ending Sept. 29, 2026) [2]
+![Managed-money net position in soybean, meal and oil futures over the last 52 weeks](charts/2026-10-07-member-preview-fund.png)
+
+| Measure | Latest | Change | Past-year position | vs. 3-yr avg (same week) | As of |
+|---|---|---|---|---|---|
+| Soybeans [2] | Net long 87,100 | +900 w/w | 100th percentile | +70,200 | Sept. 29, 2026 |
+
 - Soybean meal: not available this cycle.
 - Soybean oil: not available this cycle.
 
 ### Oil share of crush
 
-- Soybean oil's share of crush product value: 44.3%, unchanged from a week earlier (as of Oct. 2, 2026; Iowa cash soybean oil and meal, USDA AMS National Grain & Oilseed Processor Feedstuff report) [3]
+![Soybean oil's share of crush product value over the last 12 months, with its 3-year average](charts/2026-10-07-member-preview-oilshare.png)
+
+| Measure | Latest | Change | Past-year position | vs. 3-yr avg (same week) | As of |
+|---|---|---|---|---|---|
+| Oil share of crush value [3] | 44.3% | unchanged w/w | 2nd percentile | — | Oct. 2, 2026 |
 
 ### Soybean:corn price ratio
 
-- New-crop ratio, November 2026 soybeans ÷ December 2026 corn futures: 2.47 (settlement of Oct. 6, 2026) [4]
-- Context — Iowa prices received (monthly, published with a lag): 2.50 for August 2026 [5]
+![Iowa soybean:corn price ratio over five years, with the new-crop futures ratio marked](charts/2026-10-07-member-preview-ratio.png)
+
+| Measure | Latest | Change | Past-year position | vs. 3-yr avg (same week) | As of |
+|---|---|---|---|---|---|
+| New-crop futures (Nov 2026 soy ÷ Dec 2026 corn) [4] | 2.47 | — | — | — | Oct. 6, 2026 |
+| Iowa prices received (monthly) [5] | 2.50 | unchanged m/m | 100th percentile (5 yr) | +0.12 | August 2026 |
 
 ### Barge freight
 
-- St. Louis harbor (Cape Girardeau – Grafton): $25.95 per ton, up $0.05 from the prior week; $20.73 per ton 3-year average for the same week (week of Oct. 1, 2026) [6]
+![Barge freight by river segment over the last 12 months, each against its 3-year average for the same week](charts/2026-10-07-member-preview-barge.png)
+
+| Measure | Latest | Change | Past-year position | vs. 3-yr avg (same week) | As of |
+|---|---|---|---|---|---|
+| St. Louis harbor (Cape Girardeau – Grafton) [6] | $25.95/ton | +$0.05 w/w | 100th percentile | +$5.22 | Oct. 1, 2026 |
 
 ## What to watch (through Oct. 9, 2026)
 

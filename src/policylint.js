@@ -236,6 +236,35 @@ export function splitSentences(text) {
 }
 
 const TOKEN_RE = /\{\{([A-Z0-9_]+)\}\}/g;
+
+// Words that already say "it moved" — redundant (and doubled) in front of a token whose value starts
+// with "up"/"down" ("rose by up 1,200 contracts").
+const MOVE_WORDS = /\b(?:by|rose|fell|increased|decreased|climbed|dropped|gained|lost|up|down)\s*$/i;
+/**
+ * Doubled wording around tokens. Each token's value is a complete phrase; a draft that wraps it in
+ * words the value already starts with reads badly once substituted ("a net long position of net long
+ * 246,558 contracts", "as of the week ending week ending Sept. 29"). Returns the offending phrases.
+ */
+export function doubledPhrasing(text, packet) {
+  const hits = [];
+  for (const m of String(text).matchAll(TOKEN_RE)) {
+    const tok = packet.tokens.get(m[1]);
+    if (!tok || tok.stale) continue;
+    const lead = String(tok.value).toLowerCase().match(/^([a-z]+)(?:\s+([a-z]+))?/);
+    if (!lead) continue;
+    const before = text.slice(Math.max(0, m.index - 60), m.index).toLowerCase();
+    const words = before.replace(/\{\{[A-Z0-9_]+\}\}/gi, " ").match(/[a-z]+/g) ?? [];
+    const near = words.slice(-6);
+    if ((lead[1] === "up" || lead[1] === "down") && MOVE_WORDS.test(before)) hits.push(`"${before.trim().split(/\s+/).pop()} {{${m[1]}}}" (the value already says "${lead[1]}")`);
+    else if (lead[2] && near.join(" ").includes(`${lead[1]} ${lead[2]}`)) hits.push(`"${lead[1]} ${lead[2]}" is already in {{${m[1]}}}`);
+    else if (["week", "settlement", "net", "unchanged"].includes(lead[1]) && near.includes(lead[1])) hits.push(`"${lead[1]}" is already in {{${m[1]}}}`);
+  }
+  // After substitution: any word or two-word phrase said twice in a row ("week ending week ending").
+  const sub = String(text).replace(TOKEN_RE, (x, k) => (packet.tokens.has(k) && !packet.tokens.get(k).stale ? packet.tokens.get(k).value : x));
+  const rep = sub.match(/\b([a-z]+(?:\s+[a-z]+)?)\s+\1\b/i);
+  if (rep && !/^(?:that|had|very|is)$/i.test(rep[1])) hits.push(`"${rep[1]} ${rep[1]}" reads twice`);
+  return hits;
+}
 /** Words containing a digit, after removing {{TOKENS}}. "45Z", "2026", "HF2571", "3.2%". */
 export function digitWords(text) {
   const stripped = String(text ?? "").replace(TOKEN_RE, " ");
@@ -278,6 +307,7 @@ export function lintMemberSentence(s, packet, scope = {}) {
       out.push({ rule: "enacted_claim", detail: `"${m}" is a decision claim outside a policy item with an In-force band` });
     }
   }
+  for (const h of doubledPhrasing(text, packet)) out.push({ rule: "doubled_wording", detail: `${h} — each token is a complete phrase; do not wrap it in words it already contains` });
   const advice = scanBanned(text);
   if (advice.length) out.push({ rule: "advice", detail: `reads as advice: ${advice.map((h) => `"${h}"`).join(", ")}` });
   return out;
@@ -304,13 +334,18 @@ export function lintMemberDraft(draft, packet) {
       failures.push({ path: `policy.${p?.id}`, rule: "policy_unknown", detail: "not an action in the packet" });
       continue;
     }
-    for (const slot of ["whatChanged", "whereItStands", "whatItMeans", "next"]) {
+    for (const slot of ["whatHappened", "whatItMeans", "next"]) {
       each(p?.[slot] ? [p[slot]] : [], `policy.${p.id}.${slot}`, { allowedCites: item.citeIds, band: item.band });
     }
   }
   for (const [k, list] of Object.entries(draft?.markets ?? {})) {
     const fact = packet.markets.get(k);
     each(list, `markets.${k}`, { allowedCites: fact ? fact.citeIds : new Set() });
+    // The chart and indicator table above already print every figure; a market sentence explains them.
+    (list ?? []).forEach((s, i) => {
+      const n = [...String(s?.text ?? "").matchAll(TOKEN_RE)].length;
+      if (n > 1) failures.push({ path: `markets.${k}[${i}]`, rule: "restates_figures", detail: `${n} figures in one sentence — the table already prints them; explain what they mean, using at most one` });
+    });
   }
   return { ok: failures.length === 0, failures };
 }

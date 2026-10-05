@@ -9,10 +9,11 @@ WORKDIR /app
 # Install dependencies first so Docker caches this layer between code changes.
 # better-sqlite3 doesn't always have a prebuilt binary for the image's exact
 # Node/ARM64 combination, so install a small compiler toolchain, build, then
-# remove the toolchain again to keep the final image lean.
+# remove the toolchain again to keep the final image lean. fonts-dejavu-core stays: the Member Brief
+# charts are drawn on the Pi (resvg) and their titles, axes and labels need a real font.
 COPY package.json package-lock.json ./
 RUN apt-get update \
- && apt-get install -y --no-install-recommends python3 make g++ \
+ && apt-get install -y --no-install-recommends python3 make g++ fonts-dejavu-core \
  && npm ci --omit=dev \
  && apt-get purge -y --auto-remove python3 make g++ \
  && rm -rf /var/lib/apt/lists/*

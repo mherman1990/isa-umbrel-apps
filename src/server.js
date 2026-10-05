@@ -96,10 +96,13 @@ function inline(md) {
     .replace(/\*([^*]+)\*/g, "<em>$1</em>");
 }
 // A line that opens its own block, and so ends any paragraph being accumulated. Headings deeper or
-// shallower than h2/h3 are listed even though they render as plain <p> below, and pipe-table rows /
-// code fences because this renderer builds no <table> or <pre>: naming them here keeps each on its
-// own line exactly as today, rather than gluing them into the neighbouring paragraph.
-const BLOCK_START = /^(?:---+$|#{1,6}\s|[-*]\s|\d+\.\s|>|\||```)/;
+// shallower than h2/h3 are listed even though they render as plain <p> below, and code fences because
+// this renderer builds no <pre>: naming them here keeps each on its own line exactly as today, rather
+// than gluing them into the neighbouring paragraph. Pipe-table rows build a <table>; a chart line
+// (`![alt](charts/<file>.png)`, the only image the briefs write) becomes an <img>.
+const BLOCK_START = /^(?:---+$|#{1,6}\s|[-*]\s|\d+\.\s|>|\||```|!\[)/;
+const CHART_IMG = /^!\[([^\]]*)\]\(charts\/([A-Za-z0-9._-]+\.png)\)$/;
+const TABLE_ROW = /^\|.*\|$/;
 export function markdownToHtml(md) {
   const out = [];
   let inList = false;
@@ -107,8 +110,29 @@ export function markdownToHtml(md) {
   // newline does not. Without this, a hard-wrapped memo renders as disconnected <p> fragments.
   let para = [];
   const flushPara = () => { if (para.length) { out.push(`<p>${inline(para.join(" "))}</p>`); para = []; } };
+  let table = null;
+  const flushTable = () => {
+    if (!table) return;
+    const [head, ...rows] = table.filter((r) => !r.every((c) => /^:?-{3,}:?$/.test(c)));
+    out.push(`<div class="kpi-wrap"><table class="kpi"><thead><tr>${(head ?? []).map((c) => `<th>${inline(c)}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${inline(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`);
+    table = null;
+  };
   for (const line of md.split(/\r?\n/)) {
     const t = line.trim();
+    if (TABLE_ROW.test(t)) {
+      flushPara();
+      if (inList) { out.push("</ul>"); inList = false; }
+      (table ??= []).push(t.slice(1, -1).split("|").map((c) => c.trim()));
+      continue;
+    }
+    flushTable();
+    let img;
+    if ((img = t.match(CHART_IMG))) {
+      flushPara();
+      if (inList) { out.push("</ul>"); inList = false; }
+      out.push(`<p class="chart"><img src="/brief/charts/${esc(img[2])}" alt="${esc(img[1])}" style="max-width:100%;height:auto"></p>`);
+      continue;
+    }
     const isListItem = /^[-*]\s+/.test(t) || /^\d+\.\s+/.test(t);
     if (t === "" || BLOCK_START.test(t)) flushPara();
     if (inList && !isListItem) {
@@ -129,6 +153,7 @@ export function markdownToHtml(md) {
     else para.push(t);
   }
   flushPara();
+  flushTable();
   if (inList) out.push("</ul>");
   return linkifySeries(out.join("\n"));
 }
@@ -286,6 +311,8 @@ function page(title, body, { chrome = true } = {}) {
   nav a.active { border-bottom-color: var(--isa-gold); color: var(--isa-blue); }
   h1, h2, h3 { color: var(--isa-dark); }
   h1 { font-size: 1.5rem; margin: .2em 0 .5em; } h2 { font-size: 1.3rem; } h3 { margin-top: 26px; }
+  .kpi-wrap { overflow-x: auto; } table.kpi { border-collapse: collapse; width: 100%; font-size: .9rem; margin: 8px 0; }
+  table.kpi th, table.kpi td { text-align: left; padding: 5px 8px; border-bottom: 1px solid #e6e5e1; vertical-align: top; } table.kpi th { color: #52514e; font-weight: 600; border-bottom-width: 2px; }
   ul.briefs { list-style: none; padding: 0; } ul.briefs li { margin: 8px 0; }
   ul.briefs a { font-weight: 600; text-decoration: none; }
   a { color: var(--isa-blue); } a:hover { text-decoration: underline; }
@@ -3486,6 +3513,18 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
       }
 
       // ----- briefs -----
+      // Member Brief charts: PNGs saved next to the briefs (briefings/charts/). Name-checked, no traversal.
+      const chartMatch = req.method === "GET" && url.pathname.match(/^\/brief\/charts\/([A-Za-z0-9._-]+\.png)$/);
+      if (chartMatch) {
+        const file = path.join(store.DATA_DIR, "briefings", "charts", path.basename(chartMatch[1]));
+        if (chartMatch[1].includes("..") || !fs.existsSync(file)) {
+          res.writeHead(404, { "content-type": "text/plain" }).end("not found");
+          return;
+        }
+        res.writeHead(200, { "content-type": "image/png", "cache-control": "private, max-age=86400" });
+        res.end(fs.readFileSync(file));
+        return;
+      }
       const briefMatch = url.pathname.match(/^\/brief\/([^/]+)(\/raw|\/teams)?$/);
       if (briefMatch) {
         const name = path.basename(decodeURIComponent(briefMatch[1]));
