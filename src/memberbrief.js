@@ -150,8 +150,10 @@ export const BAND_ORDER = ["enacted", "contested", "proposed", "speculative"];
 const REPORTED = { label: "Reported", caveat: "As reported by the source; check it for the current status." };
 const bandOf = (b) => BAND[b] ?? REPORTED;
 /** Code-assigned band for an official item with no card, from its document type. Never above the record. */
-const DOC_BAND = { rule: "enacted", "admin-rule": "enacted", "proposed-rule": "proposed" };
-const DOC_LABEL = { rule: "final rule", "admin-rule": "administrative rule", "proposed-rule": "proposed rule", notice: "notice", bill: "bill", hearing: "hearing", litigation: "court filing", regulation: "regulatory docket", statement: "statement" };
+// Only the Federal Register's own RULE type establishes finality. A state bulletin filing ("admin-rule")
+// can be a Notice of Intended Action as easily as an adopted rule, so it stays Reported.
+const DOC_BAND = { rule: "enacted", "proposed-rule": "proposed" };
+const DOC_LABEL = { rule: "final rule", "admin-rule": "administrative bulletin filing", "proposed-rule": "proposed rule", notice: "notice", bill: "bill", hearing: "hearing", litigation: "court filing", regulation: "regulatory docket", statement: "statement" };
 export const POLICY_SLOTS = ["whatHappened", "whatItMeans", "next"];
 const REQUIRED_SLOTS = ["whatHappened", "whatItMeans"];
 
@@ -270,7 +272,13 @@ function addPolicy(pk) {
     const date = String(it.published_at || it.first_seen_at || "").slice(0, 10);
     if (/^\d{4}-\d{2}-\d{2}$/.test(date)) tokens.date = pk.token(`${id}_DATE`, fmtDate(date));
     const dlDate = String(it.comment_deadline ?? "").slice(0, 10);
-    const dl = /^\d{4}-\d{2}-\d{2}$/.test(dlDate) && dlDate >= today ? { date: dlDate, url: it.url, cite } : deadlineByEvent.has(it.event_key) ? { ...deadlineByEvent.get(it.event_key), cite } : null;
+    let dl = null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dlDate) && dlDate >= today) dl = { date: dlDate, url: it.url, cite };
+    else if (deadlineByEvent.has(it.event_key)) {
+      // The deadline lives on another copy of this event: cite THAT record, which actually states it.
+      const d = deadlineByEvent.get(it.event_key);
+      dl = { date: d.date, url: d.url, cite: itemSource(pk, d.uid, { url: d.url, title: d.title }) };
+    }
     if (dl) tokens.deadline = pk.token(`${id}_COMMENTS_DUE`, fmtDate(dl.date));
     pk.policy.set(id, {
       id,
@@ -282,10 +290,10 @@ function addPolicy(pk) {
       oneLine: it.one_line ?? "",
       publisher: src?.publisher ?? "",
       docLabel: isNews ? "news" : DOC_LABEL[it.doc_type] ?? "official record",
-      citeIds: new Set([cite]),
+      citeIds: new Set(dl ? [cite, dl.cite] : [cite]),
       tokens,
       clockLabel: "",
-      deadline: dl ? { date: dl.date, url: dl.url, cite } : null,
+      deadline: dl,
       tier: it.triage_tier,
     });
   });

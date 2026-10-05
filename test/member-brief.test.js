@@ -202,6 +202,9 @@ test("policy & news: must-read news and uncarded official records join the cards
   seed("news-2", "Background feature on cover crops", "rss", "background");
   seed("pr-1", "USDA proposed rule on grain standards", "federal_register", "worth_knowing", { doc_type: "proposed-rule", comment_deadline: "2026-12-01" });
   seed("mkt-1", "Export sales report", "fas_export_sales", "must_read");
+  seed("iab-1", "Notice of Intended Action: manure rules", "iowa_admin_rules", "must_read", { doc_type: "admin-rule", event_key: "iab:ev" });
+  seed("iab-2", "Manure rules (duplicate copy)", "iowa_admin_rules", "worth_knowing", { doc_type: "admin-rule", event_key: "iab:ev", comment_deadline: "2026-11-30" });
+  raw.prepare("UPDATE seen_items SET body = ? WHERE uid = 'iab-1'").run("a much longer stored body ".repeat(20));
   try {
     const p = mb.buildMemberPacket({ now: NOW, tz: TZ });
     const list = [...p.policy.values()];
@@ -215,6 +218,11 @@ test("policy & news: must-read news and uncarded official records join the cards
     assert.equal(pr.deadline.date, "2026-12-01");
     assert.ok(list.indexOf(news) < list.indexOf(pr), "must-read before worth-knowing");
     assert.ok(!list.some((x) => /cover crops|Export sales/.test(x.headline)), "background tier and market sources stay out");
+    const iab = list.find((x) => x.eventKey === "iab:ev");
+    assert.equal(iab.band, "reported", "a state bulletin filing is not banded In force (it may be a notice of intended action)");
+    assert.equal(iab.deadline.date, "2026-11-30");
+    assert.equal(p.sources.get(iab.deadline.cite).title, "Manure rules (duplicate copy)", "the deadline cites the record that states it");
+    assert.ok(iab.citeIds.has(iab.deadline.cite));
     // A Reported item may not be described as decided, and the reviewer has no band to lower.
     assert.ok(lintMemberSentence({ text: "The deal is final.", cites: [[...news.citeIds][0]] }, p, { band: news.band, allowedCites: news.citeIds }).some((f) => f.rule === "enacted_claim"));
     const r = mb.applyReview({ update: [], policy: [], markets: {} }, { sentences: [], bands: [{ id: news.id, action: "downgrade", to: "speculative", reason: "x" }] }, p);
@@ -222,7 +230,7 @@ test("policy & news: must-read news and uncarded official records join the cards
     assert.equal(news.band, "reported");
     assert.match(mb.packetPrompt(p), new RegExp(`^${news.id} — NEWS — band: Reported`, "m"));
   } finally {
-    raw.prepare("DELETE FROM seen_items WHERE uid IN ('news-1','news-2','pr-1','mkt-1')").run();
+    raw.prepare("DELETE FROM seen_items WHERE uid IN ('news-1','news-2','pr-1','mkt-1','iab-1','iab-2')").run();
   }
 });
 
