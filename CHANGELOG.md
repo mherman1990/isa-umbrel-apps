@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.42.0 — Member Brief rebuilt for farmers: policy & news, charts, performance indicators
+## 1.43.0 — Member Brief rebuilt for farmers: policy & news, charts, performance indicators
 
 The 1.40.0 Member Brief led with comment deadlines and listed "Comments due" under What to watch, and its markets section was a line of figures with model sentences repeating them. Farmers want what happened, what it means for their operation, and the market picture at a glance.
 
@@ -33,6 +33,35 @@ The 1.40.0 Member Brief led with comment deadlines and listed "Comments due" und
 - `/brief/<name>` renders tables and chart images; charts are served from `/brief/charts/<file>.png` (name-checked).
 
 Update only — no new keys. Charts are written to `briefings/charts/` next to the saved briefs.
+
+## 1.42.0 — Analyst Note + Ask: oil/meal crush composition in the crush block
+
+_The Analyst Note already saw oil share as one signal-board line (1.38.0). This gives it and Ask the trajectory and context behind that line, in the CRUSH DEMAND block. Auto-tagged `v1.42.0` by `auto-release.yml`._
+
+### Added
+
+- **`oilShareText()`** (`src/crush.js`) — appended to `crushText()`, so it lands in the Analyst Note / Market
+  Pulse crush block and the Ask context:
+  - board oil share + percentile + 10th–90th range, with the **1M / 3M / 12M moves** (the signal card only
+    sees one month) and the 1-month driver decomposition (oil vs. meal value %/bu);
+  - **Iowa cash** oil share vs. the board on the nearest-before date, only when cash is ≤21 days old;
+  - a one-line reading guide (composition, not margin; the higher the share, the more crush value — and the
+    domestic bean bid — rests on the policy-set oil leg: RVO, SREs, 45Z).
+  - Names its series ids so the model can cite them. `""` when the board legs are stale or thin.
+
+### Changed
+
+- **`crushText()`** no longer returns empty when utilization isn't computable — the oil-share lines still
+  reach the prompt on their own.
+- **`src/pipeline.js`** — the block header is now "CRUSH DEMAND (capacity utilization, cause→effect with
+  margin, oil/meal composition)" in both the memo and Ask contexts.
+- `shareRows()` / `rowDaysBack()` factored out of `scoreOilShare()` (no behavior change).
+- **Multi-state:** the cash line reads its series via `seriesKey("ams", …)` and labels itself with the pack's
+  state name, so a non-Iowa pack gets its own cash series rather than Iowa's.
+
+### Notes
+
+- Prompt-content only; no new keys, no new model calls. Adds ~3 lines (~150 tokens) to the crush block.
 
 ## 1.41.1 — Barge freight by river segment (the Member Brief's barge lines now fill in)
 

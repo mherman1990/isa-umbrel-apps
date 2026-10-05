@@ -2,7 +2,7 @@ manifestVersion: 1
 id: isa-polibrief
 category: automation
 name: The Bean Brief
-version: "1.41.0"
+version: "1.41.1"
 tagline: Twice-daily policy briefs for Iowa soybean priorities
 icon: https://raw.githubusercontent.com/mherman1990/isa-umbrel-apps/main/isa-polibrief/icon.png
 description: >-
@@ -34,6 +34,12 @@ releaseNotes: >-
   section now shows a chart (fund positions 52 weeks, oil share and barge 12 months against their 3-year
   average, soy:corn ratio 5 years with the new-crop ratio marked) and a table of indicators — latest,
   change, position in the past year, versus the 3-year average. Update only — no new keys.
+  ---
+  1.42.0 — THE ANALYST NOTE NOW READS THE OIL-vs-MEAL SPLIT OF THE CRUSH. Along with the Oil Share signal card, the
+  Analyst Note (and Ask) now get the oil share's 1-, 3- and 12-month trend, your state's cash oil share vs.
+  the board, and which product drove the latest move — so the note can say how much of the crush, and of
+  the domestic bid for beans, is riding on biofuel policy. Update only — no new keys, and no extra AI cost
+  beyond a few lines of context.
   ---
   1.41.1 — BARGE FREIGHT NOW FILLS IN. The Member Brief's barge lines looked for "St. Louis" and "Illinois River",
   but USDA reports barge freight by river segment, so they always came back empty. The brief now follows
