@@ -1,6 +1,6 @@
 // memberbrief.js — the ISA Member Brief (edition `member`): Monday, Wednesday, Friday, for farmer-members.
 //
-// Policy and regulatory first, markets second. Education, not advice. It goes out under ISA's name, so
+// Policy and news first, markets second. Education, not advice. It goes out under ISA's name, so
 // the design goal is that an unsupported claim is STRUCTURALLY hard, not merely discouraged:
 //
 //   1. NUMBERS ARE INSERTED BY CODE. Market figures are computed here from stored series and handed to
@@ -19,9 +19,10 @@
 //   6. FAIL CLOSED. If lint or review still fails after one retry, nothing is sent. The draft is saved
 //      as <date>-member-draft.md, an alert is raised, and the reason is logged and stored on the run.
 //
-// "What to watch", the open comment deadlines, the market fact lines and the Sources list are rendered
-// by code with no model involvement at all. The model writes only the update (≤ 3 sentences, enforced by
-// code), the four sentences per policy item, and at most two explanatory sentences per market section.
+// "What to watch", each item's comment deadline, the market charts and indicator tables, and the Sources
+// list are rendered by code with no model involvement at all. The model writes only the update (≤ 3
+// sentences, enforced by code), two or three sentences per policy & news item, and at most two
+// explanatory sentences per market section (which may not restate the table's figures).
 
 import fs from "node:fs";
 import path from "node:path";
@@ -39,12 +40,15 @@ import { MARKETS as CFTC_MARKETS, SOURCE_URL as CFTC_URL } from "./adapters/cftc
 import { saveBrief, sendMemberBriefEmail, sendOpsAlert } from "./deliver.js";
 import { wasTruncated } from "./modelcfg.js";
 import { voice, seriesKey, effectiveBargeLocations } from "./pack.js";
+import { classOf } from "./adapters/index.js";
+import { lineChartSvg, smallMultiplesSvg, svgToPng } from "./charts.js";
 // State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
 const V = voice();
 
 export const DEFAULT_MEMBER_SPEC = "Mon,Wed,Fri 06:45";
 export const LAST_SENT_KEY = "member_brief:last_sent";
 const MAX_POLICY_ITEMS = 8;
+const MAX_NEWS_ITEMS = 4; // of those, at most this many are news stories (the rest are policy actions)
 const MAX_UPDATE_SENTENCES = 3;
 const MAX_MARKET_SENTENCES = 2;
 const DAY_MS = 86400e3;
@@ -140,6 +144,16 @@ const BAND = {
   speculative: { label: "Signalled — not yet an action", caveat: "Reported or expected. Nothing has been published and there is no deadline yet." },
 };
 export const BAND_ORDER = ["enacted", "contested", "proposed", "speculative"];
+// An item that is not a staff policy card (a must-read news story, or an official notice/bill/docket
+// with no card) carries no certainty claim of its own: it is "reported" — attributed to its source,
+// and a sentence about it may not say anything was decided (the lint treats it like an unbanded claim).
+const REPORTED = { label: "Reported", caveat: "As reported by the source; check it for the current status." };
+const bandOf = (b) => BAND[b] ?? REPORTED;
+/** Code-assigned band for an official item with no card, from its document type. Never above the record. */
+const DOC_BAND = { rule: "enacted", "admin-rule": "enacted", "proposed-rule": "proposed" };
+const DOC_LABEL = { rule: "final rule", "admin-rule": "administrative rule", "proposed-rule": "proposed rule", notice: "notice", bill: "bill", hearing: "hearing", litigation: "court filing", regulation: "regulatory docket", statement: "statement" };
+export const POLICY_SLOTS = ["whatHappened", "whatItMeans", "next"];
+const REQUIRED_SLOTS = ["whatHappened", "whatItMeans"];
 
 /** Builder for the packet: ids are assigned in insertion order and never reused within one brief. */
 function newPacket(window) {
@@ -151,7 +165,6 @@ function newPacket(window) {
     tokens: new Map(), // NAME → { value, stale }
     policy: new Map(), // P1 → { id, band, card, citeIds:Set, … }
     markets: new Map(), // fund | oilShare | ratio | barge → { label, lines[], citeIds:Set, status }
-    deadlines: [],
     watch: [],
     addSource(rec) {
       const dup = [...sources.values()].find((s) => s.url && s.url === rec.url && s.title === rec.title);
@@ -192,43 +205,90 @@ const hostLabel = (url) => {
   }
 };
 
-/** Policy items: the published policy cards in the window, ranked by band then clock date. */
+/**
+ * Policy & news: what the daily brief's triage rated must-read or worth-knowing in the window — federal
+ * and state actions AND news — each told in two or three plain sentences. Staff policy cards come first
+ * (they carry a reviewed certainty band); then must-read items, then worth-knowing, official before news,
+ * one entry per event. A comment deadline is shown only for an item that is in the brief, inline.
+ */
 function addPolicy(pk) {
-  const rows = store.keptCardsBetween(pk.window.startISO, pk.window.endISO);
-  const ranked = rows
+  const today = pk.window.today;
+  const deadlineByEvent = new Map(); // event key or item uid → the open comment deadline
+  for (const d of store.upcomingDeadlines(100, { collapse: false })) {
+    const date = String(d.comment_deadline ?? "").slice(0, 10);
+    const rec = { date, url: d.url, uid: d.uid, title: d.title };
+    if (date < today) continue;
+    for (const k of [d.event_key, d.uid]) if (k && !deadlineByEvent.has(k)) deadlineByEvent.set(k, rec);
+  }
+  const entries = [];
+  const covered = new Set();
+  const cards = store
+    .keptCardsBetween(pk.window.startISO, pk.window.endISO)
     .filter((r) => BAND[r.certainty])
-    .sort((a, b) => BAND_ORDER.indexOf(a.certainty) - BAND_ORDER.indexOf(b.certainty) || String(a.card?.posture?.clock_date || "9999").localeCompare(String(b.card?.posture?.clock_date || "9999")))
-    .slice(0, MAX_POLICY_ITEMS);
-  ranked.forEach((r, i) => {
+    .sort((a, b) => BAND_ORDER.indexOf(a.certainty) - BAND_ORDER.indexOf(b.certainty) || String(a.card?.posture?.clock_date || "9999").localeCompare(String(b.card?.posture?.clock_date || "9999")));
+  for (const r of cards) {
+    entries.push({ kind: "card", r });
+    covered.add(r.event_key);
+    for (const e of r.card?.evidence ?? []) if (e.kind === "item") covered.add(e.key);
+  }
+  const rank = (it) => (it.triage_tier === "must_read" ? 0 : 2) + (classOf(it.source_id) === "news" ? 1 : 0);
+  const items = store
+    .memberItemsBetween(pk.window.startISO, pk.window.endISO)
+    .filter((it) => ["official", "news"].includes(classOf(it.source_id)) && !covered.has(it.event_key) && !covered.has(it.uid))
+    .sort((a, b) => rank(a) - rank(b));
+  let news = 0;
+  for (const it of items) {
+    if (classOf(it.source_id) === "news") {
+      if (news >= MAX_NEWS_ITEMS) continue;
+      news++;
+    }
+    entries.push({ kind: "item", it });
+  }
+  entries.slice(0, MAX_POLICY_ITEMS).forEach((e, i) => {
     const id = `P${i + 1}`;
-    const items = (r.card?.evidence ?? []).filter((e) => e.kind === "item");
-    const citeIds = new Set(items.map((e) => itemSource(pk, e.key, { url: e.url, title: e.title })));
-    const clock = r.card?.posture?.clock_date;
-    const next = r.card?.watch_next?.date;
     const tokens = {};
-    if (/^\d{4}-\d{2}(-\d{2})?$/.test(clock ?? "")) tokens.clock = pk.token(`${id}_CLOCK`, fmtDate(clock));
-    if (/^\d{4}-\d{2}(-\d{2})?$/.test(next ?? "")) tokens.next = pk.token(`${id}_NEXT_DATE`, fmtDate(next));
+    if (e.kind === "card") {
+      const { r } = e;
+      const citeIds = new Set((r.card?.evidence ?? []).filter((x) => x.kind === "item").map((x) => itemSource(pk, x.key, { url: x.url, title: x.title })));
+      const clock = r.card?.posture?.clock_date;
+      const next = r.card?.watch_next?.date;
+      if (/^\d{4}-\d{2}(-\d{2})?$/.test(clock ?? "")) tokens.clock = pk.token(`${id}_CLOCK`, fmtDate(clock));
+      if (/^\d{4}-\d{2}(-\d{2})?$/.test(next ?? "")) tokens.next = pk.token(`${id}_NEXT_DATE`, fmtDate(next));
+      const dl = deadlineByEvent.get(r.event_key) ?? (r.card?.evidence ?? []).filter((x) => x.kind === "item").map((x) => deadlineByEvent.get(x.key)).find(Boolean);
+      const deadline = dl ? { date: dl.date, url: dl.url, cite: itemSource(pk, dl.uid, { url: dl.url, title: dl.title }) } : null;
+      if (deadline) {
+        citeIds.add(deadline.cite);
+        tokens.deadline = pk.token(`${id}_COMMENTS_DUE`, fmtDate(deadline.date));
+      }
+      pk.policy.set(id, { id, kind: "card", band: r.certainty, eventKey: r.event_key, headline: r.card?.headline ?? "", card: r.card, citeIds, tokens, clockLabel: r.card?.posture?.clock_label ?? "", deadline, tier: "must_read" });
+      return;
+    }
+    const { it } = e;
+    const cite = itemSource(pk, it.uid, { url: it.url, title: it.title });
+    const isNews = classOf(it.source_id) === "news";
+    const src = pk.sources.get(cite);
+    const date = String(it.published_at || it.first_seen_at || "").slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date)) tokens.date = pk.token(`${id}_DATE`, fmtDate(date));
+    const dlDate = String(it.comment_deadline ?? "").slice(0, 10);
+    const dl = /^\d{4}-\d{2}-\d{2}$/.test(dlDate) && dlDate >= today ? { date: dlDate, url: it.url, cite } : deadlineByEvent.has(it.event_key) ? { ...deadlineByEvent.get(it.event_key), cite } : null;
+    if (dl) tokens.deadline = pk.token(`${id}_COMMENTS_DUE`, fmtDate(dl.date));
     pk.policy.set(id, {
       id,
-      band: r.certainty,
-      eventKey: r.event_key,
-      headline: r.card?.headline ?? "",
-      card: r.card,
-      citeIds,
+      kind: isNews ? "news" : "official",
+      band: isNews ? "reported" : DOC_BAND[it.doc_type] ?? "reported",
+      eventKey: it.event_key || it.uid,
+      headline: it.title ?? "",
+      card: null,
+      oneLine: it.one_line ?? "",
+      publisher: src?.publisher ?? "",
+      docLabel: isNews ? "news" : DOC_LABEL[it.doc_type] ?? "official record",
+      citeIds: new Set([cite]),
       tokens,
-      clockLabel: r.card?.posture?.clock_label ?? "",
+      clockLabel: "",
+      deadline: dl ? { date: dl.date, url: dl.url, cite } : null,
+      tier: it.triage_tier,
     });
   });
-}
-
-/** Open comment deadlines — code-rendered, prominent, repeated until they close. */
-function addDeadlines(pk) {
-  const today = pk.window.today;
-  for (const d of store.upcomingDeadlines(12)) {
-    const date = String(d.comment_deadline ?? "").slice(0, 10);
-    if (!date || date < today) continue;
-    pk.deadlines.push({ date, title: d.title, url: d.url, cite: itemSource(pk, d.uid, { url: d.url, title: d.title }) });
-  }
 }
 
 // ── market facts ──────────────────────────────────────────────────────────────────────────────────
@@ -272,8 +332,9 @@ function freshness(asOf, today, allowDays) {
 }
 
 function addFund(pk, now) {
-  const fact = { label: "Fund positioning (CFTC, managed money)", lines: [], citeIds: new Set(), status: "absent" };
+  const fact = { label: "Fund positioning (CFTC, managed money)", lines: [], citeIds: new Set(), status: "absent", kpis: [], chart: null };
   const expected = expectedCotAsOf(now);
+  const chartSeries = [];
   for (const m of CFTC_MARKETS) {
     const pts = series(`cftc:${m.key}:mm-net`);
     if (pts.length < 2) {
@@ -311,12 +372,16 @@ function addFund(pk, now) {
     const asof = pk.token(`${K}_ASOF`, `week ending ${fmtDate(latest.period)}`);
     fact.lines.push(`${m.label}: ${net}, ${wow}; ${p52} (${asof})${state === "stale_shown" ? " — not updated this cycle" : ""} [${cite}]`);
     fact.status = fact.status === "current" || state === "current" ? "current" : "stale_shown";
+    const a3 = threeYearAverage(pts, latest.period);
+    fact.kpis.push({ measure: m.label, cite, latest: `${latest.value >= 0 ? "Net long" : "Net short"} ${fmtInt(latest.value)}`, change: `${signed(d, fmtInt)} w/w`, position: positionIn(window, latest.value), vs3y: a3 ? signed(latest.value - a3.avg, fmtInt) : "—", asof: fmtDate(latest.period), stale: state === "stale_shown" });
+    chartSeries.push({ label: m.label, points: pts.slice(-52) });
   }
+  if (chartSeries.length) fact.chart = { key: "fund", kind: "line", alt: "Managed-money net position in soybean, meal and oil futures over the last 52 weeks", spec: { title: "Managed-money net position (contracts), last 52 weeks", zeroLine: true, series: chartSeries } };
   pk.markets.set("fund", fact);
 }
 
 function addOilShare(pk) {
-  const fact = { label: "Oil share of crush", lines: [], citeIds: new Set(), status: "absent" };
+  const fact = { label: "Oil share of crush", lines: [], citeIds: new Set(), status: "absent", kpis: [], chart: null };
   const today = pk.window.today;
   // Member-facing: CME settlements first, then USDA AMS Iowa cash. Never the Yahoo board legs.
   const candidates = [
@@ -351,7 +416,22 @@ function addOilShare(pk) {
     pk.token("OILSHARE_BASIS", c.basis);
     fact.lines.push(`Soybean oil's share of crush product value: ${share}, ${wow} (as of ${asof}; ${c.basis})${state === "stale_shown" ? " — not updated this cycle" : ""} [${cite}]`);
     fact.status = state;
+    const year = since(pts, latest.period, 365);
+    const a3 = threeYearAverage(pts, latest.period);
+    const pp = (v) => `${v.toFixed(1)} pt`;
+    fact.kpis.push({ measure: "Oil share of crush value", cite, latest: `${latest.value.toFixed(1)}%`, change: chg == null ? "—" : `${signed(chg, pp)} w/w`, position: positionIn(year.map((p) => p.value), latest.value), vs3y: a3 ? signed(latest.value - a3.avg, pp) : "—", asof: fmtDate(latest.period), stale: state === "stale_shown" });
     break;
+  }
+  // The chart wants a year of history: the AMS weekly cash pair has years of it (CME settlements only
+  // began accumulating when CME_SETTLEMENTS was switched on), so it draws the line whichever basis the
+  // indicator row uses.
+  const amsPts = oilSharePoints(candidates[1].meal, candidates[1].oil);
+  const cmePts = oilSharePoints(candidates[0].meal, candidates[0].oil);
+  const chartPts = amsPts.length >= 8 || cmePts.length < amsPts.length ? amsPts : cmePts;
+  if (chartPts.length >= 2) {
+    const end = chartPts[chartPts.length - 1].period;
+    const yr = since(chartPts, end, 365);
+    fact.chart = { key: "oilshare", kind: "line", alt: "Soybean oil's share of crush product value over the last 12 months, with its 3-year average", spec: { title: `Oil share of crush value (%), last 12 months — ${chartPts === amsPts ? `${V.state} cash (USDA AMS)` : "CME futures"}`, decimals: 1, series: [{ label: "Oil share", points: yr }], reference: { label: "3-year average, same week", points: referenceLine(chartPts, yr) } } };
   }
   if (fact.status === "absent") {
     fact.lines.push("Not updated this cycle — no current CME or USDA AMS price pair is stored.");
@@ -376,7 +456,7 @@ export function newCropRatio(today, get = series) {
 }
 
 function addRatio(pk) {
-  const fact = { label: "Soybean:corn price ratio", lines: [], citeIds: new Set(), status: "absent" };
+  const fact = { label: "Soybean:corn price ratio", lines: [], citeIds: new Set(), status: "absent", kpis: [], chart: null };
   const today = pk.window.today;
   const nc = newCropRatio(today);
   if (nc) {
@@ -389,6 +469,8 @@ function addRatio(pk) {
       const a = pk.token("RATIO_ASOF", `settlement of ${fmtDate(nc.latest.period)}`);
       fact.lines.push(`New-crop ratio, ${k}: ${v} (${a})${state === "stale_shown" ? " — not updated this cycle" : ""} [${cite}]`);
       fact.status = state;
+      const wk = atOrBefore(nc.points, addDays(nc.latest.period, -7));
+      fact.kpis.push({ measure: `New-crop futures (Nov ${nc.year} soy ÷ Dec ${nc.year} corn)`, cite, latest: fmt2(nc.latest.value), change: wk && wk.period !== nc.latest.period ? `${signed(nc.latest.value - wk.value, fmt2)} w/w` : "—", position: "—", vs3y: "—", asof: fmtDate(nc.latest.period), stale: state === "stale_shown" });
     }
   }
   if (fact.status === "absent") {
@@ -405,9 +487,30 @@ function addRatio(pk) {
     const p = pk.token("RATIO_IOWA_PERIOD", fmtDate(l.period));
     fact.lines.push(`Context — ${V.state} prices received (monthly, published with a lag): ${v} for ${p} [${cite}]`);
     if (fact.status === "absent") fact.status = "context_only";
+    const prevM = ia.length > 1 ? ia[ia.length - 2] : null;
+    const sameMonth = [1, 2, 3].map((k) => ia.find((x) => x.period === `${Number(l.period.slice(0, 4)) - k}${l.period.slice(4, 7)}`)).filter(Boolean);
+    const avg3 = sameMonth.length >= 2 ? sameMonth.reduce((s, x) => s + x.value, 0) / sameMonth.length : null;
+    fact.kpis.push({ measure: `${V.state} prices received (monthly)`, cite, latest: fmt2(l.value), change: prevM ? `${signed(l.value - prevM.value, fmt2)} m/m` : "—", position: ia.length >= 24 ? `${positionIn(ia.slice(-60).map((x) => x.value), l.value)} (5 yr)` : "—", vs3y: avg3 == null ? "—" : signed(l.value - avg3, fmt2), asof: fmtDate(l.period), stale: false });
+    fact.chart = { key: "ratio", kind: "line", alt: `${V.state} soybean:corn price ratio over five years, with the new-crop futures ratio marked`, spec: { title: `Soybean:corn price ratio — ${V.state} prices received, 5 years`, decimals: 2, series: [{ label: `${V.state} monthly`, points: ia.slice(-60) }], markers: nc && fact.status !== "context_only" ? [{ label: "New-crop", period: nc.latest.period, value: nc.latest.value }] : [] } };
   }
   pk.markets.set("ratio", fact);
 }
+
+// ── indicator rows + chart specs (1.42.0) ──────────────────────────────────────────────────────────
+// Every market section carries a chart (drawn by charts.js after the draft passes) and a row of
+// code-computed indicators: latest, change, position in the past year, versus the 3-year average for
+// the same week. All numbers are computed here from stored series — the model never writes them.
+/** "+1,000", "−$1.50" — and "unchanged" when the change rounds to zero at the shown precision. */
+const signed = (v, f) => {
+  const s = f(Math.abs(v));
+  return /[1-9]/.test(s) ? `${v > 0 ? "+" : "−"}${s}` : "unchanged";
+};
+/** Where `value` sits among `vals` (0–100), as "96th percentile". */
+const positionIn = (vals, value) => (vals.length >= 4 ? `${ordinal(Math.round((vals.filter((v) => v <= value).length / vals.length) * 100))} percentile` : "—");
+/** The points in the last `days` days before `today` (inclusive). */
+const since = (pts, today, days) => pts.filter((p) => p.period >= addDays(today, -days) && p.period <= today);
+/** A per-point 3-year same-week average line for the points given (for a chart's reference line). */
+const referenceLine = (allPts, windowPts) => windowPts.map((p) => ({ period: p.period, a: threeYearAverage(allPts, p.period) })).filter((r) => r.a).map((r) => ({ period: r.period, value: r.a.avg }));
 
 /** Same week in the prior three years: the nearest point within ±7 days of the same date, per year. */
 export function threeYearAverage(pts, period) {
@@ -425,7 +528,8 @@ export function threeYearAverage(pts, period) {
 }
 
 function addBarge(pk, bargeOverride) {
-  const fact = { label: "Barge freight", lines: [], citeIds: new Set(), status: "absent" };
+  const fact = { label: "Barge freight", lines: [], citeIds: new Set(), status: "absent", kpis: [], chart: null };
+  const panels = [];
   const today = pk.window.today;
   // Only the segments in effect (the watchlist override or the pack's), in that order. A segment that was
   // followed once and later deselected keeps its stored series but never reaches the brief again.
@@ -456,7 +560,12 @@ function addBarge(pk, bargeOverride) {
     const asof = pk.token(`BARGE_${slug}_ASOF`, `week of ${fmtDate(latest.period)}`);
     fact.lines.push(`${place}: ${rate}, ${wow}${avg ? `; ${avg}` : ""} (${asof})${state === "stale_shown" ? " — not updated this cycle" : ""} [${cite}]`);
     fact.status = fact.status === "current" || state === "current" ? "current" : "stale_shown";
+    const usd = (v) => `$${fmt2(v)}`;
+    const yr = since(pts, latest.period, 365);
+    fact.kpis.push({ measure: place, cite, latest: `$${fmt2(latest.value)}/ton`, change: chg == null ? "—" : `${signed(chg, usd)} w/w`, position: positionIn(yr.map((p) => p.value), latest.value), vs3y: a3 ? signed(latest.value - a3.avg, usd) : "—", asof: fmtDate(latest.period), stale: state === "stale_shown" });
+    panels.push({ title: place, decimals: 2, series: [{ label: place, points: yr }], reference: { label: "3-year average, same week", points: referenceLine(pts, yr) } });
   }
+  if (panels.length) fact.chart = { key: "barge", kind: "multiples", alt: "Barge freight by river segment over the last 12 months, each against its 3-year average for the same week", spec: { title: "Barge freight ($/ton), last 12 months", panels } };
   if (fact.status === "absent" && !fact.lines.length) fact.lines.push("Not updated this cycle — no location-level barge freight is stored yet.");
   pk.markets.set("barge", fact);
 }
@@ -481,13 +590,14 @@ function addWatch(pk) {
   for (const e of upcomingPolicyEvents(span, new Date(`${from}T00:00:00Z`))) {
     add(e.date, e.name, { kind: "calendar", title: e.name, publisher: `${V.short} policy calendar (authored)`, url: "", date: e.date, tier: "aggregator", tierLabel: `${V.short}-authored calendar`, text: `${e.name} ${e.date}` });
   }
-  for (const d of pk.deadlines) if (d.date <= to) pk.watch.push({ date: d.date, text: `Comments due: ${d.title}`, cite: d.cite });
   for (const h of store.upcomingHearings(40)) {
     const date = String(h.published_at ?? "").slice(0, 10);
     if (date >= from && date <= to) pk.watch.push({ date, text: `Hearing: ${h.title}`, cite: itemSource(pk, h.uid, { url: h.url, title: h.title }) });
   }
   for (const p of pk.policy.values()) {
     const d = String(p.card?.watch_next?.date ?? "");
+    // Comment periods are not a farmer's calendar: an item's deadline rides inline on the item instead.
+    if (/\bcomment/i.test(p.card?.watch_next?.event ?? "")) continue;
     if (/^\d{4}-\d{2}-\d{2}$/.test(d) && d >= from && d <= to) pk.watch.push({ date: d, text: `${p.card.watch_next.event} (${p.headline})`, cite: [...p.citeIds][0] });
   }
   pk.watch.sort((a, b) => a.date.localeCompare(b.date));
@@ -498,7 +608,6 @@ export function buildMemberPacket({ now = new Date(), tz = V.tz, spec = DEFAULT_
   const window = memberWindow({ now, tz, spec, lastSent });
   const pk = newPacket(window);
   addPolicy(pk);
-  addDeadlines(pk);
   addFund(pk, now);
   addOilShare(pk);
   addRatio(pk);
@@ -527,13 +636,12 @@ export const MEMBER_SCHEMA = {
       items: {
         type: "object",
         properties: {
-          id: { type: "string", description: "The policy item id (P1, P2…) exactly as given." },
-          whatChanged: SENTENCE,
-          whereItStands: SENTENCE,
+          id: { type: "string", description: "The item id (P1, P2…) exactly as given." },
+          whatHappened: SENTENCE,
           whatItMeans: SENTENCE,
-          next: SENTENCE,
+          next: { ...SENTENCE, description: "Optional third sentence: the next dated step, using the item's date token. Empty text and no cites when there is none." },
         },
-        required: ["id", "whatChanged", "whereItStands", "whatItMeans", "next"],
+        required: ["id", "whatHappened", "whatItMeans", "next"],
         additionalProperties: false,
       },
     },
@@ -549,22 +657,23 @@ export const MEMBER_SCHEMA = {
 };
 
 // ⚠️ STATIC — this is the cached prefix. Nothing that changes between editions may go in here.
-export const MEMBER_SYSTEM = `You write the ${V.short} Member Brief: a short, plain-language update for ${V.org} farmer-members, sent Monday, Wednesday and Friday. Policy and regulatory news first, markets second. It is education, not advice.
+export const MEMBER_SYSTEM = `You write the ${V.short} Member Brief: a short, plain-language update for ${V.org} farmer-members, sent Monday, Wednesday and Friday. Policy and news first, markets second. Farmers read it for what happened and what it means for their operation. It is education, not advice.
 
 You are given an EVIDENCE PACKET. It is the ONLY information you may use. You have no other knowledge for this task: no background facts, no prior news, no outside numbers.
 
 HARD RULES — a draft that breaks any of these is rejected by code and not sent:
 1. Every entry is EXACTLY ONE sentence, with "cites": the ids (S1, S2…) of the packet sources it rests on. A sentence with no cite is deleted.
 2. NUMBERS. You never write a digit yourself. Every number, date, dollar amount, percentage, percentile or count must be written as a {{TOKEN}} from the packet, exactly as listed (e.g. {{FUND_SOYBEANS_NET}}). The only exception is an identifier that appears verbatim in a source you cite (a bill number like "HF 2571", a rule name like "45Z"). Tokens listed as WITHHELD must not be used.
-3. CERTAINTY. Each policy item carries a band set by code: In force / In force — under legal challenge / Proposed — NOT final / Signalled — not yet an action. Write so the band is true. A Proposed or Signalled item is never described as decided: do not say final, in effect, requires, mandates, approved, or takes effect. Only an In-force item may be described as in effect.
-4. SCOPE. A policy item's sentences may cite only that item's sources. A market section's sentences may cite only that section's sources.
+   Each token's value is a COMPLETE phrase — read it as listed and do not wrap it in words it already contains. If {{X}} = "net long 246,558 contracts", write "funds held {{X}}", never "a net long position of {{X}}". If {{Y}} = "week ending Sept. 29, 2026", write "for the {{Y}}" or "({{Y}})", never "as of the week ending {{Y}}". If a value starts with "up", "down" or "settlement of", do not put "rose", "fell", "by" or "settlement of" in front of it. Code rejects doubled wording.
+3. CERTAINTY. Each item carries a band set by code: In force / In force — under legal challenge / Proposed — NOT final / Signalled — not yet an action / Reported. Write so the band is true. A Proposed, Signalled or Reported item is never described as decided: do not say final, in effect, requires, mandates, approved, or takes effect. Only an In-force item may be described as in effect. A Reported item (a news story, or a record with no reviewed status) is attributed: name who reported or published it.
+4. SCOPE. An item's sentences may cite only that item's sources. A market section's sentences may cite only that section's sources.
 5. EDUCATION, NOT ADVICE. Never tell a farmer to buy, sell, hold, store, price or hedge; never say now is a good or bad time; never predict prices. Explain what happened and what it means for ${V.aState} corn and soybean operation.
 6. Plain words. Short sentences. No hype. No "we". Name the agency, court or legislature that acted.
 
 WHAT TO WRITE
 - "update": 1 to 3 sentences — the most important things since the last brief, policy first.
-- "policy": for EACH policy item given, four sentences: whatChanged (who did what), whereItStands (procedural status, using the clock token if given), whatItMeans (the concrete consequence for ${V.aState} corn/soybean operation, as explanation), next (the next dated event, using the next-date token if given; if none, say the next step is not yet scheduled).
-- "markets": for each of fund, oilShare, ratio, barge — 0 to 2 sentences explaining what the code-written figures mean. The figures themselves are already printed by code; do not repeat every number. If a section is marked not updated this cycle, write zero sentences for it.
+- "policy": for EACH item given (policy actions and news alike), two or three sentences: whatHappened (who did what, and where it stands), whatItMeans (the concrete consequence for ${V.aState} corn and soybean operation — prices, costs, demand, what a farmer may have to do or watch — as explanation), and next (only when the item has a next-date or comments-due token: the next dated step; otherwise leave next empty with no cites). Do not write about comment periods unless the item has a comments-due token.
+- "markets": for each of fund, oilShare, ratio, barge — 0 to 2 sentences on what the movement MEANS for ${V.aState} soybean and corn demand, margins or basis. A chart and a table of every figure (latest, change, position in the past year, versus the 3-year average) are already printed by code directly above your words: do NOT restate those figures. Use at most one token per sentence, and only when the sentence needs it. If a section is marked not updated this cycle, write zero sentences for it.
 
 If the packet is thin, write less. Fewer, fully supported sentences are always better than more.`;
 
@@ -614,13 +723,20 @@ export function packetPrompt(pk) {
   const src = [...pk.sources.values()].map((s) => `${s.id} [${s.tierLabel ?? s.tier}] ${s.publisher} — ${s.title}${s.date ? ` (${s.date})` : ""}${s.text ? `\n    text: ${String(s.text).replace(/\s+/g, " ").slice(0, 1200)}` : ""}`);
   const toks = [...pk.tokens].map(([k, v]) => (v.stale ? `{{${k}}} — WITHHELD (not updated this cycle; do not use)` : `{{${k}}} = ${v.value}`));
   const pol = [...pk.policy.values()].map((p) => {
+    const band = p.kind === "official" && p.band === "enacted" ? "Final — published as final; say it is in effect only if a cited source gives an effective date that has passed" : bandOf(p.band).label;
+    const head = `${p.id} — ${p.kind === "news" ? "NEWS" : p.kind === "card" ? "POLICY ACTION" : `OFFICIAL RECORD (${p.docLabel})`} — band: ${band} — "${p.headline}" — sources: ${[...p.citeIds].join(", ") || "(none)"}`;
+    const dl = p.tokens.deadline ? [`    comments due: ${p.tokens.deadline}`] : [];
+    if (p.kind !== "card") {
+      return [head, `    published by: ${p.publisher}${p.tokens.date ? ` on ${p.tokens.date}` : ""}`, `    triage one-liner (not a source; check it against the source text): ${p.oneLine || "(none)"}`, ...dl].join("\n");
+    }
     const c = p.card ?? {};
     return [
-      `${p.id} — band: ${BAND[p.band].label} — "${c.headline ?? ""}" — sources: ${[...p.citeIds].join(", ") || "(none)"}`,
+      head,
       `    what changed (staff card): ${c.what_changed ?? ""}`,
       `    posture: ${c.posture?.status ?? ""}; ${c.posture?.detail ?? ""}${p.tokens.clock ? `; ${p.clockLabel || "date"} ${p.tokens.clock}` : ""}`,
       `    consequence (staff card): ${c.so_what ?? ""}`,
       `    next: ${c.watch_next?.event ?? ""}${p.tokens.next ? ` — ${p.tokens.next}` : ""}`,
+      ...dl,
     ].join("\n");
   });
   const mk = [...pk.markets].map(([k, f]) => `${k} — ${f.label} — status ${f.status} — sources: ${[...f.citeIds].join(", ") || "(none)"}\n${f.lines.map((l) => `    ${l}`).join("\n")}`);
@@ -628,7 +744,7 @@ export function packetPrompt(pk) {
     `EDITION: ${V.short} Member Brief for ${fmtDate(pk.window.today)}, covering ${fmtDate(pk.window.fromDate)} through ${fmtDate(pk.window.toDate)}.`,
     `\nSOURCES:\n${src.join("\n") || "(none)"}`,
     `\nTOKENS:\n${toks.join("\n") || "(none)"}`,
-    `\nPOLICY ITEMS:\n${pol.join("\n\n") || "(none in this window)"}`,
+    `\nPOLICY & NEWS ITEMS:\n${pol.join("\n\n") || "(none in this window)"}`,
     `\nMARKET SECTIONS (figures already printed by code):\n${mk.join("\n\n")}`,
   ].join("\n");
 }
@@ -647,7 +763,8 @@ export function normalizeDraft(d) {
   for (const k of ["fund", "oilShare", "ratio", "barge"]) markets[k] = flat(d?.markets?.[k]).slice(0, MAX_MARKET_SENTENCES);
   return {
     update: flat(d?.update).slice(0, MAX_UPDATE_SENTENCES), // ≤ 3 sentences, enforced by code
-    policy: (d?.policy ?? []).filter((p) => p && p.id).map((p) => ({ id: p.id, whatChanged: one(p.whatChanged), whereItStands: one(p.whereItStands), whatItMeans: one(p.whatItMeans), next: one(p.next) })),
+    // An empty optional slot (next with no text) is no sentence at all.
+    policy: (d?.policy ?? []).filter((p) => p && p.id).map((p) => Object.fromEntries([["id", p.id], ...POLICY_SLOTS.map((k) => { const o = one(p[k]); return [k, o && o.text ? o : null]; })])),
     markets,
   };
 }
@@ -665,11 +782,11 @@ export function draftCompleteness(draft, pk) {
   for (const id of pk.policy.keys()) {
     const c = n.get(id) ?? 0;
     if (c !== 1) {
-      out.push({ path: `policy.${id}`, rule: c ? "duplicate_policy_item" : "missing_policy_item", detail: c ? `${id} appears ${c} times — write it once` : `${id} is in the packet but not in the draft — every policy item gets all four sentences` });
+      out.push({ path: `policy.${id}`, rule: c ? "duplicate_policy_item" : "missing_policy_item", detail: c ? `${id} appears ${c} times — write it once` : `${id} is in the packet but not in the draft — every item gets its whatHappened and whatItMeans sentences` });
       continue;
     }
     const p = draft.policy.find((x) => x.id === id);
-    for (const slot of ["whatChanged", "whereItStands", "whatItMeans", "next"]) if (!p[slot]?.text) out.push({ path: `policy.${id}.${slot}`, rule: "missing_policy_sentence", detail: `${id} needs its ${slot} sentence` });
+    for (const slot of REQUIRED_SLOTS) if (!p[slot]?.text) out.push({ path: `policy.${id}.${slot}`, rule: "missing_policy_sentence", detail: `${id} needs its ${slot} sentence` });
   }
   for (const id of n.keys()) if (!pk.policy.has(id)) out.push({ path: `policy.${id}`, rule: "unknown_policy_item", detail: `${id} is not a policy item in the packet` });
   return out;
@@ -679,7 +796,7 @@ export function draftCompleteness(draft, pk) {
 export function sentenceList(draft) {
   const out = [];
   draft.update.forEach((s, i) => out.push({ sid: `U${i + 1}`, where: ["update", i], s }));
-  for (const p of draft.policy) for (const slot of ["whatChanged", "whereItStands", "whatItMeans", "next"]) if (p[slot]) out.push({ sid: `${p.id}.${slot}`, where: ["policy", p.id, slot], s: p[slot] });
+  for (const p of draft.policy) for (const slot of POLICY_SLOTS) if (p[slot]) out.push({ sid: `${p.id}.${slot}`, where: ["policy", p.id, slot], s: p[slot] });
   for (const [k, list] of Object.entries(draft.markets)) list.forEach((s, i) => out.push({ sid: `M.${k}.${i + 1}`, where: ["markets", k, i], s }));
   return out;
 }
@@ -713,13 +830,13 @@ export function applyReview(draft, review, pk) {
   const del = new Set((review?.sentences ?? []).filter((x) => x.action === "delete").map((x) => x.sid));
   const out = structuredClone(draft);
   out.update = out.update.filter((_, i) => !del.has(`U${i + 1}`));
-  for (const p of out.policy) for (const slot of ["whatChanged", "whereItStands", "whatItMeans", "next"]) if (del.has(`${p.id}.${slot}`)) p[slot] = null;
+  for (const p of out.policy) for (const slot of POLICY_SLOTS) if (del.has(`${p.id}.${slot}`)) p[slot] = null;
   for (const k of Object.keys(out.markets)) out.markets[k] = out.markets[k].filter((_, i) => !del.has(`M.${k}.${i + 1}`));
   const downgrades = [];
   for (const b of review?.bands ?? []) {
     if (b.action !== "downgrade") continue;
     const item = pk.policy.get(b.id);
-    if (!item || !BAND[b.to]) continue;
+    if (!item || !BAND[b.to] || !BAND[item.band]) continue; // a Reported item has no band to lower
     if (BAND_ORDER.indexOf(b.to) > BAND_ORDER.indexOf(item.band)) {
       downgrades.push({ id: b.id, from: item.band, to: b.to, reason: b.reason });
       item.band = b.to; // never raised: only a strictly lower band is applied
@@ -759,24 +876,24 @@ export function renderMemberBrief(draft, pk, { preview = false, unsubscribeLine 
   L.push(`*Covering ${fmtDate(pk.window.fromDate)} through ${fmtDate(pk.window.toDate)}.*\n`);
   L.push("## The update\n");
   L.push(draft.update.map(sent).join(" ") || "_No update this edition._");
-  L.push("\n## Policy & regulatory\n");
-  if (pk.deadlines.length) {
-    L.push("### ⏰ Open comment deadlines\n");
-    for (const d of pk.deadlines) L.push(`- **${fmtDate(d.date)}** — [${d.title}](${d.url})${marks([d.cite])}`);
-    L.push("");
-  }
+  L.push("\n## Policy & news\n");
   const byId = new Map(draft.policy.map((p) => [p.id, p]));
-  const items = [...pk.policy.values()].sort((a, b) => BAND_ORDER.indexOf(a.band) - BAND_ORDER.indexOf(b.band));
-  if (!items.length) L.push(`_No new federal, state or court actions on the ${V.short} watchlist since the last Member Brief._\n`);
-  for (const it of items) {
+  let shown = 0;
+  for (const it of pk.policy.values()) { // packet order: policy actions, then must-read, then worth-knowing
     const p = byId.get(it.id);
-    const body = p ? ["whatChanged", "whereItStands", "whatItMeans", "next"].map((k) => sent(p[k])).filter(Boolean) : [];
-    if (!body.length) continue; // every sentence deleted in review → the item is not published
+    // Both required sentences must survive review; a lone "next" is not a story.
+    if (!p || !REQUIRED_SLOTS.every((k) => p[k])) continue;
+    const body = POLICY_SLOTS.map((k) => sent(p[k])).filter(Boolean);
+    shown++;
     L.push(`### ${it.headline || it.id}`);
-    L.push(`**${BAND[it.band].label}.** _${BAND[it.band].caveat}_\n`);
+    if (it.kind === "card") L.push(`**${BAND[it.band].label}.** _${BAND[it.band].caveat}_\n`);
+    else if (it.kind === "news") L.push(`**News.** _Reported by ${it.publisher}._\n`);
+    else L.push(`**${it.publisher} — ${it.docLabel}.** _${it.band === "enacted" ? "Published as final; the source gives its effective date." : bandOf(it.band).caveat}_\n`);
     L.push(body.join(" "));
+    if (it.deadline) L.push(`\n⏰ **Comments due ${fmtDate(it.deadline.date)}** — ${it.deadline.url ? `[how to comment](${it.deadline.url})` : "see the source"}${marks([it.deadline.cite])}`);
     L.push("");
   }
+  if (!shown) L.push(`_No must-read policy or news on the ${V.short} watchlist since the last Member Brief._\n`);
   L.push("## Markets\n");
   const SEC = [
     ["fund", "Fund positioning"],
@@ -784,10 +901,22 @@ export function renderMemberBrief(draft, pk, { preview = false, unsubscribeLine 
     ["ratio", "Soybean:corn price ratio"],
     ["barge", "Barge freight"],
   ];
+  const cell = (v) => String(v ?? "—").replace(/\|/g, "/");
   for (const [k, title] of SEC) {
     const f = pk.markets.get(k);
     L.push(`### ${title}\n`);
-    for (const l of f?.lines ?? []) L.push(`- ${lineWithCite(l)}`);
+    if (f?.chartFile) L.push(`![${cell(f.chart.alt)}](${f.chartFile})\n`);
+    if (f?.kpis?.length) {
+      // The numbers, computed by code: one row per measure. Lines with no source (a measure not
+      // updated this cycle) still print under the table so nothing disappears silently.
+      L.push("| Measure | Latest | Change | Past-year position | vs. 3-yr avg (same week) | As of |");
+      L.push("|---|---|---|---|---|---|");
+      for (const r of f.kpis) L.push(`| ${cell(r.measure)}${marks([r.cite])} | ${cell(r.latest)} | ${cell(r.change)} | ${cell(r.position)} | ${cell(r.vs3y)} | ${cell(r.asof)}${r.stale ? " (not updated this cycle)" : ""} |`);
+      const notes = f.lines.filter((x) => !/\[S\d+\]$/.test(x));
+      if (notes.length) L.push("", ...notes.map((l) => `- ${lineWithCite(l)}`));
+    } else {
+      for (const l of f?.lines ?? []) L.push(`- ${lineWithCite(l)}`);
+    }
     const words = (draft.markets[k] ?? []).map(sent).filter(Boolean).join(" ");
     if (words) L.push(`\n${words}`);
     L.push("");
@@ -870,7 +999,7 @@ async function callReview(client, model, pk, draft) {
   // Same breakpoint placement as the draft: system + packet cached, the draft under review after it.
   const content = [
     { type: "text", text: packetPrompt(pk), cache_control: { type: "ephemeral" } },
-    { type: "text", text: `DRAFT SENTENCES TO REVIEW (tokens shown as their values):\n${lines.join("\n") || "(none)"}\n\nPOLICY ITEM BANDS:\n${[...pk.policy.values()].map((p) => `${p.id}: ${BAND[p.band].label}`).join("\n") || "(none)"}` },
+    { type: "text", text: `DRAFT SENTENCES TO REVIEW (tokens shown as their values):\n${lines.join("\n") || "(none)"}\n\nPOLICY ITEM BANDS:\n${[...pk.policy.values()].map((p) => `${p.id}: ${bandOf(p.band).label}`).join("\n") || "(none)"}` },
   ];
   const req = {
     model,
@@ -899,6 +1028,28 @@ class StageError extends Error {
   }
 }
 
+/**
+ * Draw each market section's chart to a PNG next to the saved brief (briefings/charts/). A chart that
+ * fails to draw is left out — the indicator table still carries the numbers — and never stops the brief.
+ */
+export async function writeCharts(pk, stem, { log = console.log, draw = svgToPng } = {}) {
+  const dir = path.join(store.DATA_DIR, "briefings", "charts");
+  for (const [, f] of pk.markets) {
+    if (!f.chart) continue;
+    try {
+      const svg = f.chart.kind === "multiples" ? smallMultiplesSvg(f.chart.spec.panels, { title: f.chart.spec.title }) : lineChartSvg(f.chart.spec);
+      const png = await draw(svg);
+      fs.mkdirSync(dir, { recursive: true });
+      const name = `${stem}-${f.chart.key}.png`;
+      fs.writeFileSync(path.join(dir, name), png);
+      f.chartFile = `charts/${name}`;
+    } catch (err) {
+      f.chartFile = null;
+      log(`   ⚠️ ${f.chart.key} chart not drawn: ${err.message}`);
+    }
+  }
+}
+
 /** Full-document advice check after rendering (belt and braces over the per-sentence lint). */
 function finalCompliance(markdown) {
   const body = markdown.split("\n---\n")[0]; // the footer quotes "buy, sell, or hold" by design
@@ -916,7 +1067,7 @@ export async function runMemberBrief({ env = process.env, watchlist = null, prev
   const spec = typeof watchlist?.briefEditions?.member === "string" && watchlist.briefEditions.member.trim() ? watchlist.briefEditions.member : DEFAULT_MEMBER_SPEC;
   const edition = preview ? "member-preview" : "member";
   const pk = buildMemberPacket({ now, tz, spec, lastSent: lastSent(), bargeOverride: watchlist?.sources?.agtransport?.bargeLocations });
-  log(`🌾 Member Brief ${preview ? "(preview) " : ""}— window ${pk.window.fromDate} → ${pk.window.toDate}: ${pk.policy.size} policy item(s), ${pk.deadlines.length} open deadline(s), ${pk.sources.size} sources`);
+  log(`🌾 Member Brief ${preview ? "(preview) " : ""}— window ${pk.window.fromDate} → ${pk.window.toDate}: ${pk.policy.size} policy & news item(s), ${pk.sources.size} sources`);
 
   const unsubscribeLine = `You receive the ${V.short} Member Brief as an ${V.org} member. To unsubscribe, reply with "unsubscribe"${unsubscribeAddress(env) ? ` or write to ${unsubscribeAddress(env)}` : ""}.`;
   const failures = [];
@@ -983,6 +1134,7 @@ export async function runMemberBrief({ env = process.env, watchlist = null, prev
     throw e;
   }
 
+  await writeCharts(pk, `${new Intl.DateTimeFormat("en-CA", { timeZone: tzOpt }).format(new Date())}-${edition}`, { log });
   const markdown = renderMemberBrief(final.draft, pk, { preview, unsubscribeLine });
   const advice = finalCompliance(markdown);
   if (advice.length) {

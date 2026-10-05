@@ -28,7 +28,14 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  BARGE FREIGHT NOW FILLS IN. The Member Brief's barge lines looked for "St. Louis" and "Illinois River",
+  MEMBER BRIEF REBUILT FOR FARMERS. The policy section now carries what the daily brief rated must-read —
+  federal and state actions and news — each in two or three plain sentences on what happened and what it
+  means for an Iowa operation; comment deadlines appear only on the item they belong to. Each market
+  section now shows a chart (fund positions 52 weeks, oil share and barge 12 months against their 3-year
+  average, soy:corn ratio 5 years with the new-crop ratio marked) and a table of indicators — latest,
+  change, position in the past year, versus the 3-year average. Update only — no new keys.
+  ---
+  1.41.1 — BARGE FREIGHT NOW FILLS IN. The Member Brief's barge lines looked for "St. Louis" and "Illinois River",
   but USDA reports barge freight by river segment, so they always came back empty. The brief now follows
   Iowa's own Mississippi reaches (Dubuque – Genoa, Keithsburg – Savanna, Winfield – Canton) plus the
   St. Louis harbor and lower Illinois River benchmarks, in $/ton. Update only — no new keys.

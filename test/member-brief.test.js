@@ -98,11 +98,11 @@ const goodDraft = () => ({
     { text: "Funds added to soybean positions last week.", cites: [S_FUND] },
   ],
   policy: [
-    { id: P_FR, whatChanged: { text: "EPA proposed renewable fuel volumes for the next two years.", cites: [S_FR] }, whereItStands: { text: `It is a proposal, and comments close {{${P_FR}_CLOCK}}.`, cites: [S_FR] }, whatItMeans: { text: "Higher volumes would add demand for soybean oil used in biodiesel.", cites: [S_FR] }, next: { text: `The next step is the comment deadline on {{${P_FR}_CLOCK}}.`, cites: [S_FR] } },
-    { id: P_IA, whatChanged: { text: "The Iowa DNR adopted a rule on agricultural drainage wells.", cites: [S_IA] }, whereItStands: { text: "The rule is final and in effect.", cites: [S_IA] }, whatItMeans: { text: "Operations with drainage wells should know the rule now applies.", cites: [S_IA] }, next: { text: "No further step is scheduled.", cites: [S_IA] } },
+    { id: P_FR, whatHappened: { text: "EPA proposed renewable fuel volumes for the next two years, and the proposal is open for comment.", cites: [S_FR] }, whatItMeans: { text: "Higher volumes would add demand for soybean oil used in biodiesel.", cites: [S_FR] }, next: { text: `Comments are due {{${P_FR}_COMMENTS_DUE}}.`, cites: [S_FR] } },
+    { id: P_IA, whatHappened: { text: "The Iowa DNR adopted a rule on agricultural drainage wells, and the rule is in effect.", cites: [S_IA] }, whatItMeans: { text: "Operations with drainage wells should know the rule now applies.", cites: [S_IA] }, next: { text: "", cites: [] } },
   ],
   markets: {
-    fund: [{ text: "Managed money is {{FUND_SOYBEANS_NET}}, {{FUND_SOYBEANS_PCT52}}.", cites: [S_FUND] }],
+    fund: [{ text: "Funds are {{FUND_SOYBEANS_NET}}, a strongly bullish stance by speculators.", cites: [S_FUND] }],
     oilShare: [],
     ratio: [{ text: "The new-crop ratio is {{RATIO_NEWCROP}}.", cites: [S_RATIO] }],
     barge: [{ text: "St. Louis freight is {{BARGE_CAPE_GIRARDEAU_GRAFTON_RATE}}.", cites: [S_BARGE] }],
@@ -181,11 +181,78 @@ test("market inputs: new-crop ratio from Nov soy ÷ Dec corn; oil share from AMS
   assert.equal(pk.tokens.get("BARGE_CAPE_GIRARDEAU_GRAFTON_AVG3").value, "$22.00 per ton 3-year average for the same week");
 });
 
-test("deadlines and what-to-watch are code-rendered with citations", () => {
-  assert.equal(pk.deadlines.length, 1);
-  assert.equal(pk.deadlines[0].date, "2026-11-17");
-  assert.ok(pk.watch.some((w) => w.date === "2026-10-08" && /Comment period closes/.test(w.text)), "a card's dated next event inside the window");
+test("comment deadlines ride inline on the item they belong to; what-to-watch carries no 'Comments due' list", () => {
+  assert.equal(pk.deadlines, undefined, "no global deadline list");
+  const fr = pk.policy.get(P_FR);
+  assert.equal(fr.deadline.date, "2026-11-17", "found through the card's evidence item");
+  assert.equal(pk.tokens.get(`${P_FR}_COMMENTS_DUE`).value, "Nov. 17, 2026");
+  assert.equal(pk.policy.get(P_IA).deadline, null);
+  assert.ok(!pk.watch.some((w) => /comment/i.test(w.text)), "no comment periods on the farmer's calendar");
+  assert.ok(pk.watch.some((w) => /WASDE/.test(w.text)), "the report calendar stays");
   assert.ok(pk.watch.every((w) => pk.sources.has(w.cite)));
+});
+
+test("policy & news: must-read news and uncarded official records join the cards; background and market items do not", () => {
+  const seed = (uid, title, sourceId, tier, extra = {}) => {
+    store.markSeen({ uid, sourceId, title, summary: `${title} body`, url: `https://example.org/${uid}`, publishedAt: "2026-10-06T00:00:00Z", raw: {} }, { relevant: true, topicIds: [], oneLine: `${title} one-liner`, tier });
+    raw.prepare("UPDATE seen_items SET first_seen_at = '2026-10-06T14:00:00.000Z' WHERE uid = ?").run(uid);
+    for (const [k, v] of Object.entries(extra)) raw.prepare(`UPDATE seen_items SET ${k} = ? WHERE uid = ?`).run(v, uid);
+  };
+  seed("news-1", "China books U.S. soybean cargoes", "rss", "must_read");
+  seed("news-2", "Background feature on cover crops", "rss", "background");
+  seed("pr-1", "USDA proposed rule on grain standards", "federal_register", "worth_knowing", { doc_type: "proposed-rule", comment_deadline: "2026-12-01" });
+  seed("mkt-1", "Export sales report", "fas_export_sales", "must_read");
+  try {
+    const p = mb.buildMemberPacket({ now: NOW, tz: TZ });
+    const list = [...p.policy.values()];
+    assert.deepEqual(list.slice(0, 2).map((x) => x.kind), ["card", "card"], "staff cards first");
+    const news = list.find((x) => x.headline === "China books U.S. soybean cargoes");
+    assert.equal(news.kind, "news");
+    assert.equal(news.band, "reported");
+    const pr = list.find((x) => x.headline === "USDA proposed rule on grain standards");
+    assert.equal(pr.kind, "official");
+    assert.equal(pr.band, "proposed", "a proposed rule is banded Proposed by code");
+    assert.equal(pr.deadline.date, "2026-12-01");
+    assert.ok(list.indexOf(news) < list.indexOf(pr), "must-read before worth-knowing");
+    assert.ok(!list.some((x) => /cover crops|Export sales/.test(x.headline)), "background tier and market sources stay out");
+    // A Reported item may not be described as decided, and the reviewer has no band to lower.
+    assert.ok(lintMemberSentence({ text: "The deal is final.", cites: [[...news.citeIds][0]] }, p, { band: news.band, allowedCites: news.citeIds }).some((f) => f.rule === "enacted_claim"));
+    const r = mb.applyReview({ update: [], policy: [], markets: {} }, { sentences: [], bands: [{ id: news.id, action: "downgrade", to: "speculative", reason: "x" }] }, p);
+    assert.equal(r.downgrades.length, 0);
+    assert.equal(news.band, "reported");
+    assert.match(mb.packetPrompt(p), new RegExp(`^${news.id} — NEWS — band: Reported`, "m"));
+  } finally {
+    raw.prepare("DELETE FROM seen_items WHERE uid IN ('news-1','news-2','pr-1','mkt-1')").run();
+  }
+});
+
+test("lint: doubled wording around a token, and market sentences that restate the table, are rejected", () => {
+  const doubled = lintMemberSentence({ text: "Funds held a net long position of {{FUND_SOYBEANS_NET}}.", cites: [S_FUND] }, pk, {});
+  assert.ok(doubled.some((f) => f.rule === "doubled_wording"));
+  assert.ok(lintMemberSentence({ text: "As of the week ending {{FUND_SOYBEANS_ASOF}}, funds were long.", cites: [S_FUND] }, pk, {}).some((f) => f.rule === "doubled_wording"));
+  assert.ok(lintMemberSentence({ text: "Positions rose by {{FUND_SOYBEANS_WOW}}.", cites: [S_FUND] }, pk, {}).some((f) => f.rule === "doubled_wording"));
+  assert.deepEqual(lintMemberSentence({ text: "Funds held {{FUND_SOYBEANS_NET}} for the {{FUND_SOYBEANS_ASOF}}.", cites: [S_FUND] }, pk, {}), []);
+  const d = goodDraft();
+  d.markets.fund = [{ text: "Funds are {{FUND_SOYBEANS_NET}}, {{FUND_SOYBEANS_PCT52}}.", cites: [S_FUND] }];
+  assert.ok(lintMemberDraft(mb.normalizeDraft(d), pk).failures.some((f) => f.rule === "restates_figures"));
+});
+
+test("market sections carry code-computed indicator rows and a chart spec over the agreed timelines", () => {
+  const fund = pk.markets.get("fund");
+  const soy = fund.kpis.find((k) => k.measure === "Soybeans");
+  assert.equal(soy.latest, "Net long 69,000");
+  assert.equal(soy.change, "+1,000 w/w");
+  assert.equal(soy.position, "100th percentile");
+  assert.equal(fund.chart.kind, "line");
+  assert.ok(fund.chart.spec.series.every((s) => s.points.length <= 52), "52 weeks");
+  assert.ok(fund.chart.spec.zeroLine);
+  const barge = pk.markets.get("barge");
+  assert.deepEqual(barge.kpis.map((k) => [k.latest, k.change, k.vs3y]), [["$28.50/ton", "−$1.50 w/w", "+$6.50"]]);
+  assert.equal(barge.chart.kind, "multiples");
+  assert.equal(barge.chart.spec.panels[0].reference.label, "3-year average, same week");
+  const ratio = pk.markets.get("ratio");
+  assert.equal(ratio.kpis[0].latest, (1050 / 425).toFixed(2));
+  assert.equal(ratio.kpis[0].change, "—", "no settlement a week earlier");
 });
 
 // ---------------------------------------------------------------- lint
@@ -273,11 +340,18 @@ test("end to end (preview): section order, numbers substituted by code, sources 
     // 1,024-token cache minimum and would cache nothing.
     assert.equal(calls.bodies[0].messages[0].content[0].cache_control.type, "ephemeral", "system + packet is the cached prefix");
     const md = fs.readFileSync(r.path, "utf8");
-    const order = ["# ISA Member Brief", "## The update", "## Policy & regulatory", "## Markets", "## What to watch", "## Sources"].map((h) => md.indexOf(h));
+    const order = ["# ISA Member Brief", "## The update", "## Policy & news", "## Markets", "## What to watch", "## Sources"].map((h) => md.indexOf(h));
     assert.ok(order.every((v, i) => v >= 0 && (i === 0 || v > order[i - 1])), `fixed section order: ${order}`);
-    assert.ok(md.indexOf("### ⏰ Open comment deadlines") < md.indexOf(`### EPA proposes`), "deadlines first in policy");
+    assert.ok(!md.includes("Open comment deadlines"), "no global deadline list");
+    const epa = md.slice(md.indexOf("### EPA proposes")).split(/\n#{2,3} /)[0];
+    assert.match(epa, /⏰ \*\*Comments due Nov\. 17, 2026\*\* — \[how to comment\]/, "the deadline rides inline on its item");
     assert.ok(md.includes("**Proposed — NOT final.**"));
     assert.ok(md.includes("net long 69,000 contracts"));
+    assert.match(md, /\| Measure \| Latest \| Change \| Past-year position \| vs\. 3-yr avg \(same week\) \| As of \|/);
+    assert.match(md, /\| Soybeans \[\d+\] \| Net long 69,000 \| \+1,000 w\/w \|/);
+    assert.match(md, /!\[Managed-money net position[^\]]*\]\(charts\/\d{4}-\d{2}-\d{2}-member-preview-fund\.png\)/, "the chart is embedded");
+    const png = fs.readFileSync(path.join(DIR, "briefings", md.match(/\(charts\/([^)]+-fund\.png)\)/)[0].slice(1, -1)));
+    assert.deepEqual([...png.subarray(1, 4)].map((c) => String.fromCharCode(c)).join(""), "PNG");
     assert.ok(!/\{\{[A-Z_]+\}\}/.test(md), "every token substituted");
     assert.ok(!md.includes("Funds added to soybean positions"), "the reviewer's deletion is honoured");
     assert.match(md, /## Sources\n\n1\. /);
@@ -441,9 +515,10 @@ test("a draft that leaves out a packet policy item fails lint (the renderer woul
     restore();
   }
   const pk = { policy: new Map([["P1", {}]]) };
-  const half = mb.normalizeDraft({ update: [], policy: [{ id: "P1", whatChanged: { text: "A.", cites: ["S1"] } }, { id: "P9", whatChanged: { text: "B.", cites: ["S1"] } }], markets: {} });
+  const half = mb.normalizeDraft({ update: [], policy: [{ id: "P1", whatHappened: { text: "A.", cites: ["S1"] } }, { id: "P9", whatHappened: { text: "B.", cites: ["S1"] } }], markets: {} });
   const rules = mb.draftCompleteness(half, pk).map((f) => `${f.path} ${f.rule}`);
-  assert.ok(rules.includes("policy.P1.next missing_policy_sentence"));
+  assert.ok(rules.includes("policy.P1.whatItMeans missing_policy_sentence"));
+  assert.ok(!rules.includes("policy.P1.next missing_policy_sentence"), "the third sentence is optional");
   assert.ok(rules.includes("policy.P9 unknown_policy_item"));
 });
 

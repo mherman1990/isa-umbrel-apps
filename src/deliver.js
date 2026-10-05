@@ -26,15 +26,45 @@ const INLINE = (s) =>
     .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s.,;:)]|$)/g, "$1<em>$2</em>")
     .replace(/`([^`]+)`/g, '<code style="background:#f3f6f9;padding:1px 4px;border-radius:3px">$1</code>');
 
-export function markdownToEmailHtml(markdown, title = "The Bean Brief") {
+// A chart line in a brief: `![alt](charts/<file>.png)` — the only image form the briefs write.
+export const CHART_LINE = /^!\[([^\]]*)\]\((charts\/[A-Za-z0-9._-]+\.png)\)$/;
+const tableCells = (line) => line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+
+/**
+ * @param {string} markdown
+ * @param {string} title
+ * @param {{footer?: string, image?: (src:string, alt:string) => string|null}} [opts]
+ *   footer — the closing line (internal briefs keep the monitoring wording; member mail passes its own);
+ *   image — maps a chart path to an <img> src (e.g. a cid:); without it a chart line becomes its alt text.
+ */
+export function markdownToEmailHtml(markdown, title = "The Bean Brief", { footer = `The Bean Brief — ${V.org} · internal monitoring. Informational, not a recommendation.`, image = null } = {}) {
   const lines = escHtml(markdown).replace(/\r\n/g, "\n").split("\n");
   const out = [];
   let inList = false;
+  let table = null;
   const closeList = () => { if (inList) { out.push("</ul>"); inList = false; } };
+  const TD = `${FONT};font-size:.9em;padding:5px 8px;border-bottom:1px solid #e6e5e1;text-align:left;vertical-align:top`;
+  const closeTable = () => {
+    if (!table) return;
+    const [head, ...rows] = table.filter((r) => !r.every((c) => /^:?-{3,}:?$/.test(c)));
+    out.push(`<table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:8px 0;width:100%">`);
+    if (head) out.push(`<tr>${head.map((c) => `<th style="${TD};color:#52514e;font-weight:600;border-bottom:2px solid #c9c8c3">${INLINE(c)}</th>`).join("")}</tr>`);
+    for (const r of rows) out.push(`<tr>${r.map((c) => `<td style="${TD}">${INLINE(c)}</td>`).join("")}</tr>`);
+    out.push("</table>");
+    table = null;
+  };
   for (const raw of lines) {
     const line = raw.trimEnd();
     let m;
+    if (/^\s*\|.*\|\s*$/.test(line)) { closeList(); (table ??= []).push(tableCells(line)); continue; }
+    closeTable();
     if (!line.trim()) { closeList(); continue; }
+    if ((m = line.trim().match(CHART_LINE))) {
+      closeList();
+      const src = image ? image(m[2], m[1]) : null;
+      out.push(src ? `<p style="margin:8px 0"><img src="${src}" alt="${m[1]}" width="680" style="display:block;width:100%;max-width:680px;height:auto;border:0"></p>` : `<p style="${FONT};margin:8px 0;color:#52514e"><em>[Chart: ${m[1]}]</em></p>`);
+      continue;
+    }
     if (/^---+$/.test(line.trim())) { closeList(); out.push('<hr style="border:none;border-top:1px solid #d9e2ec;margin:18px 0">'); continue; }
     if ((m = line.match(/^(#{1,4})\s+(.*)$/))) {
       closeList();
@@ -60,11 +90,12 @@ export function markdownToEmailHtml(markdown, title = "The Bean Brief") {
     closeList();
     out.push(`<p style="${FONT};line-height:1.55;margin:8px 0">${INLINE(line)}</p>`);
   }
+  closeTable();
   closeList();
   return `<div style="${FONT};color:#1c2b3a;max-width:760px">
 <div style="border-bottom:3px solid #FFC425;padding-bottom:6px;margin-bottom:14px;font-weight:700;color:#004A8D">${escHtml(title)}</div>
 ${out.join("\n")}
-<p style="${FONT};font-size:.8em;color:#6b7c8c;margin-top:20px;border-top:1px solid #d9e2ec;padding-top:8px">The Bean Brief — ${V.org} · internal monitoring. Informational, not a recommendation.</p>
+<p style="${FONT};font-size:.8em;color:#6b7c8c;margin-top:20px;border-top:1px solid #d9e2ec;padding-top:8px">${escHtml(footer)}</p>
 </div>`;
 }
 
@@ -249,12 +280,29 @@ export async function sendMemberBriefEmail({ markdown, subject, recipients, env 
     bcc: recipients,
     replyTo: env.MEMBER_BRIEF_REPLY_TO || undefined,
     subject,
-    text: markdown,
-    html: markdownToEmailHtml(markdown, subject),
+    ...memberEmailBody(markdown, subject),
   };
   if (unsubscribeTo) message.list = { unsubscribe: { url: `mailto:${unsubscribeTo}?subject=unsubscribe`, comment: `Unsubscribe from the ${V.short} Member Brief` } };
   await transport.sendMail(message);
   return true;
+}
+
+/**
+ * The Member Brief's text + HTML parts. Charts travel as inline (cid:) attachments so they show in the
+ * body without the reader's client fetching anything; a chart whose file is missing becomes its alt text.
+ */
+export function memberEmailBody(markdown, subject, dir = path.join(store.DATA_DIR, "briefings")) {
+  const attachments = [];
+  const image = (src) => {
+    const file = path.join(dir, src);
+    if (!fs.existsSync(file)) return null;
+    const cid = `${path.basename(src, ".png")}@member-brief`;
+    if (!attachments.some((a) => a.cid === cid)) attachments.push({ filename: path.basename(src), path: file, cid, contentType: "image/png", contentDisposition: "inline" });
+    return `cid:${cid}`;
+  };
+  const html = markdownToEmailHtml(markdown, subject, { footer: `${V.short} Member Brief — ${V.org}. Education, not advice.`, image });
+  const text = markdown.split("\n").map((l) => l.trim().replace(CHART_LINE, (_, alt) => `[Chart: ${alt}]`) === l.trim() ? l : l.trim().replace(CHART_LINE, (_, alt) => `[Chart: ${alt}]`)).join("\n");
+  return { text, html, attachments };
 }
 
 /**
