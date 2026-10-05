@@ -102,10 +102,10 @@ const goodDraft = () => ({
     { id: P_IA, whatHappened: { text: "The Iowa DNR adopted a rule on agricultural drainage wells, and the rule is in effect.", cites: [S_IA] }, whatItMeans: { text: "Operations with drainage wells should know the rule now applies.", cites: [S_IA] }, next: { text: "", cites: [] } },
   ],
   markets: {
-    fund: [{ text: "Funds are {{FUND_SOYBEANS_NET}}, a strongly bullish stance by speculators.", cites: [S_FUND] }],
+    fund: [{ text: "Speculators are heavily long soybeans, so a bearish report could bring quick selling.", cites: [S_FUND] }],
     oilShare: [],
-    ratio: [{ text: "The new-crop ratio is {{RATIO_NEWCROP}}.", cites: [S_RATIO] }],
-    barge: [{ text: "St. Louis freight is {{BARGE_CAPE_GIRARDEAU_GRAFTON_RATE}}.", cites: [S_BARGE] }],
+    ratio: [{ text: "New-crop prices still lean toward soybeans relative to corn.", cites: [S_RATIO] }],
+    barge: [{ text: "Freight at the St. Louis harbor eased from the prior week.", cites: [S_BARGE] }],
   },
 });
 
@@ -241,8 +241,10 @@ test("lint: doubled wording around a token, and market sentences that restate th
   assert.ok(lintMemberSentence({ text: "Positions rose by {{FUND_SOYBEANS_WOW}}.", cites: [S_FUND] }, pk, {}).some((f) => f.rule === "doubled_wording"));
   assert.deepEqual(lintMemberSentence({ text: "Funds held {{FUND_SOYBEANS_NET}} for the {{FUND_SOYBEANS_ASOF}}.", cites: [S_FUND] }, pk, {}), []);
   const d = goodDraft();
-  d.markets.fund = [{ text: "Funds are {{FUND_SOYBEANS_NET}}, {{FUND_SOYBEANS_PCT52}}.", cites: [S_FUND] }];
-  assert.ok(lintMemberDraft(mb.normalizeDraft(d), pk).failures.some((f) => f.rule === "restates_figures"));
+  for (const text of ["Funds are {{FUND_SOYBEANS_NET}}, {{FUND_SOYBEANS_PCT52}}.", "Funds are {{FUND_SOYBEANS_NET}}.", "Freight is near 28.50 dollars."]) {
+    d.markets.fund = [{ text, cites: [S_FUND] }];
+    assert.ok(lintMemberDraft(mb.normalizeDraft(d), pk).failures.some((f) => f.rule === "restates_figures"), text);
+  }
 });
 
 test("market sections carry code-computed indicator rows and a chart spec over the agreed timelines", () => {
@@ -354,7 +356,7 @@ test("end to end (preview): section order, numbers substituted by code, sources 
     const epa = md.slice(md.indexOf("### EPA proposes")).split(/\n#{2,3} /)[0];
     assert.match(epa, /⏰ \*\*Comments due Nov\. 17, 2026\*\* — \[how to comment\]/, "the deadline rides inline on its item");
     assert.ok(md.includes("**Proposed — NOT final.**"));
-    assert.ok(md.includes("net long 69,000 contracts"));
+    assert.ok(md.includes("Speculators are heavily long soybeans"));
     assert.match(md, /\| Measure \| Latest \| Change \| Past-year position \| vs\. 3-yr avg \(same week\) \| As of \|/);
     assert.match(md, /\| Soybeans \[\d+\] \| Net long 69,000 \| \+1,000 w\/w \|/);
     assert.match(md, /!\[Managed-money net position[^\]]*\]\(charts\/\d{4}-\d{2}-\d{2}-member-preview-fund\.png\)/, "the chart is embedded");
@@ -580,14 +582,20 @@ test("news publisher: the registry entity, else the channel — never the bare w
   };
   seed("nl-1", "agbull");
   seed("nl-2", null);
+  store.markSeen({ uid: "rss-x", sourceId: "rss", title: "Feed story rss-x", summary: "body", url: "", publishedAt: "2026-10-06T00:00:00Z", raw: {} }, { relevant: true, topicIds: [], oneLine: "", tier: "must_read" });
+  raw.prepare("UPDATE seen_items SET first_seen_at = '2026-10-06T14:00:00.000Z' WHERE uid = 'rss-x'").run();
   try {
     const p = mb.buildMemberPacket({ now: NOW, tz: TZ });
     const pub = (t) => [...p.policy.values()].find((x) => x.headline === t)?.publisher;
     assert.equal(pub("Newsletter nl-1"), "AgBull Commodities");
     assert.equal(pub("Newsletter nl-2"), "Email newsletter");
+    const md = mb.renderMemberBrief({ update: [], policy: [...p.policy.values()].map((x) => ({ id: x.id, whatHappened: { text: "A.", cites: [[...x.citeIds][0]] }, whatItMeans: { text: "B.", cites: [[...x.citeIds][0]] }, next: null })), markets: {} }, p);
+    assert.match(md, /\*\*News\.\*\* _From an email newsletter\._/);
+    assert.match(md, /\*\*News\.\*\* _From a news feed\._/);
+    assert.match(md, /\*\*News\.\*\* _Reported by AgBull Commodities\._/);
     assert.ok(![...p.sources.values()].some((s) => s.publisher === "source"));
   } finally {
-    raw.prepare("DELETE FROM seen_items WHERE uid IN ('nl-1','nl-2')").run();
+    raw.prepare("DELETE FROM seen_items WHERE uid IN ('nl-1','nl-2','rss-x')").run();
   }
 });
 

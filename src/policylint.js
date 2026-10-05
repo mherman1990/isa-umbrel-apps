@@ -353,10 +353,12 @@ export function lintMemberDraft(draft, packet) {
   for (const [k, list] of Object.entries(draft?.markets ?? {})) {
     const fact = packet.markets.get(k);
     each(list, `markets.${k}`, { allowedCites: fact ? fact.citeIds : new Set() });
-    // The chart and indicator table above already print every figure; a market sentence explains them.
+    // The chart and indicator table above already print every figure; a market sentence explains what
+    // they MEAN and carries no figure of its own — no token, and no number copied from a source either.
     (list ?? []).forEach((s, i) => {
-      const n = [...String(s?.text ?? "").matchAll(TOKEN_RE)].length;
-      if (n > 1) failures.push({ path: `markets.${k}[${i}]`, rule: "restates_figures", detail: `${n} figures in one sentence — the table already prints them; explain what they mean, using at most one` });
+      const t = String(s?.text ?? "");
+      const n = [...t.matchAll(TOKEN_RE)].length + digitWords(t.replace(TOKEN_RE, " ")).length;
+      if (n) failures.push({ path: `markets.${k}[${i}]`, rule: "restates_figures", detail: `${n} figure(s) in a market sentence — the table already prints them; explain what they mean, with no numbers` });
     });
   }
   return { ok: failures.length === 0, failures };

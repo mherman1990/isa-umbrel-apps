@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.43.2 — Member Brief: market commentary explains, never repeats
+
+From the first passing preview:
+
+- **No figures in market sentences.** The chart and the indicator table already print every number. A market sentence now explains what the movement means and contains no token and no number copied from a source; the lint rule `restates_figures` rejects any. The preview's "Funds held net long 246,558 contracts…" and "settled at 2.57 … below the 2.73 ratio" would now be rejected.
+- **Places named exactly as listed.** The prompt tells the model not to group the barge segments under a river or region their labels don't name. The preview called all five segments "Mississippi River reaches", but Hardin – Havana is on the Illinois River.
+- **"From an email newsletter."** replaces "Reported by Email newsletter." when no publisher could be identified.
+
+Update only — no new keys. Set `MEMBER_BRIEF_REPLY_TO` to the address members should write to: without it, the unsubscribe line falls back to the sending account.
+
 ## 1.43.1 — Member Brief: fixes from the first live preview
 
 The first 1.43.0 preview failed closed on a single sentence, and its news items read "Reported by source."

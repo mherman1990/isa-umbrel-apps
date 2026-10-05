@@ -701,7 +701,7 @@ HARD RULES — a draft that breaks any of these is rejected by code and not sent
 WHAT TO WRITE
 - "update": 1 to 3 sentences — the most important things since the last brief, policy first.
 - "policy": for EACH item given (policy actions and news alike), two or three sentences: whatHappened (who did what, and where it stands), whatItMeans (the concrete consequence for ${V.aState} corn and soybean operation — prices, costs, demand, what a farmer may have to do or watch — as explanation), and next (only when the item has a next-date or comments-due token: the next dated step; otherwise leave next empty with no cites). Do not write about comment periods unless the item has a comments-due token.
-- "markets": for each of fund, oilShare, ratio, barge — 0 to 2 sentences on what the movement MEANS for ${V.aState} soybean and corn demand, margins or basis. A chart and a table of every figure (latest, change, position in the past year, versus the 3-year average) are already printed by code directly above your words: do NOT restate those figures. Use at most one token per sentence, and only when the sentence needs it. If a section is marked not updated this cycle, write zero sentences for it.
+- "markets": for each of fund, oilShare, ratio, barge — 0 to 2 sentences on what the movement MEANS for ${V.aState} soybean and corn demand, margins or basis. A chart and a table of every figure (latest, change, position in the past year, versus the 3-year average) are already printed by code directly above your words: do NOT restate them. Market sentences contain NO numbers and NO tokens at all — say what the movement means ("funds are heavily long, so a bearish report could trigger selling"), not what it is. Name places exactly as the section lists them; do not group them under a river or region the labels do not name. If a section is marked not updated this cycle, write zero sentences for it.
 
 If the packet is thin, write less. Fewer, fully supported sentences are always better than more.`;
 
@@ -946,7 +946,7 @@ export function renderMemberBrief(draft, pk, { preview = false, unsubscribeLine 
     shown++;
     L.push(`### ${it.headline || it.id}`);
     if (it.kind === "card") L.push(`**${BAND[it.band].label}.** _${BAND[it.band].caveat}_\n`);
-    else if (it.kind === "news") L.push(`**News.** _Reported by ${it.publisher}._\n`);
+    else if (it.kind === "news") L.push(`**News.** _${Object.values(CHANNEL_LABEL).includes(it.publisher) ? `From ${/^[aeiou]/i.test(it.publisher) ? "an" : "a"} ${it.publisher.toLowerCase()}` : `Reported by ${it.publisher}`}._\n`);
     else L.push(`**${it.publisher} — ${it.docLabel}.** _${it.band === "enacted" ? "Published as final; the source gives its effective date." : bandOf(it.band).caveat}_\n`);
     L.push(body.join(" "));
     if (it.deadline) L.push(`\n⏰ **Comments due ${fmtDate(it.deadline.date)}** — ${it.deadline.url ? `[how to comment](${it.deadline.url})` : "see the source"}${marks([it.deadline.cite])}`);
