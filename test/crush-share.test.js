@@ -13,7 +13,7 @@ const DIR = fs.mkdtempSync(path.join(os.tmpdir(), "bb-crush-share-"));
 process.env.POLIBRIEF_DATA_DIR = DIR;
 
 const store = await import("../src/store.js");
-const { productShareSeries, __test } = await import("../src/crush.js");
+const { productShareSeries, oilShareText, __test } = await import("../src/crush.js");
 const { oilSharePoints } = __test;
 
 test("oil share ties out to the workbook's 2026-07-15 board figures", () => {
@@ -120,4 +120,32 @@ test("oil-share signal: stale or thin board history → null (kept off the board
   assert.equal(scoreOilShare(meal, oil, new Date("2026-10-15T00:00:00Z")), null);
   const thin = legs({ days: 40 });
   assert.equal(scoreOilShare(thin.meal, thin.oil, NOW), null);
+});
+
+// --- Analyst/Ask crush-block text: trajectory + cash vs. board + how to read it --------------------
+test("oilShareText: level, 1M/3M/12M moves, driver, Iowa cash vs. board, reading guide", () => {
+  const board = legs({ days: 400, oilEnd: 58 });
+  const cash = { meal: [{ period: "2026-09-21", value: 345 }], oil: [{ period: "2026-09-21", value: 61 }] };
+  const t = oilShareText({ now: NOW, board, cash });
+  assert.match(t, /Oil share of crush value \(BOARD/);
+  assert.match(t, /1M \+\d/);
+  assert.match(t, /3M \+\d/);
+  assert.match(t, /12M \+\d/);
+  assert.match(t, /1-month driver: oil/);
+  assert.match(t, /Iowa CASH oil share \(series: ams:ia:oil vs\. ams:ia:meal\): \d+\.\d% on 2026-09-21 \([+−]\d+\.\dpts vs\. board on 2026-09-21\)/);
+  assert.match(t, /COMPOSITION, not margin/);
+});
+
+test("oilShareText: a year-short history omits the 12M move; stale cash is left out", () => {
+  const board = legs({ days: 120 });
+  const cash = { meal: [{ period: "2026-08-01", value: 345 }], oil: [{ period: "2026-08-01", value: 61 }] };
+  const t = oilShareText({ now: NOW, board, cash });
+  assert.match(t, /3M /);
+  assert.doesNotMatch(t, /12M /);
+  assert.doesNotMatch(t, /Iowa CASH/);
+});
+
+test("oilShareText: stale board → empty (the crush block stays honest)", () => {
+  const board = legs({ days: 120 });
+  assert.equal(oilShareText({ now: new Date("2026-11-01T00:00:00Z"), board, cash: { meal: [], oil: [] } }), "");
 });

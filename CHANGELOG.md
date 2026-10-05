@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.42.0 — Analyst Note + Ask: oil/meal crush composition in the crush block
+
+_The Analyst Note already saw oil share as one signal-board line (1.38.0). This gives it and Ask the trajectory and context behind that line, in the CRUSH DEMAND block. Auto-tagged `v1.42.0` by `auto-release.yml`._
+
+### Added
+
+- **`oilShareText()`** (`src/crush.js`) — appended to `crushText()`, so it lands in the Analyst Note / Market
+  Pulse crush block and the Ask context:
+  - board oil share + percentile + 10th–90th range, with the **1M / 3M / 12M moves** (the signal card only
+    sees one month) and the 1-month driver decomposition (oil vs. meal value %/bu);
+  - **Iowa cash** oil share vs. the board on the nearest-before date, only when cash is ≤21 days old;
+  - a one-line reading guide (composition, not margin; the higher the share, the more crush value — and the
+    domestic bean bid — rests on the policy-set oil leg: RVO, SREs, 45Z).
+  - Names its series ids so the model can cite them. `""` when the board legs are stale or thin.
+
+### Changed
+
+- **`crushText()`** no longer returns empty when utilization isn't computable — the oil-share lines still
+  reach the prompt on their own.
+- **`src/pipeline.js`** — the block header is now "CRUSH DEMAND (capacity utilization, cause→effect with
+  margin, oil/meal composition)" in both the memo and Ask contexts.
+- `shareRows()` / `rowDaysBack()` factored out of `scoreOilShare()` (no behavior change).
+- **Multi-state:** the cash line reads its series via `seriesKey("ams", …)` and labels itself with the pack's
+  state name, so a non-Iowa pack gets its own cash series rather than Iowa's.
+
+### Notes
+
+- Prompt-content only; no new keys, no new model calls. Adds ~3 lines (~150 tokens) to the crush block.
+
 ## 1.41.1 — Barge freight by river segment (the Member Brief's barge lines now fill in)
 
 The 1.40.0 Member Brief asked USDA's barge dataset (Ag Transport `7spn-fbua`) for "St. Louis" and "Illinois River". Those names don't exist in it. The dataset reports $/ton per river **segment** in `river_system_location` (26 segments, checked against the live data). Every per-location lookup therefore came back empty, and the brief said "not updated this cycle".
