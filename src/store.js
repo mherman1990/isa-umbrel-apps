@@ -2446,7 +2446,7 @@ export function getItemByUid(uid) {
 /** What a Member Brief citation needs from a stored item: identity, dates, and its text (for the number check). */
 export function getItemForCitation(uid) {
   return db
-    .prepare("SELECT uid, source_id, title, url, one_line, body, published_at, first_seen_at FROM seen_items WHERE uid = ?")
+    .prepare("SELECT uid, source_id, title, url, one_line, body, published_at, first_seen_at, entity_id FROM seen_items WHERE uid = ?")
     .get(uid);
 }
 

@@ -216,6 +216,18 @@ export const __testing = { CLOCK_REQUIRED, MIN_CHAIN_STEPS, MAX_CHAIN_STEPS, VAG
 const DECISION_WORDS =
   /\b(?:enacted|finali[sz]ed|final rule|is final|now final|in effect|takes effect|took effect|went into effect|signed into law|became law|is now law|now requires|is required|are required|mandates|has approved|approved the|adopted the|ruled that|struck down|upheld)\b/i;
 
+// A decision word inside a condition or a negation is not a claim that anything was decided: "if
+// enacted, …", "would take effect", "has not been finalized", "before it takes effect".
+const HEDGE_BEFORE = /\b(?:if|once|unless|until|when|whether|before|would|could|might|may|not(?:\s+yet)?|never|no|nor|yet\s+to|n't)\s+(?:\S+\s+){0,2}$/i;
+/** The first decision word in `text` that is asserted, not hedged — or null. */
+export function decisionClaim(text) {
+  const re = new RegExp(DECISION_WORDS.source, "gi");
+  for (const m of String(text).matchAll(re)) {
+    if (!HEDGE_BEFORE.test(text.slice(Math.max(0, m.index - 40), m.index))) return m[0];
+  }
+  return null;
+}
+
 const ABBREV = /\b(?:U\.S|U\.N|E\.U|Sen|Rep|Gov|Dept|Corp|Inc|No|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept|Sep|Oct|Nov|Dec|Mr|Ms|Dr|St|vs|e\.g|i\.e|approx)\.$/i;
 
 /** Split text into sentences, not breaking on common abbreviations ("U.S.", "Sept.", "St.", "No."). */
@@ -297,8 +309,8 @@ export function lintMemberSentence(s, packet, scope = {}) {
   for (const w of digitWords(text)) {
     if (!citedWords.has(w.toLowerCase())) out.push({ rule: "number_unsourced", detail: `"${w}" is not a packet token and does not appear in a cited source` });
   }
-  if (DECISION_WORDS.test(text)) {
-    const m = text.match(DECISION_WORDS)[0];
+  if (decisionClaim(text)) {
+    const m = decisionClaim(text);
     if (scope.band === "proposed" || scope.band === "speculative") {
       out.push({ rule: "proposed_as_decision", detail: `"${m}" makes a ${scope.band} action read as decided` });
     } else if (scope.band === "enacted" || scope.band === "contested") {
