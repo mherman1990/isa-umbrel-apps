@@ -946,7 +946,7 @@ export function renderMemberBrief(draft, pk, { preview = false, unsubscribeLine 
     shown++;
     L.push(`### ${it.headline || it.id}`);
     if (it.kind === "card") L.push(`**${BAND[it.band].label}.** _${BAND[it.band].caveat}_\n`);
-    else if (it.kind === "news") L.push(`**News.** _${Object.values(CHANNEL_LABEL).includes(it.publisher) ? `From an ${it.publisher.toLowerCase()}` : `Reported by ${it.publisher}`}._\n`);
+    else if (it.kind === "news") L.push(`**News.** _${Object.values(CHANNEL_LABEL).includes(it.publisher) ? `From ${/^[aeiou]/i.test(it.publisher) ? "an" : "a"} ${it.publisher.toLowerCase()}` : `Reported by ${it.publisher}`}._\n`);
     else L.push(`**${it.publisher} — ${it.docLabel}.** _${it.band === "enacted" ? "Published as final; the source gives its effective date." : bandOf(it.band).caveat}_\n`);
     L.push(body.join(" "));
     if (it.deadline) L.push(`\n⏰ **Comments due ${fmtDate(it.deadline.date)}** — ${it.deadline.url ? `[how to comment](${it.deadline.url})` : "see the source"}${marks([it.deadline.cite])}`);

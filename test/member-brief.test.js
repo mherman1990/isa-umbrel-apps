@@ -582,6 +582,8 @@ test("news publisher: the registry entity, else the channel — never the bare w
   };
   seed("nl-1", "agbull");
   seed("nl-2", null);
+  store.markSeen({ uid: "rss-x", sourceId: "rss", title: "Feed story rss-x", summary: "body", url: "", publishedAt: "2026-10-06T00:00:00Z", raw: {} }, { relevant: true, topicIds: [], oneLine: "", tier: "must_read" });
+  raw.prepare("UPDATE seen_items SET first_seen_at = '2026-10-06T14:00:00.000Z' WHERE uid = 'rss-x'").run();
   try {
     const p = mb.buildMemberPacket({ now: NOW, tz: TZ });
     const pub = (t) => [...p.policy.values()].find((x) => x.headline === t)?.publisher;
@@ -589,10 +591,11 @@ test("news publisher: the registry entity, else the channel — never the bare w
     assert.equal(pub("Newsletter nl-2"), "Email newsletter");
     const md = mb.renderMemberBrief({ update: [], policy: [...p.policy.values()].map((x) => ({ id: x.id, whatHappened: { text: "A.", cites: [[...x.citeIds][0]] }, whatItMeans: { text: "B.", cites: [[...x.citeIds][0]] }, next: null })), markets: {} }, p);
     assert.match(md, /\*\*News\.\*\* _From an email newsletter\._/);
+    assert.match(md, /\*\*News\.\*\* _From a news feed\._/);
     assert.match(md, /\*\*News\.\*\* _Reported by AgBull Commodities\._/);
     assert.ok(![...p.sources.values()].some((s) => s.publisher === "source"));
   } finally {
-    raw.prepare("DELETE FROM seen_items WHERE uid IN ('nl-1','nl-2')").run();
+    raw.prepare("DELETE FROM seen_items WHERE uid IN ('nl-1','nl-2','rss-x')").run();
   }
 });
 
