@@ -28,7 +28,11 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  MEMBER BRIEF MARKET COMMENTARY NO LONGER REPEATS THE NUMBERS. The chart and table carry the figures; the
+  MEMBER BRIEF: NO MORE FUTURES-VS-AUGUST-CASH COMPARISONS. The soy:corn commentary no longer sets the
+  new-crop futures ratio against Iowa's months-old monthly cash ratio; both stay in the table, each with
+  its own date. Update only — no new keys.
+  ---
+  1.43.2 — MEMBER BRIEF MARKET COMMENTARY NO LONGER REPEATS THE NUMBERS. The chart and table carry the figures; the
   written lines now only explain what they mean. Barge segments are named exactly as listed, and an
   unattributed newsletter reads "From an email newsletter." Tip: set MEMBER_BRIEF_REPLY_TO to the address
   members should write to. Update only — no new keys.
