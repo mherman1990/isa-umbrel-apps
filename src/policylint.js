@@ -353,6 +353,12 @@ export function lintMemberDraft(draft, packet) {
   for (const [k, list] of Object.entries(draft?.markets ?? {})) {
     const fact = packet.markets.get(k);
     each(list, `markets.${k}`, { allowedCites: fact ? fact.citeIds : new Set() });
+    // Sources a section marks as separate (the new-crop futures ratio vs. the lagged monthly cash ratio)
+    // may not be set against each other in one sentence.
+    const sep = fact?.separateCites ?? [];
+    (list ?? []).forEach((s, i) => {
+      if (sep.length > 1 && sep.filter((c) => (s?.cites ?? []).includes(c)).length > 1) failures.push({ path: `markets.${k}[${i}]`, rule: "mixed_bases", detail: "this sentence sets the new-crop futures ratio against the monthly cash ratio — they are different prices at different times; write about one only" });
+    });
     // The chart and indicator table above already print every figure; a market sentence explains what
     // they MEAN and carries no figure of its own — no token, and no number copied from a source either.
     (list ?? []).forEach((s, i) => {

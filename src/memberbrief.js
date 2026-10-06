@@ -514,6 +514,9 @@ function addRatio(pk) {
     const v = pk.token("RATIO_IOWA_MONTHLY", fmt2(l.value));
     const p = pk.token("RATIO_IOWA_PERIOD", fmtDate(l.period));
     fact.lines.push(`Context — ${V.state} prices received (monthly, published with a lag): ${v} for ${p} [${cite}]`);
+    // New-crop futures and a months-old monthly cash average are different things at different times:
+    // a sentence may speak to one or the other, never set them against each other (lint: mixed_bases).
+    fact.separateCites = [...fact.citeIds];
     if (fact.status === "absent") fact.status = "context_only";
     const prevM = ia.length > 1 ? ia[ia.length - 2] : null;
     const sameMonth = [1, 2, 3].map((k) => ia.find((x) => x.period === `${Number(l.period.slice(0, 4)) - k}${l.period.slice(4, 7)}`)).filter(Boolean);
@@ -701,6 +704,7 @@ HARD RULES — a draft that breaks any of these is rejected by code and not sent
 WHAT TO WRITE
 - "update": 1 to 3 sentences — the most important things since the last brief, policy first.
 - "policy": for EACH item given (policy actions and news alike), two or three sentences: whatHappened (who did what, and where it stands), whatItMeans (the concrete consequence for ${V.aState} corn and soybean operation — prices, costs, demand, what a farmer may have to do or watch — as explanation), and next (only when the item has a next-date or comments-due token: the next dated step; otherwise leave next empty with no cites). Do not write about comment periods unless the item has a comments-due token.
+- "markets": in "ratio", never compare the new-crop futures ratio with the monthly ${V.state} prices-received ratio — one is a forward price for next year's crops, the other a lagged cash average — so a sentence speaks to one of them only and cites only its source.
 - "markets": for each of fund, oilShare, ratio, barge — 0 to 2 sentences on what the movement MEANS for ${V.aState} soybean and corn demand, margins or basis. A chart and a table of every figure (latest, change, position in the past year, versus the 3-year average) are already printed by code directly above your words: do NOT restate them. Market sentences contain NO numbers and NO tokens at all — say what the movement means ("funds are heavily long, so a bearish report could trigger selling"), not what it is. Name places exactly as the section lists them; do not group them under a river or region the labels do not name. If a section is marked not updated this cycle, write zero sentences for it.
 
 If the packet is thin, write less. Fewer, fully supported sentences are always better than more.`;

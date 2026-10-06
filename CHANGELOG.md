@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.43.3 — Member Brief: no new-crop futures vs. lagged cash comparisons
+
+The soy:corn section printed both the new-crop futures ratio (Nov soybeans ÷ Dec corn) and Iowa's monthly prices-received ratio, which runs about two months behind. The model began setting them against each other ("below the recent Iowa monthly average, so support has shifted toward corn"). They are different prices at different times, so that comparison is not meaningful.
+
+- **Lint `mixed_bases`:** a ratio sentence that cites both sources is rejected. On the last attempt it is deleted.
+- **Prompt:** each ratio sentence speaks to one of the two and cites only that one.
+
+Both rows stay in the indicator table, each labelled with its own basis and date. Update only — no new keys.
+
 ## 1.43.2 — Member Brief: market commentary explains, never repeats
 
 From the first passing preview:

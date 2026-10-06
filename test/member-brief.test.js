@@ -609,3 +609,21 @@ test("oil share: AMS cash leads until CME settlements span a year (so the indica
     raw.prepare("DELETE FROM market_series WHERE series IN ('cme:zm:front','cme:zl:front')").run();
   }
 });
+
+test("ratio: a sentence may not set the new-crop futures ratio against the lagged monthly cash ratio", () => {
+  store.saveSeriesPoints("nass:ia:soy-corn-ratio", { label: "IA ratio", unit: "ratio", category: "soy_corn_ratio" }, [{ period: "2026-07", value: 2.7 }, { period: "2026-08", value: 2.73 }]);
+  try {
+    const p = mb.buildMemberPacket({ now: NOW, tz: TZ });
+    const ratio = p.markets.get("ratio");
+    const [fut, cash] = ratio.separateCites;
+    assert.ok(fut && cash && fut !== cash);
+    const d = goodDraft();
+    d.markets.ratio = [{ text: "New-crop prices favor corn more than the recent cash ratio did.", cites: [fut, cash] }];
+    assert.ok(lintMemberDraft(mb.normalizeDraft(d), p).failures.some((f) => f.rule === "mixed_bases"));
+    d.markets.ratio = [{ text: "New-crop prices still lean toward soybeans relative to corn.", cites: [fut] }];
+    assert.ok(!lintMemberDraft(mb.normalizeDraft(d), p).failures.some((f) => f.rule === "mixed_bases"));
+    assert.match(mb.MEMBER_SYSTEM, /never compare the new-crop futures ratio with the monthly/);
+  } finally {
+    raw.prepare("DELETE FROM market_series WHERE series = 'nass:ia:soy-corn-ratio'").run();
+  }
+});
