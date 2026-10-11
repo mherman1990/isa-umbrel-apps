@@ -1,0 +1,134 @@
+{
+  "id": "us-ks",
+  "version": "2026.1",
+  "extends": "us-national@2026.1",
+  "abstract": false,
+  "description": "Kansas — stub pack (docs/MULTI_STATE.md §14). All values verified from public sources or left explicitly empty with a note in 'verify'. Kansas Soybean Association reviews before first deploy.",
+
+  "verify": [
+    "identity.branding — KSA to supply logo file and brand palette (none shipped)",
+    "prompts.reader — KSA to confirm reader role title used in briefs",
+    "legislature.congressionalDelegation — confirm current KS member committee assignments (119th Congress); Moran is on Senate Ag Committee; Marshall committee to verify",
+    "adminRules — Kansas Register adapter (ks_register) not yet written; probe sos.ks.gov/publications/register.html for issue-index format before writing",
+    "markets.ams.cashReportId — AMS KS daily cash-grain report ID; probe MARS with USDA_AMS_API_KEY: *** /services/v1.2/reports?q=Kansas+Cash+Grain+Bids",
+    "markets.ams.feedstuffTradeLoc — confirm AMS report 3511 carries a 'Kansas' trade location",
+    "markets.barge.locations — Kansas City (MO/KS border) is the primary barge access point for KS grain; confirm USDA AMS segment names for the KC area",
+    "markets.weatherRegions — NE Kansas (Doniphan, Brown, Atchison, Jefferson counties along the Missouri River) carries the heaviest soy footprint; SE Kansas is secondary",
+    "markets.barchart.basisLocations — confirm representative KS elevator zip codes with a Barchart basis pull",
+    "election.campaignFinance — off until counsel reviews Kansas Governmental Ethics Commission data-use terms (ethics.kansas.gov)",
+    "registry — no KS entity seed yet; run scripts/fetch-geo.mjs (--state KS --fips 20) and scripts/fetch-incumbents.mjs"
+  ],
+
+  "identity": {
+    "orgName": "Kansas Soybean Association",
+    "orgShort": "KSA",
+    "stateName": "Kansas",
+    "stateAlpha": "KS",
+    "stateFips": "20",
+    "timezone": "America/Chicago",
+    "website": "https://www.kansassoybeans.org",
+    "branding": { "logo": null, "logoAlt": "Kansas Soybean Association" }
+  },
+
+  "prompts": {
+    "reader": "Kansas Soybean Association's policy and market-development staff",
+    "operation": "a Kansas corn/soybean operation"
+  },
+
+  "provenance": {
+    "primaryHosts": { "inherit": true, "add": ["kslegislature.org", "sos.ks.gov"] },
+    "agencyHosts":  { "inherit": true, "add": ["agriculture.ks.gov", "kdhe.ks.gov", "ksda.gov"] },
+    "advocacyHosts": { "inherit": true, "add": ["kansassoybeans.org"] }
+  },
+
+  "legislature": {
+    "legiscanHome": "KS",
+    "legiscanStates": ["KS"],
+    "fullTextStates": ["KS"],
+    "openstatesJurisdiction": "Kansas",
+    "sessionNote": "KS Legislature: annual session Jan–May",
+    "chamberNames": {
+      "upper": "Kansas Senate",
+      "lower": "Kansas House of Representatives",
+      "legislature": "Kansas Legislature"
+    },
+    "congressionalDelegation": {
+      "ssaf": ["Sen. Moran", "Sen. Marshall"],
+      "hsag": []
+    }
+  },
+
+  "election": {
+    "campaignFinance": {
+      "enabled": false,
+      "seeder": null,
+      "domain": null,
+      "flag": null,
+      "useRestriction": "Pending counsel review of Kansas Governmental Ethics Commission (ethics.kansas.gov) data-use terms"
+    }
+  },
+
+  "adminRules": {
+    "adapter": null,
+    "label": "Kansas Register",
+    "note": "Published at sos.ks.gov/publications/register.html — adapter ks_register not yet written (see verify list)"
+  },
+
+  "geo": {
+    "center": [38.53, -98.38],
+    "zoom": 7,
+    "minZoom": 6,
+    "bbox": [-102.05, 36.99, -94.59, 40.00],
+    "layers": {
+      "counties": "geo/counties.geojson",
+      "congress": "geo/congress.geojson",
+      "senate":   "geo/senate.geojson",
+      "house":    "geo/house.geojson",
+      "huc8":     "geo/huc8.geojson"
+    },
+    "districtHucs": "data/district-hucs.json",
+    "incumbents":   "data/ks-incumbents.json",
+    "openstatesRosterCsv": "https://data.openstates.org/people/current/ks.csv"
+  },
+
+  "registry": {
+    "seed": "registry.json",
+    "candidates": null
+  },
+
+  "markets": {
+    "nass": { "stateAlpha": "KS" },
+    "ams": {
+      "cashReportId": null,
+      "feedstuffReportId": 3511,
+      "feedstuffTradeLoc": null
+    },
+    "cropRegions": {
+      "belt": [
+        { "key": "mo", "fips": "29", "name": "Missouri" },
+        { "key": "ne", "fips": "31", "name": "Nebraska" },
+        { "key": "ia", "fips": "19", "name": "Iowa" },
+        { "key": "ok", "fips": "40", "name": "Oklahoma" }
+      ]
+    },
+    "barge": {
+      "locations": [
+        { "segment": "Kansas City",         "label": "Missouri River, Kansas City — primary KS grain-export terminal" },
+        { "segment": "Atchison – Leavenworth","label": "Missouri River, NE Kansas reach (Atchison – Leavenworth)" }
+      ]
+    },
+    "weatherRegions": [
+      { "name": "NE Kansas",  "lat": 39.60, "lon": -95.50, "w": 0.45 },
+      { "name": "SE Kansas",  "lat": 37.70, "lon": -95.70, "w": 0.25 },
+      { "name": "C Kansas",   "lat": 38.50, "lon": -98.20, "w": 0.15 },
+      { "name": "Missouri",   "lat": 38.60, "lon": -92.60, "w": 0.10 },
+      { "name": "Iowa",       "lat": 42.00, "lon": -93.60, "w": 0.05 }
+    ],
+    "barchart": {
+      "basisLocations": [
+        { "name": "NE Kansas", "zip": "66002" },
+        { "name": "SE Kansas", "zip": "66762" }
+      ]
+    }
+  }
+}

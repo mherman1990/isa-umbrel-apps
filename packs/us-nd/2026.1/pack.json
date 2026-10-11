@@ -1,0 +1,134 @@
+{
+  "id": "us-nd",
+  "version": "2026.1",
+  "extends": "us-national@2026.1",
+  "abstract": false,
+  "description": "North Dakota — stub pack (docs/MULTI_STATE.md §14). All values verified from public sources or left explicitly empty with a note in 'verify'. North Dakota Soybean Growers Association reviews before first deploy.",
+
+  "verify": [
+    "identity.branding — NDSGA to supply logo file and brand palette (none shipped)",
+    "prompts.reader — NDSGA to confirm reader role title used in briefs",
+    "legislature.sessionNote — ND Legislative Assembly meets BIENNIAL (odd years only, Jan–Apr); even-year deployments see no new state-bill activity — confirm this is understood before deploy",
+    "legislature.congressionalDelegation — confirm current ND member committee assignments (119th Congress); Hoeven is on Senate Appropriations Ag subcommittee and Senate Ag; Cramer committee to verify",
+    "adminRules — North Dakota Register adapter (nd_register) not yet written; probe legis.nd.gov/agency-rules for issue-index format before writing",
+    "markets.ams.cashReportId — AMS ND daily cash-grain report ID; probe MARS with USDA_AMS_API_KEY: *** /services/v1.2/reports?q=North+Dakota+Cash+Grain+Bids",
+    "markets.ams.feedstuffTradeLoc — confirm AMS report 3511 carries a 'North Dakota' trade location",
+    "markets.barge.locations — ND has very limited river barge access; confirm if USDA AMS reports any ND-specific segments or if freight is tracked via Minnesota/SD terminals",
+    "markets.weatherRegions — eastern ND (Cass, Richland, Ransom, Barnes, Sargent counties near Red River Valley) carries nearly all ND soy; weight accordingly",
+    "markets.barchart.basisLocations — confirm representative ND elevator zip codes with a Barchart basis pull",
+    "election.campaignFinance — off until counsel reviews North Dakota Secretary of State campaign-finance data-use terms (sos.nd.gov)",
+    "registry — no ND entity seed yet; run scripts/fetch-geo.mjs (--state ND --fips 38) and scripts/fetch-incumbents.mjs",
+    "timezone — eastern ND (Red River Valley soy counties) uses America/Chicago (Central); western ND uses America/Denver (Mountain). Soybean counties are overwhelmingly Central — use America/Chicago."
+  ],
+
+  "identity": {
+    "orgName": "North Dakota Soybean Growers Association",
+    "orgShort": "NDSGA",
+    "stateName": "North Dakota",
+    "stateAlpha": "ND",
+    "stateFips": "38",
+    "timezone": "America/Chicago",
+    "website": "https://www.ndsga.com",
+    "branding": { "logo": null, "logoAlt": "North Dakota Soybean Growers Association" }
+  },
+
+  "prompts": {
+    "reader": "North Dakota Soybean Growers Association's policy and market-development staff",
+    "operation": "a North Dakota soybean operation"
+  },
+
+  "provenance": {
+    "primaryHosts": { "inherit": true, "add": ["legis.nd.gov", "ndlegis.gov"] },
+    "agencyHosts":  { "inherit": true, "add": ["nd.gov/agdepartment", "ndda.nd.gov", "health.nd.gov", "deq.nd.gov"] },
+    "advocacyHosts": { "inherit": true, "add": ["ndsga.com"] }
+  },
+
+  "legislature": {
+    "legiscanHome": "ND",
+    "legiscanStates": ["ND"],
+    "fullTextStates": ["ND"],
+    "openstatesJurisdiction": "North Dakota",
+    "sessionNote": "ND Legislative Assembly: BIENNIAL — odd years only (Jan–Apr, ~80 days). No new state bills in even years.",
+    "chamberNames": {
+      "upper": "North Dakota Senate",
+      "lower": "North Dakota House of Representatives",
+      "legislature": "North Dakota Legislative Assembly"
+    },
+    "congressionalDelegation": {
+      "ssaf": ["Sen. Hoeven", "Sen. Cramer"],
+      "hsag": []
+    }
+  },
+
+  "election": {
+    "campaignFinance": {
+      "enabled": false,
+      "seeder": null,
+      "domain": null,
+      "flag": null,
+      "useRestriction": "Pending counsel review of ND Secretary of State campaign-finance (sos.nd.gov) data-use terms"
+    }
+  },
+
+  "adminRules": {
+    "adapter": null,
+    "label": "North Dakota Register",
+    "note": "Published at legis.nd.gov/agency-rules — adapter nd_register not yet written (see verify list)"
+  },
+
+  "geo": {
+    "center": [47.46, -100.30],
+    "zoom": 7,
+    "minZoom": 6,
+    "bbox": [-104.05, 45.94, -96.56, 49.00],
+    "layers": {
+      "counties": "geo/counties.geojson",
+      "congress": "geo/congress.geojson",
+      "senate":   "geo/senate.geojson",
+      "house":    "geo/house.geojson",
+      "huc8":     "geo/huc8.geojson"
+    },
+    "districtHucs": "data/district-hucs.json",
+    "incumbents":   "data/nd-incumbents.json",
+    "openstatesRosterCsv": "https://data.openstates.org/people/current/nd.csv"
+  },
+
+  "registry": {
+    "seed": "registry.json",
+    "candidates": null
+  },
+
+  "markets": {
+    "nass": { "stateAlpha": "ND" },
+    "ams": {
+      "cashReportId": null,
+      "feedstuffReportId": 3511,
+      "feedstuffTradeLoc": null
+    },
+    "cropRegions": {
+      "belt": [
+        { "key": "mn", "fips": "27", "name": "Minnesota" },
+        { "key": "sd", "fips": "46", "name": "South Dakota" },
+        { "key": "ia", "fips": "19", "name": "Iowa" },
+        { "key": "il", "fips": "17", "name": "Illinois" }
+      ]
+    },
+    "barge": {
+      "locations": [
+        { "segment": "Fargo – Moorhead", "label": "Red River Valley rail-to-barge benchmark (Fargo/Moorhead area)" }
+      ]
+    },
+    "weatherRegions": [
+      { "name": "Red River Valley (ND)", "lat": 47.00, "lon": -97.00, "w": 0.50 },
+      { "name": "SE North Dakota",       "lat": 46.30, "lon": -97.70, "w": 0.25 },
+      { "name": "E North Dakota",        "lat": 47.50, "lon": -97.80, "w": 0.15 },
+      { "name": "Minnesota",             "lat": 46.70, "lon": -96.80, "w": 0.10 }
+    ],
+    "barchart": {
+      "basisLocations": [
+        { "name": "Red River Valley", "zip": "58102" },
+        { "name": "SE North Dakota",  "zip": "58401" }
+      ]
+    }
+  }
+}
