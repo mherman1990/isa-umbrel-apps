@@ -279,3 +279,83 @@ test("storylines: the twice-daily run calls this on AM only", () => {
   assert.ok(call > src.indexOf("await triageItems("), "storylines must run after triage");
   assert.ok(call < src.indexOf("if (relevant.length === 0) {"), "storylines must run before the quiet-day return");
 });
+
+test("storylines: a max_tokens stop leaves storylines_meta unchanged and prior threads intact", async () => {
+  // Regression for docs/AUDIT-2026-10-04.md §3 / GitHub #41.
+  // A truncated response must NOT update storylines_meta or touch existing threads.
+  seedItems(5);
+  store.upsertStoryline({ key: "t-truncation-survivor", name: "Survivor", summary: "must survive", timeline: [] });
+
+  const metaBefore = store.getState("storylines_meta");
+
+  const original = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        id: "m", type: "message", role: "assistant", model: "claude-sonnet-5",
+        // Deliberately cut-off JSON body (what a real truncation looks like)
+        content: [{ type: "text", text: '{"storylines":[{"key":"t-partial"' }],
+        usage: { input_tokens: 900, output_tokens: 9000 },
+        stop_reason: "max_tokens",
+      }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
+
+  let result;
+  try {
+    result = await generateStorylines(process.env);
+  } finally {
+    globalThis.fetch = original;
+  }
+
+  assert.equal(result, null, "truncated run must return null");
+  // panels.tracked() updates lastAttemptAt + lastOutcome on EVERY attempt — that is correct;
+  // it is how the "last attempt failed" stale warning is surfaced in the UI.
+  // What must NOT change is the successful-run data: generatedAt, count, moved.
+  const metaAfter = JSON.parse(store.getState("storylines_meta") || "{}");
+  const metaBeforeParsed = JSON.parse(metaBefore || "{}");
+  assert.equal(metaAfter.generatedAt, metaBeforeParsed.generatedAt, "generatedAt must not change on truncation");
+  assert.equal(metaAfter.count, metaBeforeParsed.count, "thread count must not change on truncation");
+  assert.equal(metaAfter.lastOutcome, "truncated", "lastOutcome must be recorded as 'truncated'");
+  const survivor = store.listStorylines(20).find((s) => s.key === "t-truncation-survivor");
+  assert.ok(survivor, "a pre-existing thread must survive a truncated run");
+  assert.equal(survivor.summary, "must survive", "the thread's content must be unchanged after truncation");
+});
+
+test("storylines: a mid-JSON parse failure also leaves storylines_meta unchanged", async () => {
+  // Belt-and-suspenders: even if stop_reason is not max_tokens but the JSON is corrupt,
+  // we must not update meta or save any partial threads.
+  seedItems(5);
+  store.upsertStoryline({ key: "t-parse-survivor", name: "Parse Survivor", summary: "intact", timeline: [] });
+
+  const metaBefore = store.getState("storylines_meta");
+
+  const original = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        id: "m", type: "message", role: "assistant", model: "claude-sonnet-5",
+        content: [{ type: "text", text: "not valid json at all {{" }],
+        usage: { input_tokens: 900, output_tokens: 400 },
+        stop_reason: "end_turn",
+      }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
+
+  let result;
+  try {
+    result = await generateStorylines(process.env);
+  } finally {
+    globalThis.fetch = original;
+  }
+
+  assert.equal(result, null, "unparseable response must return null");
+  const metaAfterParse = JSON.parse(store.getState("storylines_meta") || "{}");
+  const metaBeforeParsedP = JSON.parse(metaBefore || "{}");
+  assert.equal(metaAfterParse.generatedAt, metaBeforeParsedP.generatedAt, "generatedAt must not change on parse failure");
+  assert.equal(metaAfterParse.count, metaBeforeParsedP.count, "thread count must not change on parse failure");
+  assert.equal(metaAfterParse.lastOutcome, "no_output", "lastOutcome must be recorded as 'no_output' on parse failure");
+  const survivor = store.listStorylines(20).find((s) => s.key === "t-parse-survivor");
+  assert.ok(survivor, "pre-existing thread must survive a parse failure");
+  assert.equal(survivor.summary, "intact");
+});
