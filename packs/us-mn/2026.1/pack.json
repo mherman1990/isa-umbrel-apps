@@ -3,23 +3,20 @@
   "version": "2026.1",
   "extends": "us-national@2026.1",
   "abstract": false,
-  "description": "Minnesota — stub pack (docs/MULTI_STATE.md §14). All values verified from public sources or left explicitly empty with a note in 'verify'. MSGA reviews before first deploy.",
-
+  "description": "Minnesota \u2014 stub pack (docs/MULTI_STATE.md \u00a714). All values verified from public sources or left explicitly empty with a note in 'verify'. MSGA reviews before first deploy.",
   "verify": [
-    "identity.branding — MSGA to supply logo file and brand palette (none shipped; header shows no logo until set)",
-    "prompts.reader — MSGA to confirm the reader role title and org short-form used in briefs",
-    "legislature.sessionNote — confirm the General Assembly calendar each cycle; MN holds full sessions in odd years (Jan–May) and short sessions in even years (Feb–Mar)",
-    "legislature.congressionalDelegation — confirm current MN member assignments for Senate Ag, House Ag, House Appropriations Ag subcommittee, and USTR-adjacent committees (119th Congress; Klobuchar is ranking member Senate Ag)",
-    "adminRules — Minnesota State Register adapter (mn_register) not yet written; probe revisor.mn.gov/rules/register/ for issue index format before writing",
-    "markets.ams.cashReportId — AMS MN daily cash-grain report ID; probe MARS: GET /services/v1.2/reports?q=Minnesota+Cash+Grain+Bids and pick the slug_id matching the daily statewide bid report",
-    "markets.ams.feedstuffTradeLoc — confirm AMS report 3511 carries a 'Minnesota' trade location (series stays empty if not)",
-    "markets.barge.locations — confirm Upper Mississippi segment names as published in USDA AMS barge-freight reports (segments north of Iowa differ from Iowa pack naming)",
-    "markets.weatherRegions — review weights against USDA crop-reporting district acreage for MN; SW MN (Redwood Falls) carries the heaviest soy footprint",
-    "markets.barchart.basisLocations — confirm representative MN elevator zip codes with a Barchart basis data pull",
-    "election.campaignFinance — off until counsel reviews Minnesota Campaign Finance Board data-use terms (cf.board.state.mn.us)",
-    "registry — no MN entity seed yet; generate with scripts/fetch-geo.mjs (--state MN --fips 27) and scripts/fetch-incumbents.mjs"
+    "identity.branding \u2014 MSGA to supply logo file and brand palette (none shipped; header shows no logo until set)",
+    "prompts.reader \u2014 MSGA to confirm the reader role title and org short-form used in briefs",
+    "legislature.sessionNote \u2014 confirm the General Assembly calendar each cycle; MN holds full sessions in odd years (Jan\u2013May) and short sessions in even years (Feb\u2013Mar)",
+    "legislature.congressionalDelegation \u2014 confirm current MN member assignments for Senate Ag, House Ag, House Appropriations Ag subcommittee, and USTR-adjacent committees (119th Congress; Klobuchar is ranking member Senate Ag)",
+    "markets.ams.cashReportId \u2014 AMS MN daily cash-grain report ID; probe MARS: GET /services/v1.2/reports?q=Minnesota+Cash+Grain+Bids and pick the slug_id matching the daily statewide bid report",
+    "markets.ams.feedstuffTradeLoc \u2014 confirm AMS report 3511 carries a 'Minnesota' trade location (series stays empty if not)",
+    "markets.barge.locations \u2014 confirm Upper Mississippi segment names as published in USDA AMS barge-freight reports (segments north of Iowa differ from Iowa pack naming)",
+    "markets.weatherRegions \u2014 review weights against USDA crop-reporting district acreage for MN; SW MN (Redwood Falls) carries the heaviest soy footprint",
+    "markets.barchart.basisLocations \u2014 confirm representative MN elevator zip codes with a Barchart basis data pull",
+    "election.campaignFinance \u2014 off until counsel reviews Minnesota Campaign Finance Board data-use terms (cf.board.state.mn.us)",
+    "registry \u2014 no MN entity seed yet; generate with scripts/fetch-geo.mjs (--state MN --fips 27) and scripts/fetch-incumbents.mjs"
   ],
-
   "identity": {
     "orgName": "Minnesota Soybean Growers Association",
     "orgShort": "MSGA",
@@ -28,37 +25,63 @@
     "stateFips": "27",
     "timezone": "America/Chicago",
     "website": "https://www.mnsoybean.org",
-    "branding": { "logo": null, "logoAlt": "Minnesota Soybean Growers Association" }
+    "branding": {
+      "logo": null,
+      "logoAlt": "Minnesota Soybean Growers Association"
+    }
   },
-
   "prompts": {
     "reader": "MSGA's policy and market-development staff",
     "operation": "a Minnesota corn/soybean operation"
   },
-
   "provenance": {
-    "primaryHosts": { "inherit": true, "add": ["www.revisor.mn.gov", "www.leg.mn.gov", "mnleg.gov"] },
-    "agencyHosts":  { "inherit": true, "add": ["mda.state.mn.us", "pca.state.mn.us", "dnr.state.mn.us", "bca.state.mn.us"] },
-    "advocacyHosts": { "inherit": true, "add": ["mnsoybean.org"] }
+    "primaryHosts": {
+      "inherit": true,
+      "add": [
+        "www.revisor.mn.gov",
+        "www.leg.mn.gov",
+        "mnleg.gov"
+      ]
+    },
+    "agencyHosts": {
+      "inherit": true,
+      "add": [
+        "mda.state.mn.us",
+        "pca.state.mn.us",
+        "dnr.state.mn.us",
+        "bca.state.mn.us"
+      ]
+    },
+    "advocacyHosts": {
+      "inherit": true,
+      "add": [
+        "mnsoybean.org"
+      ]
+    }
   },
-
   "legislature": {
     "legiscanHome": "MN",
-    "legiscanStates": ["MN"],
-    "fullTextStates": ["MN"],
+    "legiscanStates": [
+      "MN"
+    ],
+    "fullTextStates": [
+      "MN"
+    ],
     "openstatesJurisdiction": "Minnesota",
-    "sessionNote": "MN Legislature: odd-year full session Jan–May; even-year short session Feb–Mar",
+    "sessionNote": "MN Legislature: odd-year full session Jan\u2013May; even-year short session Feb\u2013Mar",
     "chamberNames": {
       "upper": "Minnesota Senate",
       "lower": "Minnesota House of Representatives",
       "legislature": "Minnesota Legislature"
     },
     "congressionalDelegation": {
-      "ssaf": ["Sen. Klobuchar (ranking)", "Sen. Smith"],
+      "ssaf": [
+        "Sen. Klobuchar (ranking)",
+        "Sen. Smith"
+      ],
       "hsag": []
     }
   },
-
   "election": {
     "campaignFinance": {
       "enabled": false,
@@ -68,37 +91,43 @@
       "useRestriction": "Pending counsel review of Minnesota Campaign Finance Board (cf.board.state.mn.us) data-use terms"
     }
   },
-
   "adminRules": {
-    "adapter": null,
+    "adapter": "mn_register",
     "label": "Minnesota State Register",
-    "note": "Published weekly at revisor.mn.gov/rules/register/ — adapter mn_register not yet written (see verify list)"
+    "note": "Published Tuesdays at revisor.mn.gov/rules/register/ \u2014 probe the live index on the Pi before enabling; selector logic may need tuning to current site markup."
   },
-
   "geo": {
-    "center": [46.39, -94.64],
+    "center": [
+      46.39,
+      -94.64
+    ],
     "zoom": 7,
     "minZoom": 6,
-    "bbox": [-97.24, 43.50, -89.49, 49.38],
+    "bbox": [
+      -97.24,
+      43.5,
+      -89.49,
+      49.38
+    ],
     "layers": {
       "counties": "geo/counties.geojson",
       "congress": "geo/congress.geojson",
-      "senate":   "geo/senate.geojson",
-      "house":    "geo/house.geojson",
-      "huc8":     "geo/huc8.geojson"
+      "senate": "geo/senate.geojson",
+      "house": "geo/house.geojson",
+      "huc8": "geo/huc8.geojson"
     },
     "districtHucs": "data/district-hucs.json",
-    "incumbents":   "data/mn-incumbents.json",
+    "incumbents": "data/mn-incumbents.json",
     "openstatesRosterCsv": "https://data.openstates.org/people/current/mn.csv"
   },
-
   "registry": {
     "seed": "registry.json",
     "candidates": null
   },
-
   "markets": {
-    "nass": { "stateAlpha": "MN" },
+    "nass": {
+      "stateAlpha": "MN"
+    },
     "ams": {
       "cashReportId": null,
       "feedstuffReportId": 3511,
@@ -106,30 +135,86 @@
     },
     "cropRegions": {
       "belt": [
-        { "key": "ia", "fips": "19", "name": "Iowa" },
-        { "key": "nd", "fips": "38", "name": "North Dakota" },
-        { "key": "sd", "fips": "46", "name": "South Dakota" },
-        { "key": "wi", "fips": "55", "name": "Wisconsin" }
+        {
+          "key": "ia",
+          "fips": "19",
+          "name": "Iowa"
+        },
+        {
+          "key": "nd",
+          "fips": "38",
+          "name": "North Dakota"
+        },
+        {
+          "key": "sd",
+          "fips": "46",
+          "name": "South Dakota"
+        },
+        {
+          "key": "wi",
+          "fips": "55",
+          "name": "Wisconsin"
+        }
       ]
     },
     "barge": {
       "locations": [
-        { "segment": "Red Wing – Winona", "label": "Upper Mississippi, SE Minnesota (Red Wing – Winona)" },
-        { "segment": "Alma – Fountain City", "label": "Upper Mississippi, MN/WI border reach (Alma – Fountain City)" },
-        { "segment": "Savage", "label": "Minnesota River, Savage terminal" }
+        {
+          "segment": "Red Wing \u2013 Winona",
+          "label": "Upper Mississippi, SE Minnesota (Red Wing \u2013 Winona)"
+        },
+        {
+          "segment": "Alma \u2013 Fountain City",
+          "label": "Upper Mississippi, MN/WI border reach (Alma \u2013 Fountain City)"
+        },
+        {
+          "segment": "Savage",
+          "label": "Minnesota River, Savage terminal"
+        }
       ]
     },
     "weatherRegions": [
-      { "name": "SW Minnesota",      "lat": 44.40, "lon": -95.40, "w": 0.35 },
-      { "name": "Central Minnesota", "lat": 45.10, "lon": -94.40, "w": 0.25 },
-      { "name": "SE Minnesota",      "lat": 44.00, "lon": -92.50, "w": 0.20 },
-      { "name": "NW Minnesota",      "lat": 47.20, "lon": -96.10, "w": 0.10 },
-      { "name": "Iowa",              "lat": 42.00, "lon": -93.60, "w": 0.10 }
+      {
+        "name": "SW Minnesota",
+        "lat": 44.4,
+        "lon": -95.4,
+        "w": 0.35
+      },
+      {
+        "name": "Central Minnesota",
+        "lat": 45.1,
+        "lon": -94.4,
+        "w": 0.25
+      },
+      {
+        "name": "SE Minnesota",
+        "lat": 44.0,
+        "lon": -92.5,
+        "w": 0.2
+      },
+      {
+        "name": "NW Minnesota",
+        "lat": 47.2,
+        "lon": -96.1,
+        "w": 0.1
+      },
+      {
+        "name": "Iowa",
+        "lat": 42.0,
+        "lon": -93.6,
+        "w": 0.1
+      }
     ],
     "barchart": {
       "basisLocations": [
-        { "name": "SW Minnesota", "zip": "56201" },
-        { "name": "SE Minnesota", "zip": "55901" }
+        {
+          "name": "SW Minnesota",
+          "zip": "56201"
+        },
+        {
+          "name": "SE Minnesota",
+          "zip": "55901"
+        }
       ]
     }
   }

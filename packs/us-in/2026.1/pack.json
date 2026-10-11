@@ -3,25 +3,22 @@
   "version": "2026.1",
   "extends": "us-national@2026.1",
   "abstract": false,
-  "description": "Indiana — stub pack (docs/MULTI_STATE.md §14). All values verified from public sources or left explicitly empty with a note in 'verify'. Indiana Soybean Alliance reviews before first deploy.",
-
+  "description": "Indiana \u2014 stub pack (docs/MULTI_STATE.md \u00a714). All values verified from public sources or left explicitly empty with a note in 'verify'. Indiana Soybean Alliance reviews before first deploy.",
   "verify": [
-    "identity.orgShort — 'InSoy' is used here to avoid collision with Iowa Soybean Association ('ISA'); Indiana Soybean Alliance should confirm their preferred short-form for prompts and UI labels",
-    "identity.branding — Indiana Soybean Alliance to supply logo file and brand palette (none shipped; header shows no logo until set)",
-    "prompts.reader — Indiana Soybean Alliance to confirm reader role title used in briefs",
-    "legislature.sessionNote — confirm General Assembly calendar each cycle; IN holds full sessions odd years (Jan–Apr) and abbreviated sessions even years",
-    "legislature.congressionalDelegation — confirm current IN member committee assignments (119th Congress); Todd Young and Jim Banks both Republican, Banks is new (sworn Jan 2025 after Braun became governor)",
-    "adminRules — Indiana Register adapter (in_register) not yet written; probe iac.iga.in.gov for issue-index format before writing",
-    "markets.ams.cashReportId — AMS IN daily cash-grain report ID; probe MARS: GET /services/v1.2/reports?q=Indiana+Cash+Grain+Bids and pick the slug_id matching the daily statewide bid report",
-    "markets.ams.feedstuffTradeLoc — confirm AMS report 3511 carries an 'Indiana' trade location (series stays empty if not)",
-    "markets.barge.locations — confirm Ohio River segment names as published in USDA AMS barge-freight reports; Mount Vernon (Gibson County) is Indiana's primary grain-export terminal",
-    "markets.weatherRegions — review weights against USDA crop-reporting district acreage for IN; N-Central IN (Tipton/Howard counties) and NW IN (Jasper/Newton counties) carry the heaviest soy footprint",
-    "markets.barchart.basisLocations — confirm representative IN elevator zip codes with a Barchart basis pull",
-    "election.campaignFinance — off until counsel reviews Indiana Election Division data-use terms (campaignfinance.in.gov)",
-    "registry — no IN entity seed yet; generate with scripts/fetch-geo.mjs (--state IN --fips 18) and scripts/fetch-incumbents.mjs",
-    "timezone — most of Indiana is America/Indiana/Indianapolis (Eastern); the northwest counties near Chicago (Lake, Porter, LaPorte, Starke, Pulaski, Newton, Jasper) use America/Chicago. Soybean production spans both zones; check whether the scheduler and calendar display need a split or use Eastern as the canonical zone."
+    "identity.orgShort \u2014 'InSoy' is used here to avoid collision with Iowa Soybean Association ('ISA'); Indiana Soybean Alliance should confirm their preferred short-form for prompts and UI labels",
+    "identity.branding \u2014 Indiana Soybean Alliance to supply logo file and brand palette (none shipped; header shows no logo until set)",
+    "prompts.reader \u2014 Indiana Soybean Alliance to confirm reader role title used in briefs",
+    "legislature.sessionNote \u2014 confirm General Assembly calendar each cycle; IN holds full sessions odd years (Jan\u2013Apr) and abbreviated sessions even years",
+    "legislature.congressionalDelegation \u2014 confirm current IN member committee assignments (119th Congress); Todd Young and Jim Banks both Republican, Banks is new (sworn Jan 2025 after Braun became governor)",
+    "markets.ams.cashReportId \u2014 AMS IN daily cash-grain report ID; probe MARS: GET /services/v1.2/reports?q=Indiana+Cash+Grain+Bids and pick the slug_id matching the daily statewide bid report",
+    "markets.ams.feedstuffTradeLoc \u2014 confirm AMS report 3511 carries an 'Indiana' trade location (series stays empty if not)",
+    "markets.barge.locations \u2014 confirm Ohio River segment names as published in USDA AMS barge-freight reports; Mount Vernon (Gibson County) is Indiana's primary grain-export terminal",
+    "markets.weatherRegions \u2014 review weights against USDA crop-reporting district acreage for IN; N-Central IN (Tipton/Howard counties) and NW IN (Jasper/Newton counties) carry the heaviest soy footprint",
+    "markets.barchart.basisLocations \u2014 confirm representative IN elevator zip codes with a Barchart basis pull",
+    "election.campaignFinance \u2014 off until counsel reviews Indiana Election Division data-use terms (campaignfinance.in.gov)",
+    "registry \u2014 no IN entity seed yet; generate with scripts/fetch-geo.mjs (--state IN --fips 18) and scripts/fetch-incumbents.mjs",
+    "timezone \u2014 most of Indiana is America/Indiana/Indianapolis (Eastern); the northwest counties near Chicago (Lake, Porter, LaPorte, Starke, Pulaski, Newton, Jasper) use America/Chicago. Soybean production spans both zones; check whether the scheduler and calendar display need a split or use Eastern as the canonical zone."
   ],
-
   "identity": {
     "orgName": "Indiana Soybean Alliance",
     "orgShort": "InSoy",
@@ -30,37 +27,63 @@
     "stateFips": "18",
     "timezone": "America/Indiana/Indianapolis",
     "website": "https://www.indianasoybean.com",
-    "branding": { "logo": null, "logoAlt": "Indiana Soybean Alliance" }
+    "branding": {
+      "logo": null,
+      "logoAlt": "Indiana Soybean Alliance"
+    }
   },
-
   "prompts": {
     "reader": "Indiana Soybean Alliance's policy and market-development staff",
     "operation": "an Indiana corn/soybean operation"
   },
-
   "provenance": {
-    "primaryHosts": { "inherit": true, "add": ["iac.iga.in.gov", "iga.in.gov", "in.gov"] },
-    "agencyHosts":  { "inherit": true, "add": ["oisc.purdue.edu", "in.gov/idem", "in.gov/dnr", "in.gov/isda"] },
-    "advocacyHosts": { "inherit": true, "add": ["indianasoybean.com"] }
+    "primaryHosts": {
+      "inherit": true,
+      "add": [
+        "iac.iga.in.gov",
+        "iga.in.gov",
+        "in.gov"
+      ]
+    },
+    "agencyHosts": {
+      "inherit": true,
+      "add": [
+        "oisc.purdue.edu",
+        "in.gov/idem",
+        "in.gov/dnr",
+        "in.gov/isda"
+      ]
+    },
+    "advocacyHosts": {
+      "inherit": true,
+      "add": [
+        "indianasoybean.com"
+      ]
+    }
   },
-
   "legislature": {
     "legiscanHome": "IN",
-    "legiscanStates": ["IN"],
-    "fullTextStates": ["IN"],
+    "legiscanStates": [
+      "IN"
+    ],
+    "fullTextStates": [
+      "IN"
+    ],
     "openstatesJurisdiction": "Indiana",
-    "sessionNote": "IN General Assembly: odd-year full session Jan–Apr; even-year short session Jan–Mar",
+    "sessionNote": "IN General Assembly: odd-year full session Jan\u2013Apr; even-year short session Jan\u2013Mar",
     "chamberNames": {
       "upper": "Indiana Senate",
       "lower": "Indiana House of Representatives",
       "legislature": "Indiana General Assembly"
     },
     "congressionalDelegation": {
-      "ssaf": ["Sen. Young", "Sen. Banks"],
+      "ssaf": [
+        "Sen. Young",
+        "Sen. Banks"
+      ],
       "hsag": []
     }
   },
-
   "election": {
     "campaignFinance": {
       "enabled": false,
@@ -70,37 +93,43 @@
       "useRestriction": "Pending counsel review of Indiana Election Division (campaignfinance.in.gov) data-use terms"
     }
   },
-
   "adminRules": {
-    "adapter": null,
+    "adapter": "in_register",
     "label": "Indiana Register",
-    "note": "Published at iac.iga.in.gov — adapter in_register not yet written (see verify list)"
+    "note": "Probe the live index at iac.iga.in.gov on the Pi before enabling \u2014 selector logic may need tuning to current site markup."
   },
-
   "geo": {
-    "center": [40.27, -86.13],
+    "center": [
+      40.27,
+      -86.13
+    ],
     "zoom": 7,
     "minZoom": 6,
-    "bbox": [-88.10, 37.77, -84.78, 41.77],
+    "bbox": [
+      -88.1,
+      37.77,
+      -84.78,
+      41.77
+    ],
     "layers": {
       "counties": "geo/counties.geojson",
       "congress": "geo/congress.geojson",
-      "senate":   "geo/senate.geojson",
-      "house":    "geo/house.geojson",
-      "huc8":     "geo/huc8.geojson"
+      "senate": "geo/senate.geojson",
+      "house": "geo/house.geojson",
+      "huc8": "geo/huc8.geojson"
     },
     "districtHucs": "data/district-hucs.json",
-    "incumbents":   "data/in-incumbents.json",
+    "incumbents": "data/in-incumbents.json",
     "openstatesRosterCsv": "https://data.openstates.org/people/current/in.csv"
   },
-
   "registry": {
     "seed": "registry.json",
     "candidates": null
   },
-
   "markets": {
-    "nass": { "stateAlpha": "IN" },
+    "nass": {
+      "stateAlpha": "IN"
+    },
     "ams": {
       "cashReportId": null,
       "feedstuffReportId": 3511,
@@ -108,30 +137,86 @@
     },
     "cropRegions": {
       "belt": [
-        { "key": "il", "fips": "17", "name": "Illinois" },
-        { "key": "ia", "fips": "19", "name": "Iowa" },
-        { "key": "oh", "fips": "39", "name": "Ohio" },
-        { "key": "mi", "fips": "26", "name": "Michigan" }
+        {
+          "key": "il",
+          "fips": "17",
+          "name": "Illinois"
+        },
+        {
+          "key": "ia",
+          "fips": "19",
+          "name": "Iowa"
+        },
+        {
+          "key": "oh",
+          "fips": "39",
+          "name": "Ohio"
+        },
+        {
+          "key": "mi",
+          "fips": "26",
+          "name": "Michigan"
+        }
       ]
     },
     "barge": {
       "locations": [
-        { "segment": "Mt. Vernon",          "label": "Ohio River, Mt. Vernon IN — Indiana's primary grain-export terminal" },
-        { "segment": "Evansville – Newburgh","label": "Ohio River, Evansville area (Evansville – Newburgh)" },
-        { "segment": "Olmsted – Cairo",      "label": "Lower Ohio benchmark (Olmsted – Cairo)" }
+        {
+          "segment": "Mt. Vernon",
+          "label": "Ohio River, Mt. Vernon IN \u2014 Indiana's primary grain-export terminal"
+        },
+        {
+          "segment": "Evansville \u2013 Newburgh",
+          "label": "Ohio River, Evansville area (Evansville \u2013 Newburgh)"
+        },
+        {
+          "segment": "Olmsted \u2013 Cairo",
+          "label": "Lower Ohio benchmark (Olmsted \u2013 Cairo)"
+        }
       ]
     },
     "weatherRegions": [
-      { "name": "N-Central Indiana", "lat": 40.75, "lon": -86.10, "w": 0.30 },
-      { "name": "NW Indiana",        "lat": 41.10, "lon": -87.10, "w": 0.25 },
-      { "name": "Central Indiana",   "lat": 40.00, "lon": -86.20, "w": 0.20 },
-      { "name": "S Indiana",         "lat": 38.80, "lon": -87.00, "w": 0.15 },
-      { "name": "Illinois",          "lat": 40.00, "lon": -89.00, "w": 0.10 }
+      {
+        "name": "N-Central Indiana",
+        "lat": 40.75,
+        "lon": -86.1,
+        "w": 0.3
+      },
+      {
+        "name": "NW Indiana",
+        "lat": 41.1,
+        "lon": -87.1,
+        "w": 0.25
+      },
+      {
+        "name": "Central Indiana",
+        "lat": 40.0,
+        "lon": -86.2,
+        "w": 0.2
+      },
+      {
+        "name": "S Indiana",
+        "lat": 38.8,
+        "lon": -87.0,
+        "w": 0.15
+      },
+      {
+        "name": "Illinois",
+        "lat": 40.0,
+        "lon": -89.0,
+        "w": 0.1
+      }
     ],
     "barchart": {
       "basisLocations": [
-        { "name": "N-Central Indiana", "zip": "46902" },
-        { "name": "S Indiana",         "zip": "47708" }
+        {
+          "name": "N-Central Indiana",
+          "zip": "46902"
+        },
+        {
+          "name": "S Indiana",
+          "zip": "47708"
+        }
       ]
     }
   }

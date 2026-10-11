@@ -3,22 +3,19 @@
   "version": "2026.1",
   "extends": "us-national@2026.1",
   "abstract": false,
-  "description": "Missouri — stub pack (docs/MULTI_STATE.md §14). All values verified from public sources or left explicitly empty with a note in 'verify'. Missouri Soybean Association reviews before first deploy.",
-
+  "description": "Missouri \u2014 stub pack (docs/MULTI_STATE.md \u00a714). All values verified from public sources or left explicitly empty with a note in 'verify'. Missouri Soybean Association reviews before first deploy.",
   "verify": [
-    "identity.branding — Missouri Soybean Association to supply logo file and brand palette (none shipped)",
-    "prompts.reader — MoSoy to confirm reader role title used in briefs",
-    "legislature.congressionalDelegation — confirm current MO member committee assignments (119th Congress); Schmitt and Hawley both Republican; check Senate Ag and House Ag assignments",
-    "adminRules — Missouri Register adapter (mo_register) not yet written; probe sos.mo.gov/adrules/moreg/moreg.htm for issue-index format before writing",
-    "markets.ams.cashReportId — AMS MO daily cash-grain report ID; probe MARS with USDA_AMS_API_KEY: GET /services/v1.2/reports?q=Missouri+Cash+Grain+Bids",
-    "markets.ams.feedstuffTradeLoc — confirm AMS report 3511 carries a 'Missouri' trade location",
-    "markets.barge.locations — confirm Missouri River and Mississippi River segment names as published in USDA AMS barge-freight reports; New Madrid and Cape Girardeau are key MO export points on the Mississippi",
-    "markets.weatherRegions — review weights against USDA crop-reporting district acreage; NE Missouri (Schuyler, Scotland, Knox, Clark counties) carries the heaviest soy footprint",
-    "markets.barchart.basisLocations — confirm representative MO elevator zip codes with a Barchart basis pull",
-    "election.campaignFinance — off until counsel reviews Missouri Ethics Commission data-use terms (mec.mo.gov)",
-    "registry — no MO entity seed yet; run scripts/fetch-geo.mjs (--state MO --fips 29) and scripts/fetch-incumbents.mjs"
+    "identity.branding \u2014 Missouri Soybean Association to supply logo file and brand palette (none shipped)",
+    "prompts.reader \u2014 MoSoy to confirm reader role title used in briefs",
+    "legislature.congressionalDelegation \u2014 confirm current MO member committee assignments (119th Congress); Schmitt and Hawley both Republican; check Senate Ag and House Ag assignments",
+    "markets.ams.cashReportId \u2014 AMS MO daily cash-grain report ID; probe MARS with USDA_AMS_API_KEY: GET /services/v1.2/reports?q=Missouri+Cash+Grain+Bids",
+    "markets.ams.feedstuffTradeLoc \u2014 confirm AMS report 3511 carries a 'Missouri' trade location",
+    "markets.barge.locations \u2014 confirm Missouri River and Mississippi River segment names as published in USDA AMS barge-freight reports; New Madrid and Cape Girardeau are key MO export points on the Mississippi",
+    "markets.weatherRegions \u2014 review weights against USDA crop-reporting district acreage; NE Missouri (Schuyler, Scotland, Knox, Clark counties) carries the heaviest soy footprint",
+    "markets.barchart.basisLocations \u2014 confirm representative MO elevator zip codes with a Barchart basis pull",
+    "election.campaignFinance \u2014 off until counsel reviews Missouri Ethics Commission data-use terms (mec.mo.gov)",
+    "registry \u2014 no MO entity seed yet; run scripts/fetch-geo.mjs (--state MO --fips 29) and scripts/fetch-incumbents.mjs"
   ],
-
   "identity": {
     "orgName": "Missouri Soybean Association",
     "orgShort": "MoSoy",
@@ -27,37 +24,62 @@
     "stateFips": "29",
     "timezone": "America/Chicago",
     "website": "https://www.mosoy.org",
-    "branding": { "logo": null, "logoAlt": "Missouri Soybean Association" }
+    "branding": {
+      "logo": null,
+      "logoAlt": "Missouri Soybean Association"
+    }
   },
-
   "prompts": {
     "reader": "Missouri Soybean Association's policy and market-development staff",
     "operation": "a Missouri corn/soybean operation"
   },
-
   "provenance": {
-    "primaryHosts": { "inherit": true, "add": ["house.mo.gov", "senate.mo.gov", "sos.mo.gov"] },
-    "agencyHosts":  { "inherit": true, "add": ["mda.mo.gov", "mdnr.mo.gov", "ago.mo.gov"] },
-    "advocacyHosts": { "inherit": true, "add": ["mosoy.org"] }
+    "primaryHosts": {
+      "inherit": true,
+      "add": [
+        "house.mo.gov",
+        "senate.mo.gov",
+        "sos.mo.gov"
+      ]
+    },
+    "agencyHosts": {
+      "inherit": true,
+      "add": [
+        "mda.mo.gov",
+        "mdnr.mo.gov",
+        "ago.mo.gov"
+      ]
+    },
+    "advocacyHosts": {
+      "inherit": true,
+      "add": [
+        "mosoy.org"
+      ]
+    }
   },
-
   "legislature": {
     "legiscanHome": "MO",
-    "legiscanStates": ["MO"],
-    "fullTextStates": ["MO"],
+    "legiscanStates": [
+      "MO"
+    ],
+    "fullTextStates": [
+      "MO"
+    ],
     "openstatesJurisdiction": "Missouri",
-    "sessionNote": "MO General Assembly: annual session Jan–May",
+    "sessionNote": "MO General Assembly: annual session Jan\u2013May",
     "chamberNames": {
       "upper": "Missouri Senate",
       "lower": "Missouri House of Representatives",
       "legislature": "Missouri General Assembly"
     },
     "congressionalDelegation": {
-      "ssaf": ["Sen. Schmitt", "Sen. Hawley"],
+      "ssaf": [
+        "Sen. Schmitt",
+        "Sen. Hawley"
+      ],
       "hsag": []
     }
   },
-
   "election": {
     "campaignFinance": {
       "enabled": false,
@@ -67,37 +89,43 @@
       "useRestriction": "Pending counsel review of Missouri Ethics Commission (mec.mo.gov) data-use terms"
     }
   },
-
   "adminRules": {
-    "adapter": null,
+    "adapter": "mo_register",
     "label": "Missouri Register",
-    "note": "Published at sos.mo.gov/adrules/moreg/moreg.htm — adapter mo_register not yet written (see verify list)"
+    "note": "Probe the live index at sos.mo.gov/adrules/moreg on the Pi before enabling \u2014 selector logic may need tuning to current site markup."
   },
-
   "geo": {
-    "center": [38.57, -92.60],
+    "center": [
+      38.57,
+      -92.6
+    ],
     "zoom": 7,
     "minZoom": 6,
-    "bbox": [-95.77, 35.99, -89.10, 40.61],
+    "bbox": [
+      -95.77,
+      35.99,
+      -89.1,
+      40.61
+    ],
     "layers": {
       "counties": "geo/counties.geojson",
       "congress": "geo/congress.geojson",
-      "senate":   "geo/senate.geojson",
-      "house":    "geo/house.geojson",
-      "huc8":     "geo/huc8.geojson"
+      "senate": "geo/senate.geojson",
+      "house": "geo/house.geojson",
+      "huc8": "geo/huc8.geojson"
     },
     "districtHucs": "data/district-hucs.json",
-    "incumbents":   "data/mo-incumbents.json",
+    "incumbents": "data/mo-incumbents.json",
     "openstatesRosterCsv": "https://data.openstates.org/people/current/mo.csv"
   },
-
   "registry": {
     "seed": "registry.json",
     "candidates": null
   },
-
   "markets": {
-    "nass": { "stateAlpha": "MO" },
+    "nass": {
+      "stateAlpha": "MO"
+    },
     "ams": {
       "cashReportId": null,
       "feedstuffReportId": 3511,
@@ -105,31 +133,90 @@
     },
     "cropRegions": {
       "belt": [
-        { "key": "ia", "fips": "19", "name": "Iowa" },
-        { "key": "il", "fips": "17", "name": "Illinois" },
-        { "key": "ks", "fips": "20", "name": "Kansas" },
-        { "key": "ar", "fips": "05", "name": "Arkansas" }
+        {
+          "key": "ia",
+          "fips": "19",
+          "name": "Iowa"
+        },
+        {
+          "key": "il",
+          "fips": "17",
+          "name": "Illinois"
+        },
+        {
+          "key": "ks",
+          "fips": "20",
+          "name": "Kansas"
+        },
+        {
+          "key": "ar",
+          "fips": "05",
+          "name": "Arkansas"
+        }
       ]
     },
     "barge": {
       "locations": [
-        { "segment": "Cape Girardeau – Grafton", "label": "Mississippi River, MO/IL border reach (Cape Girardeau – Grafton)" },
-        { "segment": "New Madrid – Cairo",        "label": "Lower Mississippi, SE Missouri (New Madrid – Cairo)" },
-        { "segment": "Hannibal",                  "label": "Upper Mississippi, NE Missouri (Hannibal)" },
-        { "segment": "Kansas City",               "label": "Missouri River, Kansas City terminal" }
+        {
+          "segment": "Cape Girardeau \u2013 Grafton",
+          "label": "Mississippi River, MO/IL border reach (Cape Girardeau \u2013 Grafton)"
+        },
+        {
+          "segment": "New Madrid \u2013 Cairo",
+          "label": "Lower Mississippi, SE Missouri (New Madrid \u2013 Cairo)"
+        },
+        {
+          "segment": "Hannibal",
+          "label": "Upper Mississippi, NE Missouri (Hannibal)"
+        },
+        {
+          "segment": "Kansas City",
+          "label": "Missouri River, Kansas City terminal"
+        }
       ]
     },
     "weatherRegions": [
-      { "name": "NE Missouri",  "lat": 40.10, "lon": -92.00, "w": 0.35 },
-      { "name": "NC Missouri",  "lat": 39.50, "lon": -92.50, "w": 0.25 },
-      { "name": "C Missouri",   "lat": 38.60, "lon": -92.60, "w": 0.20 },
-      { "name": "NW Missouri",  "lat": 40.00, "lon": -94.60, "w": 0.10 },
-      { "name": "Illinois",     "lat": 40.00, "lon": -89.00, "w": 0.10 }
+      {
+        "name": "NE Missouri",
+        "lat": 40.1,
+        "lon": -92.0,
+        "w": 0.35
+      },
+      {
+        "name": "NC Missouri",
+        "lat": 39.5,
+        "lon": -92.5,
+        "w": 0.25
+      },
+      {
+        "name": "C Missouri",
+        "lat": 38.6,
+        "lon": -92.6,
+        "w": 0.2
+      },
+      {
+        "name": "NW Missouri",
+        "lat": 40.0,
+        "lon": -94.6,
+        "w": 0.1
+      },
+      {
+        "name": "Illinois",
+        "lat": 40.0,
+        "lon": -89.0,
+        "w": 0.1
+      }
     ],
     "barchart": {
       "basisLocations": [
-        { "name": "NE Missouri", "zip": "63501" },
-        { "name": "C Missouri",  "zip": "65201" }
+        {
+          "name": "NE Missouri",
+          "zip": "63501"
+        },
+        {
+          "name": "C Missouri",
+          "zip": "65201"
+        }
       ]
     }
   }

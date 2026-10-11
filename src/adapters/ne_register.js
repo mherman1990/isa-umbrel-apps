@@ -1,0 +1,112 @@
+// ne_register.js — Nebraska Administrative Register adapter (no key needed).
+//
+// Follows the pattern of mn_register.js / il_register.js for the NE
+// administrative register. Published bi-weekly at sos.ne.gov/rules-and-regs/register.
+//
+// Key agencies for NE soybean policy: Agriculture, Environmental Quality, Natural Resources, Game and Parks
+//
+// Defensive: any parsing failure warns and returns [] — never crashes the run.
+// Selectors are isolated so they can be tuned without touching the flow.
+
+import * as cheerio from "cheerio";
+import { fetchText } from "../util.js";
+
+export const id = "ne_register";
+export const label = "Nebraska Administrative Register";
+export const state = "NE";
+
+const SITE = "https://sos.ne.gov";
+const INDEX = "https://sos.ne.gov/rules-and-regs/register/";
+
+const TRACKED_AGENCIES = ["Agriculture", "Environmental Quality", "Natural Resources", "Game and Parks"];
+
+function termRegex(term) {
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![A-Za-z0-9])${escaped}(?![A-Za-z0-9])`, "i");
+}
+
+export async function fetchItems({ sinceISO, topics, sourceConfig }) {
+  const budget = sourceConfig.maxItemsPerRun ?? 15;
+
+  const matchers = [];
+  for (const topic of [...topics].sort((a, b) => b.weight - a.weight)) {
+    for (const term of topic.keywords ?? []) {
+      matchers.push({ re: termRegex(term), topic, term });
+    }
+  }
+  const agencyMatchers = TRACKED_AGENCIES.map((a) => new RegExp(a, "i"));
+
+  try {
+    const indexHtml = await fetchText(INDEX, {
+      headers: { "user-agent": "Mozilla/5.0 (compatible; polibrief/1.0)" },
+    });
+
+    const $ = cheerio.load(indexHtml);
+    const issueLinks = [];
+
+    $("a[href]").each((_, el) => {
+      const href = $(el).attr("href") ?? "";
+      if (//rules-and-regs/register/\\d{4}//.test(href) || /register/i.test($(el).text())) {
+        const full = href.startsWith("http") ? href : new URL(href, SITE).href;
+        if (!issueLinks.includes(full)) issueLinks.push(full);
+      }
+    });
+
+    if (!issueLinks.length) throw new Error("no issue links found on the NE register index page");
+
+    const issueUrl = issueLinks[0];
+    const issueHtml = await fetchText(issueUrl, {
+      headers: { "user-agent": "Mozilla/5.0 (compatible; polibrief/1.0)" },
+    });
+
+    const $i = cheerio.load(issueHtml);
+    const pageTitle = $i("title").text().trim() || $i("h1").first().text().trim() || "Nebraska Administrative Register";
+    const dateMatch = pageTitle.match(/(\w+ \d{1,2},?\s+\d{4})/);
+    const issueDateISO = dateMatch ? new Date(dateMatch[1]).toISOString() : new Date().toISOString();
+
+    const items = [];
+
+    $i("table tr").each((_, tr) => {
+      if (items.length >= budget) return false;
+      const cells = $i(tr).find("td").map((_, td) => $i(td).text().replace(/\s+/g, " ").trim()).get();
+      if (cells.length < 2) return;
+      const rowText = cells.join(" ");
+
+      const topicHit = matchers.find(({ re }) => re.test(rowText));
+      const agencyHit = !topicHit && agencyMatchers.some((re) => re.test(rowText));
+      if (!topicHit && !agencyHit) return;
+
+      const subject = cells[cells.length > 3 ? cells.length - 2 : cells.length - 1] || rowText.slice(0, 120);
+      const agency = cells.length > 2 ? cells[cells.length > 3 ? cells.length - 3 : 1] : "";
+      const filingType = cells[cells.length - 1] || "Filing";
+      const partRef = cells[0] || "";
+
+      const pdfHref = $i(tr).find("a[href$=\".pdf\"], a[href$=\".PDF\"]").attr("href");
+      const url = pdfHref ? new URL(pdfHref, SITE).href : issueUrl;
+
+      const uidBase = `${issueUrl}:${partRef.replace(/\s+/g, "-")}:${subject.slice(0, 40).replace(/\s+/g, "-")}`;
+      items.push({
+        uid: `${id}:${uidBase}`,
+        sourceId: id,
+        sourceLabel: label,
+        title: `${filingType} — ${subject.slice(0, 120)}${agency ? ` (${agency.slice(0, 60)})` : ""}`,
+        summary: "",
+        url,
+        publishedAt: issueDateISO,
+        jurisdiction: "NE",
+        docType: "admin-rule",
+        raw: {
+          matchedQuery: topicHit?.term ?? null,
+          matchedTopicId: topicHit?.topic.id ?? null,
+          matchedAgency: agencyHit ? agency : null,
+          filingType, agency, partRef, issueUrl,
+        },
+      });
+    });
+
+    return items;
+  } catch (err) {
+    console.log(`\u26A0\uFE0F  Nebraska Administrative Register: could not parse the register (${err.message}) — returning no items`);
+    return [];
+  }
+}

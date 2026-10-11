@@ -3,23 +3,20 @@
   "version": "2026.1",
   "extends": "us-national@2026.1",
   "abstract": false,
-  "description": "South Dakota — stub pack (docs/MULTI_STATE.md §14). All values verified from public sources or left explicitly empty with a note in 'verify'. South Dakota Soybean Association reviews before first deploy.",
-
+  "description": "South Dakota \u2014 stub pack (docs/MULTI_STATE.md \u00a714). All values verified from public sources or left explicitly empty with a note in 'verify'. South Dakota Soybean Association reviews before first deploy.",
   "verify": [
-    "identity.branding — SDSA to supply logo file and brand palette (none shipped)",
-    "prompts.reader — SDSA to confirm reader role title used in briefs",
-    "legislature.congressionalDelegation — confirm current SD member committee assignments (119th Congress); Thune is Senate Majority Leader (chairs Rules, not Ag); Rounds committee to verify",
-    "adminRules — South Dakota Register adapter (sd_register) not yet written; probe sdlegislature.gov for issue-index format before writing",
-    "markets.ams.cashReportId — AMS SD daily cash-grain report ID; probe MARS with USDA_AMS_API_KEY: *** /services/v1.2/reports?q=South+Dakota+Cash+Grain+Bids",
-    "markets.ams.feedstuffTradeLoc — confirm AMS report 3511 carries a 'South Dakota' trade location",
-    "markets.barge.locations — SD has limited river barge access; confirm if USDA AMS reports any SD-specific barge segments or if freight is tracked via Iowa/Minnesota terminals",
-    "markets.weatherRegions — review weights; eastern SD (Brookings, Watertown, Huron areas) carries the heaviest soy footprint; western SD grows minimal soy",
-    "markets.barchart.basisLocations — confirm representative SD elevator zip codes with a Barchart basis pull",
-    "election.campaignFinance — off until counsel reviews South Dakota Secretary of State campaign-finance data-use terms (sdsos.gov/elections-voting/campaign-finance)",
-    "registry — no SD entity seed yet; run scripts/fetch-geo.mjs (--state SD --fips 46) and scripts/fetch-incumbents.mjs",
-    "timezone — eastern SD (soy production) uses America/Chicago (Central); western SD uses America/Denver (Mountain). All soybean counties are Central — use America/Chicago."
+    "identity.branding \u2014 SDSA to supply logo file and brand palette (none shipped)",
+    "prompts.reader \u2014 SDSA to confirm reader role title used in briefs",
+    "legislature.congressionalDelegation \u2014 confirm current SD member committee assignments (119th Congress); Thune is Senate Majority Leader (chairs Rules, not Ag); Rounds committee to verify",
+    "markets.ams.cashReportId \u2014 AMS SD daily cash-grain report ID; probe MARS with USDA_AMS_API_KEY: *** /services/v1.2/reports?q=South+Dakota+Cash+Grain+Bids",
+    "markets.ams.feedstuffTradeLoc \u2014 confirm AMS report 3511 carries a 'South Dakota' trade location",
+    "markets.barge.locations \u2014 SD has limited river barge access; confirm if USDA AMS reports any SD-specific barge segments or if freight is tracked via Iowa/Minnesota terminals",
+    "markets.weatherRegions \u2014 review weights; eastern SD (Brookings, Watertown, Huron areas) carries the heaviest soy footprint; western SD grows minimal soy",
+    "markets.barchart.basisLocations \u2014 confirm representative SD elevator zip codes with a Barchart basis pull",
+    "election.campaignFinance \u2014 off until counsel reviews South Dakota Secretary of State campaign-finance data-use terms (sdsos.gov/elections-voting/campaign-finance)",
+    "registry \u2014 no SD entity seed yet; run scripts/fetch-geo.mjs (--state SD --fips 46) and scripts/fetch-incumbents.mjs",
+    "timezone \u2014 eastern SD (soy production) uses America/Chicago (Central); western SD uses America/Denver (Mountain). All soybean counties are Central \u2014 use America/Chicago."
   ],
-
   "identity": {
     "orgName": "South Dakota Soybean Association",
     "orgShort": "SDSA",
@@ -28,37 +25,60 @@
     "stateFips": "46",
     "timezone": "America/Chicago",
     "website": "https://www.sdsoybean.org",
-    "branding": { "logo": null, "logoAlt": "South Dakota Soybean Association" }
+    "branding": {
+      "logo": null,
+      "logoAlt": "South Dakota Soybean Association"
+    }
   },
-
   "prompts": {
     "reader": "South Dakota Soybean Association's policy and market-development staff",
     "operation": "a South Dakota corn/soybean operation"
   },
-
   "provenance": {
-    "primaryHosts": { "inherit": true, "add": ["sdlegislature.gov", "sdsos.gov"] },
-    "agencyHosts":  { "inherit": true, "add": ["sdda.sd.gov", "denr.sd.gov", "gfp.sd.gov"] },
-    "advocacyHosts": { "inherit": true, "add": ["sdsoybean.org"] }
+    "primaryHosts": {
+      "inherit": true,
+      "add": [
+        "sdlegislature.gov",
+        "sdsos.gov"
+      ]
+    },
+    "agencyHosts": {
+      "inherit": true,
+      "add": [
+        "sdda.sd.gov",
+        "denr.sd.gov",
+        "gfp.sd.gov"
+      ]
+    },
+    "advocacyHosts": {
+      "inherit": true,
+      "add": [
+        "sdsoybean.org"
+      ]
+    }
   },
-
   "legislature": {
     "legiscanHome": "SD",
-    "legiscanStates": ["SD"],
-    "fullTextStates": ["SD"],
+    "legiscanStates": [
+      "SD"
+    ],
+    "fullTextStates": [
+      "SD"
+    ],
     "openstatesJurisdiction": "South Dakota",
-    "sessionNote": "SD Legislature: annual session Jan–Mar (typically 35-40 days)",
+    "sessionNote": "SD Legislature: annual session Jan\u2013Mar (typically 35-40 days)",
     "chamberNames": {
       "upper": "South Dakota Senate",
       "lower": "South Dakota House of Representatives",
       "legislature": "South Dakota Legislature"
     },
     "congressionalDelegation": {
-      "ssaf": ["Sen. Rounds"],
+      "ssaf": [
+        "Sen. Rounds"
+      ],
       "hsag": []
     }
   },
-
   "election": {
     "campaignFinance": {
       "enabled": false,
@@ -68,37 +88,43 @@
       "useRestriction": "Pending counsel review of SD Secretary of State campaign-finance (sdsos.gov/elections-voting/campaign-finance) data-use terms"
     }
   },
-
   "adminRules": {
-    "adapter": null,
+    "adapter": "sd_register",
     "label": "South Dakota Register",
-    "note": "Published at sdlegislature.gov — adapter sd_register not yet written (see verify list)"
+    "note": "Probe the live index at sdlegislature.gov on the Pi before enabling \u2014 selector logic may need tuning to current site markup."
   },
-
   "geo": {
-    "center": [44.37, -100.35],
+    "center": [
+      44.37,
+      -100.35
+    ],
     "zoom": 7,
     "minZoom": 6,
-    "bbox": [-104.06, 42.48, -96.44, 45.95],
+    "bbox": [
+      -104.06,
+      42.48,
+      -96.44,
+      45.95
+    ],
     "layers": {
       "counties": "geo/counties.geojson",
       "congress": "geo/congress.geojson",
-      "senate":   "geo/senate.geojson",
-      "house":    "geo/house.geojson",
-      "huc8":     "geo/huc8.geojson"
+      "senate": "geo/senate.geojson",
+      "house": "geo/house.geojson",
+      "huc8": "geo/huc8.geojson"
     },
     "districtHucs": "data/district-hucs.json",
-    "incumbents":   "data/sd-incumbents.json",
+    "incumbents": "data/sd-incumbents.json",
     "openstatesRosterCsv": "https://data.openstates.org/people/current/sd.csv"
   },
-
   "registry": {
     "seed": "registry.json",
     "candidates": null
   },
-
   "markets": {
-    "nass": { "stateAlpha": "SD" },
+    "nass": {
+      "stateAlpha": "SD"
+    },
     "ams": {
       "cashReportId": null,
       "feedstuffReportId": 3511,
@@ -106,28 +132,78 @@
     },
     "cropRegions": {
       "belt": [
-        { "key": "mn", "fips": "27", "name": "Minnesota" },
-        { "key": "ia", "fips": "19", "name": "Iowa" },
-        { "key": "nd", "fips": "38", "name": "North Dakota" },
-        { "key": "ne", "fips": "31", "name": "Nebraska" }
+        {
+          "key": "mn",
+          "fips": "27",
+          "name": "Minnesota"
+        },
+        {
+          "key": "ia",
+          "fips": "19",
+          "name": "Iowa"
+        },
+        {
+          "key": "nd",
+          "fips": "38",
+          "name": "North Dakota"
+        },
+        {
+          "key": "ne",
+          "fips": "31",
+          "name": "Nebraska"
+        }
       ]
     },
     "barge": {
       "locations": [
-        { "segment": "Sioux City", "label": "Missouri River, Sioux City IA/SD border — nearest major SD export terminal" }
+        {
+          "segment": "Sioux City",
+          "label": "Missouri River, Sioux City IA/SD border \u2014 nearest major SD export terminal"
+        }
       ]
     },
     "weatherRegions": [
-      { "name": "NE South Dakota",      "lat": 45.00, "lon": -97.10, "w": 0.35 },
-      { "name": "E South Dakota",       "lat": 44.00, "lon": -97.30, "w": 0.30 },
-      { "name": "SE South Dakota",      "lat": 43.20, "lon": -97.00, "w": 0.20 },
-      { "name": "Central South Dakota", "lat": 44.40, "lon": -99.30, "w": 0.10 },
-      { "name": "Minnesota",            "lat": 44.50, "lon": -94.40, "w": 0.05 }
+      {
+        "name": "NE South Dakota",
+        "lat": 45.0,
+        "lon": -97.1,
+        "w": 0.35
+      },
+      {
+        "name": "E South Dakota",
+        "lat": 44.0,
+        "lon": -97.3,
+        "w": 0.3
+      },
+      {
+        "name": "SE South Dakota",
+        "lat": 43.2,
+        "lon": -97.0,
+        "w": 0.2
+      },
+      {
+        "name": "Central South Dakota",
+        "lat": 44.4,
+        "lon": -99.3,
+        "w": 0.1
+      },
+      {
+        "name": "Minnesota",
+        "lat": 44.5,
+        "lon": -94.4,
+        "w": 0.05
+      }
     ],
     "barchart": {
       "basisLocations": [
-        { "name": "E South Dakota", "zip": "57006" },
-        { "name": "SE South Dakota","zip": "57042" }
+        {
+          "name": "E South Dakota",
+          "zip": "57006"
+        },
+        {
+          "name": "SE South Dakota",
+          "zip": "57042"
+        }
       ]
     }
   }

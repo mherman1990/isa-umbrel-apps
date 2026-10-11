@@ -23,6 +23,14 @@ import * as legiscan from "./legiscan.js";
 import * as eurlex_oj from "./eurlex_oj.js";
 import * as iowa_admin_rules from "./iowa_admin_rules.js";
 import * as il_register from "./il_register.js";
+import * as mn_register from "./mn_register.js";
+import * as in_register from "./in_register.js";
+import * as ne_register from "./ne_register.js";
+import * as mo_register from "./mo_register.js";
+import * as oh_register from "./oh_register.js";
+import * as sd_register from "./sd_register.js";
+import * as nd_register from "./nd_register.js";
+import * as ks_register from "./ks_register.js";
 import * as regulations_gov from "./regulations_gov.js";
 import * as courtlistener from "./courtlistener.js";
 import * as rss from "./rss.js";
@@ -60,6 +68,14 @@ export const adapters = {
   [eurlex_oj.id]: eurlex_oj,
   [iowa_admin_rules.id]: iowa_admin_rules,
   [il_register.id]: il_register,
+  [mn_register.id]: mn_register,
+  [in_register.id]: in_register,
+  [ne_register.id]: ne_register,
+  [mo_register.id]: mo_register,
+  [oh_register.id]: oh_register,
+  [sd_register.id]: sd_register,
+  [nd_register.id]: nd_register,
+  [ks_register.id]: ks_register,
   [regulations_gov.id]: regulations_gov,
   [courtlistener.id]: courtlistener,
   // v2 entity-driven sources (registry channels / collector inbox, not topic queries):

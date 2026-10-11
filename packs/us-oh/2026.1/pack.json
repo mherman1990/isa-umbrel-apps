@@ -3,23 +3,20 @@
   "version": "2026.1",
   "extends": "us-national@2026.1",
   "abstract": false,
-  "description": "Ohio — stub pack (docs/MULTI_STATE.md §14). All values verified from public sources or left explicitly empty with a note in 'verify'. Ohio Soybean Council reviews before first deploy.",
-
+  "description": "Ohio \u2014 stub pack (docs/MULTI_STATE.md \u00a714). All values verified from public sources or left explicitly empty with a note in 'verify'. Ohio Soybean Council reviews before first deploy.",
   "verify": [
-    "identity.branding — Ohio Soybean Council to supply logo file and brand palette (none shipped)",
-    "prompts.reader — OSC to confirm reader role title used in briefs",
-    "legislature.congressionalDelegation — confirm current OH member committee assignments (119th Congress); Moreno won Nov 2024; Vance seat filled by Gov. DeWine appointment Jan 2025 — verify appointee and their committee assignments",
-    "adminRules — Ohio Register adapter (oh_register) not yet written; probe registerofohio.ohio.gov for issue-index format before writing",
-    "markets.ams.cashReportId — AMS OH daily cash-grain report ID; probe MARS with USDA_AMS_API_KEY: GET /services/v1.2/reports?q=Ohio+Cash+Grain+Bids",
-    "markets.ams.feedstuffTradeLoc — confirm AMS report 3511 carries an 'Ohio' trade location",
-    "markets.barge.locations — confirm Ohio River and Lake Erie segment names as published in USDA AMS barge-freight reports; Toledo (Lake Erie) is Ohio's primary grain-export port, not Ohio River",
-    "markets.weatherRegions — review weights against USDA crop-reporting district acreage; NW Ohio (Putnam, Wood, Henry, Paulding, Defiance counties) carries the heaviest soy footprint",
-    "markets.barchart.basisLocations — confirm representative OH elevator zip codes with a Barchart basis pull",
-    "election.campaignFinance — off until counsel reviews Ohio Secretary of State campaign-finance data-use terms (ohiosos.gov/campaign-finance)",
-    "registry — no OH entity seed yet; run scripts/fetch-geo.mjs (--state OH --fips 39) and scripts/fetch-incumbents.mjs",
-    "timezone — Ohio is entirely America/New_York (Eastern time). The scheduler and calendar display will use Eastern, unlike Iowa/Illinois/Missouri (Central). Verify all cron-based edition times (am/pm) are correct for Eastern deployment."
+    "identity.branding \u2014 Ohio Soybean Council to supply logo file and brand palette (none shipped)",
+    "prompts.reader \u2014 OSC to confirm reader role title used in briefs",
+    "legislature.congressionalDelegation \u2014 confirm current OH member committee assignments (119th Congress); Moreno won Nov 2024; Vance seat filled by Gov. DeWine appointment Jan 2025 \u2014 verify appointee and their committee assignments",
+    "markets.ams.cashReportId \u2014 AMS OH daily cash-grain report ID; probe MARS with USDA_AMS_API_KEY: GET /services/v1.2/reports?q=Ohio+Cash+Grain+Bids",
+    "markets.ams.feedstuffTradeLoc \u2014 confirm AMS report 3511 carries an 'Ohio' trade location",
+    "markets.barge.locations \u2014 confirm Ohio River and Lake Erie segment names as published in USDA AMS barge-freight reports; Toledo (Lake Erie) is Ohio's primary grain-export port, not Ohio River",
+    "markets.weatherRegions \u2014 review weights against USDA crop-reporting district acreage; NW Ohio (Putnam, Wood, Henry, Paulding, Defiance counties) carries the heaviest soy footprint",
+    "markets.barchart.basisLocations \u2014 confirm representative OH elevator zip codes with a Barchart basis pull",
+    "election.campaignFinance \u2014 off until counsel reviews Ohio Secretary of State campaign-finance data-use terms (ohiosos.gov/campaign-finance)",
+    "registry \u2014 no OH entity seed yet; run scripts/fetch-geo.mjs (--state OH --fips 39) and scripts/fetch-incumbents.mjs",
+    "timezone \u2014 Ohio is entirely America/New_York (Eastern time). The scheduler and calendar display will use Eastern, unlike Iowa/Illinois/Missouri (Central). Verify all cron-based edition times (am/pm) are correct for Eastern deployment."
   ],
-
   "identity": {
     "orgName": "Ohio Soybean Council",
     "orgShort": "OSC",
@@ -28,24 +25,49 @@
     "stateFips": "39",
     "timezone": "America/New_York",
     "website": "https://www.ohiosoybeancouncil.org",
-    "branding": { "logo": null, "logoAlt": "Ohio Soybean Council" }
+    "branding": {
+      "logo": null,
+      "logoAlt": "Ohio Soybean Council"
+    }
   },
-
   "prompts": {
     "reader": "Ohio Soybean Council's policy and market-development staff",
     "operation": "an Ohio corn/soybean operation"
   },
-
   "provenance": {
-    "primaryHosts": { "inherit": true, "add": ["ohiohouse.gov", "ohiosenate.gov", "registerofohio.ohio.gov", "legislature.ohio.gov"] },
-    "agencyHosts":  { "inherit": true, "add": ["agri.ohio.gov", "epa.ohio.gov", "dnr.ohio.gov"] },
-    "advocacyHosts": { "inherit": true, "add": ["ohiosoybeancouncil.org", "soyohio.org"] }
+    "primaryHosts": {
+      "inherit": true,
+      "add": [
+        "ohiohouse.gov",
+        "ohiosenate.gov",
+        "registerofohio.ohio.gov",
+        "legislature.ohio.gov"
+      ]
+    },
+    "agencyHosts": {
+      "inherit": true,
+      "add": [
+        "agri.ohio.gov",
+        "epa.ohio.gov",
+        "dnr.ohio.gov"
+      ]
+    },
+    "advocacyHosts": {
+      "inherit": true,
+      "add": [
+        "ohiosoybeancouncil.org",
+        "soyohio.org"
+      ]
+    }
   },
-
   "legislature": {
     "legiscanHome": "OH",
-    "legiscanStates": ["OH"],
-    "fullTextStates": ["OH"],
+    "legiscanStates": [
+      "OH"
+    ],
+    "fullTextStates": [
+      "OH"
+    ],
     "openstatesJurisdiction": "Ohio",
     "sessionNote": "OH General Assembly: annual sessions; biennial budget in odd years; no formal adjournment date",
     "chamberNames": {
@@ -58,7 +80,6 @@
       "hsag": []
     }
   },
-
   "election": {
     "campaignFinance": {
       "enabled": false,
@@ -68,37 +89,43 @@
       "useRestriction": "Pending counsel review of Ohio Secretary of State campaign-finance (ohiosos.gov/campaign-finance) data-use terms"
     }
   },
-
   "adminRules": {
-    "adapter": null,
+    "adapter": "oh_register",
     "label": "Ohio Register",
-    "note": "Published at registerofohio.ohio.gov — adapter oh_register not yet written (see verify list)"
+    "note": "Probe the live index at registerofohio.ohio.gov on the Pi before enabling \u2014 selector logic may need tuning to current site markup."
   },
-
   "geo": {
-    "center": [40.42, -82.79],
+    "center": [
+      40.42,
+      -82.79
+    ],
     "zoom": 7,
     "minZoom": 6,
-    "bbox": [-84.82, 38.40, -80.52, 41.98],
+    "bbox": [
+      -84.82,
+      38.4,
+      -80.52,
+      41.98
+    ],
     "layers": {
       "counties": "geo/counties.geojson",
       "congress": "geo/congress.geojson",
-      "senate":   "geo/senate.geojson",
-      "house":    "geo/house.geojson",
-      "huc8":     "geo/huc8.geojson"
+      "senate": "geo/senate.geojson",
+      "house": "geo/house.geojson",
+      "huc8": "geo/huc8.geojson"
     },
     "districtHucs": "data/district-hucs.json",
-    "incumbents":   "data/oh-incumbents.json",
+    "incumbents": "data/oh-incumbents.json",
     "openstatesRosterCsv": "https://data.openstates.org/people/current/oh.csv"
   },
-
   "registry": {
     "seed": "registry.json",
     "candidates": null
   },
-
   "markets": {
-    "nass": { "stateAlpha": "OH" },
+    "nass": {
+      "stateAlpha": "OH"
+    },
     "ams": {
       "cashReportId": null,
       "feedstuffReportId": 3511,
@@ -106,30 +133,86 @@
     },
     "cropRegions": {
       "belt": [
-        { "key": "in", "fips": "18", "name": "Indiana" },
-        { "key": "mi", "fips": "26", "name": "Michigan" },
-        { "key": "il", "fips": "17", "name": "Illinois" },
-        { "key": "ky", "fips": "21", "name": "Kentucky" }
+        {
+          "key": "in",
+          "fips": "18",
+          "name": "Indiana"
+        },
+        {
+          "key": "mi",
+          "fips": "26",
+          "name": "Michigan"
+        },
+        {
+          "key": "il",
+          "fips": "17",
+          "name": "Illinois"
+        },
+        {
+          "key": "ky",
+          "fips": "21",
+          "name": "Kentucky"
+        }
       ]
     },
     "barge": {
       "locations": [
-        { "segment": "Toledo",           "label": "Lake Erie, Toledo — Ohio's primary grain-export port" },
-        { "segment": "Olmsted – Cairo",  "label": "Lower Ohio River benchmark (Olmsted – Cairo)" },
-        { "segment": "Portsmouth",       "label": "Ohio River, S Ohio (Portsmouth)" }
+        {
+          "segment": "Toledo",
+          "label": "Lake Erie, Toledo \u2014 Ohio's primary grain-export port"
+        },
+        {
+          "segment": "Olmsted \u2013 Cairo",
+          "label": "Lower Ohio River benchmark (Olmsted \u2013 Cairo)"
+        },
+        {
+          "segment": "Portsmouth",
+          "label": "Ohio River, S Ohio (Portsmouth)"
+        }
       ]
     },
     "weatherRegions": [
-      { "name": "NW Ohio",  "lat": 41.10, "lon": -84.20, "w": 0.35 },
-      { "name": "W Ohio",   "lat": 40.30, "lon": -84.20, "w": 0.25 },
-      { "name": "C Ohio",   "lat": 40.40, "lon": -82.80, "w": 0.20 },
-      { "name": "SW Ohio",  "lat": 39.80, "lon": -84.20, "w": 0.10 },
-      { "name": "Indiana",  "lat": 40.30, "lon": -86.10, "w": 0.10 }
+      {
+        "name": "NW Ohio",
+        "lat": 41.1,
+        "lon": -84.2,
+        "w": 0.35
+      },
+      {
+        "name": "W Ohio",
+        "lat": 40.3,
+        "lon": -84.2,
+        "w": 0.25
+      },
+      {
+        "name": "C Ohio",
+        "lat": 40.4,
+        "lon": -82.8,
+        "w": 0.2
+      },
+      {
+        "name": "SW Ohio",
+        "lat": 39.8,
+        "lon": -84.2,
+        "w": 0.1
+      },
+      {
+        "name": "Indiana",
+        "lat": 40.3,
+        "lon": -86.1,
+        "w": 0.1
+      }
     ],
     "barchart": {
       "basisLocations": [
-        { "name": "NW Ohio", "zip": "45879" },
-        { "name": "C Ohio",  "zip": "43023" }
+        {
+          "name": "NW Ohio",
+          "zip": "45879"
+        },
+        {
+          "name": "C Ohio",
+          "zip": "43023"
+        }
       ]
     }
   }

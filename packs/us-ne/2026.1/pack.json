@@ -3,24 +3,21 @@
   "version": "2026.1",
   "extends": "us-national@2026.1",
   "abstract": false,
-  "description": "Nebraska — stub pack (docs/MULTI_STATE.md §14). All values verified from public sources or left explicitly empty with a note in 'verify'. Nebraska Soybean Board reviews before first deploy.",
-
+  "description": "Nebraska \u2014 stub pack (docs/MULTI_STATE.md \u00a714). All values verified from public sources or left explicitly empty with a note in 'verify'. Nebraska Soybean Board reviews before first deploy.",
   "verify": [
-    "identity.branding — Nebraska Soybean Board to supply logo file and brand palette (none shipped; header shows no logo until set)",
-    "prompts.reader — Nebraska Soybean Board to confirm reader role title used in briefs",
-    "legislature.sessionNote — confirm session calendar each cycle; NE Unicameral typically convenes Jan–June annually (odd years longer)",
-    "legislature.congressionalDelegation — confirm current NE member committee assignments (119th Congress); Fischer is on Senate Ag Committee, Ricketts committee assignments to verify",
-    "adminRules — Nebraska Administrative Register adapter (ne_register) not yet written; probe sos.ne.gov/rules-and-regs/register for issue-index format before writing",
-    "markets.ams.cashReportId — AMS NE daily cash-grain report ID; probe MARS: GET /services/v1.2/reports?q=Nebraska+Cash+Grain+Bids and pick the slug_id matching the daily statewide bid report",
-    "markets.ams.feedstuffTradeLoc — confirm AMS report 3511 carries a 'Nebraska' trade location (series stays empty if not)",
-    "markets.barge.locations — confirm Missouri River segment names as published in USDA AMS barge-freight reports; Sioux City and Omaha/Council Bluffs are the primary NE grain-export river points",
-    "markets.weatherRegions — review weights against USDA crop-reporting district acreage; NE soybean production is concentrated in E and NE Nebraska (Wayne, Cedar, Dixon, Thurston counties); western NE is minimal",
-    "markets.barchart.basisLocations — confirm representative NE elevator zip codes with a Barchart basis pull",
-    "election.campaignFinance — off until counsel reviews Nebraska Accountability and Disclosure Commission data-use terms (nadc.nebraska.gov)",
-    "registry — no NE entity seed yet; generate with scripts/fetch-geo.mjs (--state NE --fips 31) and scripts/fetch-incumbents.mjs",
-    "legislature.chamberNames — Nebraska is a unicameral nonpartisan legislature (49 senators); 'upper'/'lower' fields are null by design; confirm the pack loader handles null chambers gracefully (map display, hearing filters)"
+    "identity.branding \u2014 Nebraska Soybean Board to supply logo file and brand palette (none shipped; header shows no logo until set)",
+    "prompts.reader \u2014 Nebraska Soybean Board to confirm reader role title used in briefs",
+    "legislature.sessionNote \u2014 confirm session calendar each cycle; NE Unicameral typically convenes Jan\u2013June annually (odd years longer)",
+    "legislature.congressionalDelegation \u2014 confirm current NE member committee assignments (119th Congress); Fischer is on Senate Ag Committee, Ricketts committee assignments to verify",
+    "markets.ams.cashReportId \u2014 AMS NE daily cash-grain report ID; probe MARS: GET /services/v1.2/reports?q=Nebraska+Cash+Grain+Bids and pick the slug_id matching the daily statewide bid report",
+    "markets.ams.feedstuffTradeLoc \u2014 confirm AMS report 3511 carries a 'Nebraska' trade location (series stays empty if not)",
+    "markets.barge.locations \u2014 confirm Missouri River segment names as published in USDA AMS barge-freight reports; Sioux City and Omaha/Council Bluffs are the primary NE grain-export river points",
+    "markets.weatherRegions \u2014 review weights against USDA crop-reporting district acreage; NE soybean production is concentrated in E and NE Nebraska (Wayne, Cedar, Dixon, Thurston counties); western NE is minimal",
+    "markets.barchart.basisLocations \u2014 confirm representative NE elevator zip codes with a Barchart basis pull",
+    "election.campaignFinance \u2014 off until counsel reviews Nebraska Accountability and Disclosure Commission data-use terms (nadc.nebraska.gov)",
+    "registry \u2014 no NE entity seed yet; generate with scripts/fetch-geo.mjs (--state NE --fips 31) and scripts/fetch-incumbents.mjs",
+    "legislature.chamberNames \u2014 Nebraska is a unicameral nonpartisan legislature (49 senators); 'upper'/'lower' fields are null by design; confirm the pack loader handles null chambers gracefully (map display, hearing filters)"
   ],
-
   "identity": {
     "orgName": "Nebraska Soybean Board",
     "orgShort": "NSB",
@@ -29,37 +26,61 @@
     "stateFips": "31",
     "timezone": "America/Chicago",
     "website": "https://nebraskasoybean.org",
-    "branding": { "logo": null, "logoAlt": "Nebraska Soybean Board" }
+    "branding": {
+      "logo": null,
+      "logoAlt": "Nebraska Soybean Board"
+    }
   },
-
   "prompts": {
     "reader": "Nebraska Soybean Board's policy and market-development staff",
     "operation": "a Nebraska corn/soybean operation"
   },
-
   "provenance": {
-    "primaryHosts": { "inherit": true, "add": ["nebraskalegislature.gov", "sos.ne.gov"] },
-    "agencyHosts":  { "inherit": true, "add": ["nda.nebraska.gov", "deq.nebraska.gov", "outdoornebraska.gov"] },
-    "advocacyHosts": { "inherit": true, "add": ["nebraskasoybean.org"] }
+    "primaryHosts": {
+      "inherit": true,
+      "add": [
+        "nebraskalegislature.gov",
+        "sos.ne.gov"
+      ]
+    },
+    "agencyHosts": {
+      "inherit": true,
+      "add": [
+        "nda.nebraska.gov",
+        "deq.nebraska.gov",
+        "outdoornebraska.gov"
+      ]
+    },
+    "advocacyHosts": {
+      "inherit": true,
+      "add": [
+        "nebraskasoybean.org"
+      ]
+    }
   },
-
   "legislature": {
     "legiscanHome": "NE",
-    "legiscanStates": ["NE"],
-    "fullTextStates": ["NE"],
+    "legiscanStates": [
+      "NE"
+    ],
+    "fullTextStates": [
+      "NE"
+    ],
     "openstatesJurisdiction": "Nebraska",
-    "sessionNote": "NE Legislature (unicameral, nonpartisan): annual session Jan–June; odd years run longer",
+    "sessionNote": "NE Legislature (unicameral, nonpartisan): annual session Jan\u2013June; odd years run longer",
     "chamberNames": {
       "upper": null,
       "lower": null,
       "legislature": "Nebraska Legislature"
     },
     "congressionalDelegation": {
-      "ssaf": ["Sen. Fischer", "Sen. Ricketts"],
+      "ssaf": [
+        "Sen. Fischer",
+        "Sen. Ricketts"
+      ],
       "hsag": []
     }
   },
-
   "election": {
     "campaignFinance": {
       "enabled": false,
@@ -69,37 +90,43 @@
       "useRestriction": "Pending counsel review of Nebraska Accountability and Disclosure Commission (nadc.nebraska.gov) data-use terms"
     }
   },
-
   "adminRules": {
-    "adapter": null,
+    "adapter": "ne_register",
     "label": "Nebraska Administrative Register",
-    "note": "Published at sos.ne.gov/rules-and-regs/register — adapter ne_register not yet written (see verify list)"
+    "note": "Probe the live index at sos.ne.gov/rules-and-regs/register on the Pi before enabling \u2014 selector logic may need tuning to current site markup."
   },
-
   "geo": {
-    "center": [41.49, -99.90],
+    "center": [
+      41.49,
+      -99.9
+    ],
     "zoom": 7,
     "minZoom": 6,
-    "bbox": [-104.05, 40.00, -95.31, 43.00],
+    "bbox": [
+      -104.05,
+      40.0,
+      -95.31,
+      43.0
+    ],
     "layers": {
       "counties": "geo/counties.geojson",
       "congress": "geo/congress.geojson",
-      "senate":   "geo/senate.geojson",
-      "house":    "geo/house.geojson",
-      "huc8":     "geo/huc8.geojson"
+      "senate": "geo/senate.geojson",
+      "house": "geo/house.geojson",
+      "huc8": "geo/huc8.geojson"
     },
     "districtHucs": "data/district-hucs.json",
-    "incumbents":   "data/ne-incumbents.json",
+    "incumbents": "data/ne-incumbents.json",
     "openstatesRosterCsv": "https://data.openstates.org/people/current/ne.csv"
   },
-
   "registry": {
     "seed": "registry.json",
     "candidates": null
   },
-
   "markets": {
-    "nass": { "stateAlpha": "NE" },
+    "nass": {
+      "stateAlpha": "NE"
+    },
     "ams": {
       "cashReportId": null,
       "feedstuffReportId": 3511,
@@ -107,31 +134,90 @@
     },
     "cropRegions": {
       "belt": [
-        { "key": "ia", "fips": "19", "name": "Iowa" },
-        { "key": "ks", "fips": "20", "name": "Kansas" },
-        { "key": "sd", "fips": "46", "name": "South Dakota" },
-        { "key": "mo", "fips": "29", "name": "Missouri" }
+        {
+          "key": "ia",
+          "fips": "19",
+          "name": "Iowa"
+        },
+        {
+          "key": "ks",
+          "fips": "20",
+          "name": "Kansas"
+        },
+        {
+          "key": "sd",
+          "fips": "46",
+          "name": "South Dakota"
+        },
+        {
+          "key": "mo",
+          "fips": "29",
+          "name": "Missouri"
+        }
       ]
     },
     "barge": {
       "locations": [
-        { "segment": "Sioux City",          "label": "Missouri River, Sioux City IA/NE border terminal" },
-        { "segment": "Omaha – Council Bluffs","label": "Missouri River, Omaha/Council Bluffs hub" },
-        { "segment": "Nebraska City",        "label": "Missouri River, Nebraska City terminal" },
-        { "segment": "Brownville",           "label": "Missouri River, Brownville/SE Nebraska" }
+        {
+          "segment": "Sioux City",
+          "label": "Missouri River, Sioux City IA/NE border terminal"
+        },
+        {
+          "segment": "Omaha \u2013 Council Bluffs",
+          "label": "Missouri River, Omaha/Council Bluffs hub"
+        },
+        {
+          "segment": "Nebraska City",
+          "label": "Missouri River, Nebraska City terminal"
+        },
+        {
+          "segment": "Brownville",
+          "label": "Missouri River, Brownville/SE Nebraska"
+        }
       ]
     },
     "weatherRegions": [
-      { "name": "NE Nebraska",       "lat": 42.10, "lon": -97.00, "w": 0.30 },
-      { "name": "E Nebraska",        "lat": 41.60, "lon": -97.50, "w": 0.30 },
-      { "name": "SE Nebraska",       "lat": 40.70, "lon": -97.10, "w": 0.20 },
-      { "name": "Central Nebraska",  "lat": 41.10, "lon": -99.50, "w": 0.10 },
-      { "name": "Iowa",              "lat": 42.00, "lon": -93.60, "w": 0.10 }
+      {
+        "name": "NE Nebraska",
+        "lat": 42.1,
+        "lon": -97.0,
+        "w": 0.3
+      },
+      {
+        "name": "E Nebraska",
+        "lat": 41.6,
+        "lon": -97.5,
+        "w": 0.3
+      },
+      {
+        "name": "SE Nebraska",
+        "lat": 40.7,
+        "lon": -97.1,
+        "w": 0.2
+      },
+      {
+        "name": "Central Nebraska",
+        "lat": 41.1,
+        "lon": -99.5,
+        "w": 0.1
+      },
+      {
+        "name": "Iowa",
+        "lat": 42.0,
+        "lon": -93.6,
+        "w": 0.1
+      }
     ],
     "barchart": {
       "basisLocations": [
-        { "name": "NE Nebraska", "zip": "68701" },
-        { "name": "SE Nebraska", "zip": "68310" }
+        {
+          "name": "NE Nebraska",
+          "zip": "68701"
+        },
+        {
+          "name": "SE Nebraska",
+          "zip": "68310"
+        }
       ]
     }
   }
