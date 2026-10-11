@@ -112,12 +112,55 @@ function deriveEngineTopics(focusAreas) {
 }
 
 /** Ensure focusAreas exist (migrating legacy topics) and attach the derived engine view. */
+/**
+ * Validate focus areas and return an array of warning objects.
+ * Never throws — the pipeline should log these and continue.
+ * @param {object} watchlist - normalised watchlist (focusAreas populated)
+ * @param {string[]} [knownSourceIds] - source ids to check appliesTo against
+ * @returns {{areaId:string|null, message:string}[]}
+ */
+export function validateWatchlist(watchlist, knownSourceIds = []) {
+  const warnings = [];
+  const areas = watchlist.focusAreas ?? [];
+  const seenIds = new Set();
+  for (const area of areas) {
+    if (area == null || typeof area !== "object") continue; // skip null/undefined/primitive entries
+    const aid = area.id ?? "(no id)";
+    if (!area.id) warnings.push({ areaId: null, message: "A focus area is missing an id — it will not be tracked correctly" });
+    if (!area.label) warnings.push({ areaId: aid, message: `Focus area "${aid}" has no label` });
+    if (!Array.isArray(area.terms) || area.terms.length === 0) {
+      warnings.push({ areaId: aid, message: `Focus area "${aid}" has no search terms — it will match nothing and score zero` });
+    }
+    const w = area.weight;
+    if (typeof w !== "number" || !Number.isFinite(w) || w < 1) {
+      warnings.push({ areaId: aid, message: `Focus area "${aid}" has invalid weight (${w}) — must be a finite number ≥ 1; effective weight will be 5` });
+    }
+    if (area.id && seenIds.has(area.id)) {
+      warnings.push({ areaId: aid, message: `Duplicate focus area id "${aid}" — only the first occurrence is used` });
+    }
+    if (area.id) seenIds.add(area.id);
+    if (knownSourceIds.length && Array.isArray(area.appliesTo) && area.appliesTo.length) {
+      const unknown = area.appliesTo.filter((s) => !knownSourceIds.includes(s));
+      if (unknown.length) {
+        warnings.push({ areaId: aid, message: `Focus area "${aid}" appliesTo unknown source id(s): ${unknown.join(", ")} — those adapters will be skipped` });
+      }
+    }
+  }
+  return warnings;
+}
+
 export function normalizeWatchlist(w) {
   if (!Array.isArray(w.focusAreas) || w.focusAreas.length === 0) {
     w.focusAreas =
       Array.isArray(w.topics) && w.topics.length ? migrateTopicsToFocusAreas(w.topics) : w.focusAreas ?? [];
   }
   w.topics = deriveEngineTopics(w.focusAreas); // engine view; stripped again on save
+  // Validate focus areas and log any problems. Does not throw — a broken area is always better
+  // than no watchlist at all, and the warnings surface exactly what is wrong.
+  const problems = validateWatchlist(w, ALL_SOURCE_IDS);
+  for (const p of problems) {
+    console.log(`⚠️  watchlist${p.areaId ? ` (${p.areaId})` : ""}: ${p.message}`);
+  }
   return w;
 }
 
