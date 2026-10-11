@@ -137,6 +137,26 @@ export function setupReport({ dataDir, env = process.env, envPresent = null, spe
     check(`Key ${k.group}`, ok ? "ok" : k.need === "required" ? "error" : k.need === "recommended" ? "warn" : "info", ok ? `present (${k.why})` : `missing — ${k.need} for ${k.why}`);
   }
 
+  // Futures data (CME settlements or Barchart) — the most impactful market data gap (#45).
+  // CME settlements: keyless but Pi-only (cloud IPs are blocked). Barchart: paid, free eval tier.
+  // Neither active = the store-vs-deliver signal, forward curve, and calendar spreads all show nothing.
+  const hasCme = Boolean(present["CME_SETTLEMENTS"]);
+  const hasBarchart = Boolean(present["BARCHART_API_KEY"]);
+  if (hasCme && hasBarchart) {
+    check("Futures data", "ok", "CME settlements + Barchart both configured — forward curve and basis active");
+  } else if (hasCme) {
+    check("Futures data", "ok", "CME settlements enabled (Pi-only; cloud IPs blocked) — forward curve active; set BARCHART_API_KEY for elevator basis");
+  } else if (hasBarchart) {
+    check("Futures data", "ok", "Barchart configured — elevator basis active; set CME_SETTLEMENTS=1 in .env for the forward curve (Pi-only, keyless)");
+  } else {
+    check(
+      "Futures data",
+      "warn",
+      "neither CME_SETTLEMENTS nor BARCHART_API_KEY is set — the forward curve, store-vs-deliver signal and basis are all off. " +
+      "Set CME_SETTLEMENTS=1 in .env (keyless, Pi-only — re-confirm with the probe in docs/cme-settlements.md first)."
+    );
+  }
+
   out.ok = !out.checks.some((c) => c.status === "error");
   return out;
 }

@@ -22,6 +22,7 @@ import * as congress_hearings from "./congress_hearings.js";
 import * as legiscan from "./legiscan.js";
 import * as eurlex_oj from "./eurlex_oj.js";
 import * as iowa_admin_rules from "./iowa_admin_rules.js";
+import * as il_register from "./il_register.js";
 import * as regulations_gov from "./regulations_gov.js";
 import * as courtlistener from "./courtlistener.js";
 import * as rss from "./rss.js";
@@ -58,6 +59,7 @@ export const adapters = {
   [legiscan.id]: legiscan,
   [eurlex_oj.id]: eurlex_oj,
   [iowa_admin_rules.id]: iowa_admin_rules,
+  [il_register.id]: il_register,
   [regulations_gov.id]: regulations_gov,
   [courtlistener.id]: courtlistener,
   // v2 entity-driven sources (registry channels / collector inbox, not topic queries):
