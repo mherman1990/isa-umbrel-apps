@@ -137,6 +137,26 @@ export function setupReport({ dataDir, env = process.env, envPresent = null, spe
     check(`Key ${k.group}`, ok ? "ok" : k.need === "required" ? "error" : k.need === "recommended" ? "warn" : "info", ok ? `present (${k.why})` : `missing — ${k.need} for ${k.why}`);
   }
 
+  // #48 — legacy shared password active alongside named accounts
+  if (present["POLIBRIEF_PASSWORD"]) {
+    let namedCount = 0;
+    try {
+      const raw = fs.readFileSync(path.join(dataDir, "users.json"), "utf8");
+      namedCount = Object.keys(JSON.parse(raw) || {}).length;
+    } catch { /* no users.json = no named accounts yet */ }
+    if (namedCount > 0) {
+      check(
+        "Legacy shared password",
+        "warn",
+        `POLIBRIEF_PASSWORD is still set alongside ${namedCount} named account${namedCount === 1 ? "" : "s"} — ` +
+        `any username can log in with the shared password. Remove POLIBRIEF_PASSWORD from .env to disable it.`
+      );
+    } else {
+      check("Legacy shared password", "info",
+        "POLIBRIEF_PASSWORD is set; no named accounts exist yet. Add an account before exposing the app, then remove the shared password.");
+    }
+  }
+
   // Futures data (CME settlements or Barchart) — the most impactful market data gap (#45).
   // CME settlements: keyless but Pi-only (cloud IPs are blocked). Barchart: paid, free eval tier.
   // Neither active = the store-vs-deliver signal, forward curve, and calendar spreads all show nothing.

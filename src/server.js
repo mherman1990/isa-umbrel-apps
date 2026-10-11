@@ -3078,13 +3078,15 @@ function loginPage({ next = "/", error = false } = {}) {
   return page("Sign in — The Bean Brief", body, { chrome: false });
 }
 
-// Modest brute-force brake for the login form (it's the one endpoint reachable pre-auth once the
-// app is public). Per-IP: after LOGIN_MAX failures inside the window, refuse for LOGIN_LOCK_MS.
-// In memory only — a restart clears it, which is fine for a small-team review tool.
+// Brute-force protection for the login form (#47). Per-IP, in-memory (a restart clears it —
+// acceptable for a small-team review tool; persistent lockout needs a DB table).
+// Strategy: 5 failures → 30s lockout, doubles per additional failure, cap 15min.
+// Every failure is logged so repeated attempts are visible in /logs.
 const loginFails = new Map(); // ip -> { count, first, until }
-const LOGIN_MAX = 8;
-const LOGIN_WINDOW_MS = 5 * 60 * 1000;
-const LOGIN_LOCK_MS = 5 * 60 * 1000;
+const LOGIN_FAIL_WINDOW_MS = 5 * 60 * 1000;  // rolling window: reset count after 5min idle
+const LOGIN_MAX_BEFORE_LOCK = 5;              // failures before first lockout
+const LOGIN_BASE_LOCK_MS    = 30 * 1000;      // 30s — doubles each additional failure
+const LOGIN_MAX_LOCK_MS     = 15 * 60 * 1000; // hard cap: 15 min
 function clientIp(req) {
   const xf = String(req.headers["x-forwarded-for"] ?? "").split(",")[0].trim();
   return xf || req.socket?.remoteAddress || "unknown";
@@ -3097,9 +3099,15 @@ function loginLockedUntil(ip) {
 function noteLoginFailure(ip) {
   const now = Date.now();
   const rec = loginFails.get(ip) ?? { count: 0, first: now, until: 0 };
-  if (now - rec.first > LOGIN_WINDOW_MS) { rec.count = 0; rec.first = now; }
+  if (now - rec.first > LOGIN_FAIL_WINDOW_MS) { rec.count = 0; rec.first = now; }
   rec.count += 1;
-  if (rec.count >= LOGIN_MAX) rec.until = now + LOGIN_LOCK_MS;
+  if (rec.count >= LOGIN_MAX_BEFORE_LOCK) {
+    const lockMs = Math.min(LOGIN_BASE_LOCK_MS * Math.pow(2, rec.count - LOGIN_MAX_BEFORE_LOCK), LOGIN_MAX_LOCK_MS);
+    rec.until = now + lockMs;
+    console.log(`⚠️  Login: ${rec.count} failed attempt${rec.count === 1 ? "" : "s"} from ${ip} — locked for ${Math.round(lockMs / 1000)}s`);
+  } else {
+    console.log(`⚠️  Login: failed attempt ${rec.count}/${LOGIN_MAX_BEFORE_LOCK} from ${ip}`);
+  }
   loginFails.set(ip, rec);
 }
 function clearLoginFailures(ip) {
@@ -4104,7 +4112,14 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
     console.log(`\n🌐 polibrief web UI on http://localhost:${port} (reachable on your LAN / Tailscale too)`);
     if (auth.authEnabled()) {
       const n = auth.userCount();
-      console.log(`🔒 Login is ON — ${n} account${n === 1 ? "" : "s"}${process.env.POLIBRIEF_PASSWORD ? " (+ legacy POLIBRIEF_PASSWORD)" : ""}.`);
+      console.log(`🔒 Login is ON — ${n} account${n === 1 ? "" : "s"}.`);
+      if (n > 0 && process.env.POLIBRIEF_PASSWORD) {
+        // #48: named accounts + shared password = two active credentials; warn loudly at startup.
+        console.warn(
+          `⚠️  SECURITY: POLIBRIEF_PASSWORD is still set alongside ${n} named account${n === 1 ? "" : "s"}. ` +
+          `Any username can log in with the shared password. Remove POLIBRIEF_PASSWORD from .env to disable it.`
+        );
+      }
     } else {
       console.log("🔓 Login is OFF — the UI is open to anyone who can reach it. Add an account before exposing it: node src/index.js user add <name>");
     }
