@@ -46,7 +46,7 @@ export async function fetchItems({ sinceISO, topics, sourceConfig }) {
 
     $("a[href]").each((_, el) => {
       const href = $(el).attr("href") ?? "";
-      if (//adrules/moreg/\\d{4}//.test(href) || /register/i.test($(el).text())) {
+      if (href.includes("/adrules/moreg/") || /register/i.test($(el).text())) {
         const full = href.startsWith("http") ? href : new URL(href, SITE).href;
         if (!issueLinks.includes(full)) issueLinks.push(full);
       }
