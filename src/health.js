@@ -30,7 +30,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { summarizeSpend, monthlyBudget } from "./budgetcore.js";
+import { summarizeSpend, monthlyBudget, analysisBudget } from "./budgetcore.js";
+import { expectedGapDays, describeDaySpec } from "./schedule.js";
 import { calendarCoverage } from "./calendar.js";
 import { pack, voice, seriesKey, effectiveBargeLocations } from "./pack.js";
 // State/org wording comes from the active state pack (docs/MULTI_STATE.md) — no state literals here.
@@ -328,7 +329,7 @@ function lastLogError(logLines, needles) {
  * @param {Date}   [o.now]
  * @param {string} [o.logText]                      optional captured log to mine for last errors
  */
-export function auditFreshness({ db, watchlist, defaultWatchlist = null, envPresent = {}, dataDir, projectRoot = PROJECT_ROOT, now = new Date(), logText = "", budgetUsd = null }) {
+export function auditFreshness({ db, watchlist, defaultWatchlist = null, envPresent = {}, dataDir, projectRoot = PROJECT_ROOT, now = new Date(), logText = "", budgetUsd = null, analysisBudgetUsd = undefined }) {
   const nowMs = now.getTime();
   const logLines = logText ? logText.split(/\r?\n/) : [];
   const warnings = [];
@@ -520,7 +521,17 @@ export function auditFreshness({ db, watchlist, defaultWatchlist = null, envPres
 
   // ---------- panels ----------
   const ed = watchlist?.briefEditions ?? {};
-  const daySpecCadence = (spec) => (typeof spec === "string" && spec.trim() ? 7 * DAY : null);
+  // The expected gap comes from the schedule itself (1.45.0): a daily Analyst Note is STALE after 2 days,
+  // not 14. A spec that doesn't parse never runs, so it is on-demand here and called out in warnings.
+  const daySpecCadence = (spec) => {
+    if (typeof spec !== "string" || !spec.trim() || spec.trim().toLowerCase() === "off") return null;
+    const gap = expectedGapDays(spec);
+    return gap ? gap * DAY : null;
+  };
+  for (const id of ["weekly", "monthly", "education", "analyst", "member"]) {
+    const s = ed[id];
+    if (typeof s === "string" && s.trim() && s.trim().toLowerCase() !== "off" && !describeDaySpec(s)) warnings.push(`Schedule for "${id}" ("${s}") is not understood, so it never runs — use e.g. "Daily 15:30", "Weekdays 07:00" or "Fri 17:00".`);
+  }
   const brief = (edition) => q1(db, "SELECT MAX(created_at) AS at, COUNT(*) AS n FROM briefs WHERE edition = ?", edition);
 
   const panel = ({ id, label, where, writer, lastAt, expectedMs, expectedLabel, purpose = null, evidence = "", error = null, computed = false }) => {
@@ -770,7 +781,7 @@ export function auditFreshness({ db, watchlist, defaultWatchlist = null, envPres
            FROM token_usage WHERE ts >= ? GROUP BY purpose, model`,
         start
       );
-      return summarizeSpend(rows, budgetUsd ?? monthlyBudget({}, watchlist), now);
+      return summarizeSpend(rows, budgetUsd ?? monthlyBudget({}, watchlist), now, analysisBudgetUsd === undefined ? analysisBudget({}, watchlist) : analysisBudgetUsd);
     })(),
     calendar: cov,
     warnings,

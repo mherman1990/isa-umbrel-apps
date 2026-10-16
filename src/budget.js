@@ -13,7 +13,9 @@
 //   - ESSENTIAL groups (the daily policy brief, the Member Brief) are never stopped by their allocation —
 //     a member-facing product must not silently vanish because the Ask box was busy — only by the HARD
 //     ceiling of 110% of the monthly budget, at which point the Member Brief fails CLOSED and alerts.
-//   - Allocations are SHARES of the budget, so raising MONTHLY_BUDGET_USD scales every line.
+//   - Allocations are SHARES of the budget, so raising MONTHLY_BUDGET_USD scales every line — except the
+//     "analysis" group when ANALYSIS_BUDGET_USD / `output.analysisBudgetUsd` fixes it in dollars (1.45.0,
+//     for a daily Analyst Note); the other groups then share what is left (budgetcore.allocations).
 //
 // Configure with MONTHLY_BUDGET_USD in .env or `output.monthlyBudgetUsd` in watchlist.json (env wins).
 
@@ -21,8 +23,8 @@ import fs from "node:fs";
 import path from "node:path";
 import * as store from "./store.js";
 
-export { DEFAULT_MONTHLY_BUDGET_USD, HARD_CEILING_RATIO, GROUPS, groupOf, monthlyBudget } from "./budgetcore.js";
-import { HARD_CEILING_RATIO, GROUPS, groupOf, monthlyBudget, spendFromRows, summarizeSpend } from "./budgetcore.js";
+export { DEFAULT_MONTHLY_BUDGET_USD, HARD_CEILING_RATIO, GROUPS, groupOf, monthlyBudget, analysisBudget, allocations } from "./budgetcore.js";
+import { HARD_CEILING_RATIO, GROUPS, groupOf, monthlyBudget, analysisBudget, allocations, spendFromRows, summarizeSpend } from "./budgetcore.js";
 
 /**
  * The live watchlist, for callers that don't pass one: the budget set in Settings
@@ -62,10 +64,11 @@ export function check(purpose, { env = process.env, watchlist = null, now = new 
   } catch {
     return { ok: true, reason: "budget unreadable — allowing" }; // never let bookkeeping block a run
   }
-  const budget = monthlyBudget(env, watchlist ?? liveWatchlist());
+  const wl = watchlist ?? liveWatchlist();
+  const budget = monthlyBudget(env, wl);
   const g = groupOf(purpose);
   const def = GROUPS[g];
-  const alloc = budget * def.share;
+  const alloc = allocations(budget, analysisBudget(env, wl))[g];
   if (mtd.total >= budget * HARD_CEILING_RATIO) {
     return { ok: false, reason: `month-to-date spend $${mtd.total.toFixed(2)} is past the hard ceiling ($${(budget * HARD_CEILING_RATIO).toFixed(2)})` };
   }
@@ -77,5 +80,6 @@ export function check(purpose, { env = process.env, watchlist = null, now = new 
 
 /** Table for the health page / audit. */
 export function summary({ env = process.env, watchlist = null, now = new Date() } = {}) {
-  return summarizeSpend(store.monthUsageByPurpose(now), monthlyBudget(env, watchlist ?? liveWatchlist()), now);
+  const wl = watchlist ?? liveWatchlist();
+  return summarizeSpend(store.monthUsageByPurpose(now), monthlyBudget(env, wl), now, analysisBudget(env, wl));
 }

@@ -1517,6 +1517,25 @@ export function upsertForecast(f) {
   });
 }
 
+/**
+ * A still-pending forecast from an EARLIER note of the same edition that makes the same measurable call:
+ * same series, same comparator (or direction) and, for a level claim, the same threshold within 0.5%.
+ * A daily Analyst Note restates a standing thesis most days; filing it each time would let one call count
+ * twenty times in the track record that later prompts calibrate against (1.45.0).
+ */
+export function findPendingForecastLike({ edition, series, comparator, direction, threshold = null, briefPath }) {
+  if (!series) return null;
+  const rows = db
+    .prepare(
+      `SELECT * FROM forecasts WHERE outcome = 'pending' AND edition = ? AND series = ? AND COALESCE(brief_path,'') <> ?
+         AND COALESCE(comparator,'') = ? AND COALESCE(direction,'') = ? ORDER BY created_at DESC`
+    )
+    .all(edition ?? null, series, briefPath ?? "", comparator ?? "", direction ?? "");
+  return (
+    rows.find((r) => (threshold == null && r.threshold == null) || (threshold != null && r.threshold != null && Math.abs(r.threshold - threshold) <= Math.abs(threshold) * 0.005)) ?? null
+  );
+}
+
 /** Forecasts still pending whose resolve_by date has passed. */
 export function forecastsDueForResolution(nowISO = new Date().toISOString().slice(0, 10)) {
   return db

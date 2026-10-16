@@ -21,7 +21,7 @@ import { weatherRiskText } from "./weather.js";
 import { crushText } from "./crush.js";
 import { leadLagText } from "./leadlag.js";
 import { balanceSheetText, houseNowcasts } from "./balancesheet.js";
-import { upcomingReportsText, upcomingReports, upcomingPolicyEventsText } from "./calendar.js";
+import { upcomingReportsText, upcomingReports, upcomingPolicyEventsText, releasedToday } from "./calendar.js";
 import { fetchDocumentText } from "./summarize.js";
 import { emailBodyToText } from "./emailhtml.js";
 import { evaluateTriggers, triggersText, firedTriggerSeries } from "./triggers.js";
@@ -309,6 +309,42 @@ export async function refreshMarketSeries(env = process.env) {
     /* freshness check is best-effort */
   }
   return { seriesCount, failed };
+}
+
+/**
+ * A market-only refresh immediately before a scheduled report (1.45.0). The reports used to read whatever
+ * the 06:30 AM run stored, so a 15:30 CT Analyst Note or education brief described the PRIOR session and
+ * missed every release since breakfast (WASDE 11:00 CT, export sales, COT, crop condition). This pulls the
+ * series again — no model calls, no item collection — then settles expectations and due forecasts so the
+ * "expectations vs. actuals" block and the track record are current too.
+ *
+ * Skipped when the price feeds refreshed within `freshMs` (the AM/PM run, the refresh gate, or the first of
+ * two reports scheduled together). Deliberately NOT here: runAlertsCheck — it emails and writes the change
+ * feed, and the 16:30 PM run reports the same changes. Fail-soft: a report never fails because of this.
+ * @returns {Promise<{refreshed:boolean, reason:string, seriesCount?:number, failed?:object[]}>}
+ */
+export async function refreshMarketsBeforeReport({ env = process.env, now = Date.now(), freshMs = 30 * 60e3, refresh = refreshMarketSeries, log = console.log } = {}) {
+  let last = 0;
+  try {
+    const runs = store.getMarketRuns();
+    // The daily price feeds are what goes stale between runs; fall back to any adapter if neither ran yet.
+    const price = ["cbot_futures", "cme_settlements"].filter((k) => runs[k]?.lastSuccess);
+    for (const k of price.length ? price : Object.keys(runs)) last = Math.max(last, Date.parse(runs[k].lastSuccess) || 0);
+  } catch {
+    /* no record → refresh */
+  }
+  if (now - last < freshMs) return { refreshed: false, reason: `market data refreshed ${Math.round((now - last) / 60e3)} min ago` };
+  const t0 = Date.now();
+  try {
+    const r = await refresh(env);
+    try { computeSurprises(); } catch { /* best-effort */ }
+    try { resolveForecasts(); } catch { /* best-effort */ }
+    log(`📈 Pre-report market refresh: ${r?.seriesCount ?? 0} series in ${Math.round((Date.now() - t0) / 1000)}s${r?.failed?.length ? ` — ${r.failed.length} feed(s) failed: ${r.failed.map((f) => f.label).join(", ")}` : ""}`);
+    return { refreshed: true, reason: "stale", seriesCount: r?.seriesCount ?? 0, failed: r?.failed ?? [] };
+  } catch (err) {
+    log(`⚠️  Pre-report market refresh failed (${err.message}) — the report runs on the stored data.`);
+    return { refreshed: false, reason: `failed: ${err.message}` };
+  }
 }
 
 /**
@@ -948,11 +984,12 @@ const SERIES_RELEASE_TYPES = [
  * (calendar.upcomingReports, already date-sorted). Pure/testable. null when the series has no scheduled
  * release or none falls in the window.
  */
-export function nextReleaseForSeries(series, upcoming = []) {
+export function nextReleaseForSeries(series, upcoming = [], now = new Date()) {
   const entry = SERIES_RELEASE_TYPES.find(([re]) => re.test(series));
   if (!entry) return null;
   const types = new Set(entry[1]);
-  return upcoming.find((r) => types.has(r.type)) ?? null;
+  // A print that already came out today is not the "next" one (afternoon memos, 1.45.0).
+  return upcoming.find((r) => types.has(r.type) && !releasedToday(r, now)) ?? null;
 }
 
 /** The set of series a live signal, a fired trigger, or an open expectation is currently keying on. */
@@ -1084,7 +1121,7 @@ export function formatMarketSnapshot(snapshot, now = new Date()) {
         parts.push(`seasonal ${pct(s.seasonalDeltaPct)} vs ${mon} avg across ${s.seasonalYears} yrs (${s.seasonalPctile}th pctile for ${mon})`);
       }
       // When the next scheduled print lands — turns "how old" into "how long until it refreshes".
-      const next = nextReleaseForSeries(s.series, upcoming);
+      const next = nextReleaseForSeries(s.series, upcoming, now);
       if (next) {
         const daysOut = Math.ceil((Date.parse(next.date + "T12:00:00Z") - now.getTime()) / 86400e3);
         if (Number.isFinite(daysOut) && daysOut >= 0) parts.push(`next ${next.name} ${next.date} (${daysOut}d)`);
@@ -1400,6 +1437,54 @@ export async function runQuery(question, env) {
 // time window and prompted to WRITE a structured memo for a given audience instead
 // of answering a question. Weekly/monthly reports and the on-demand farmer update
 // are all presets of this one engine — no separate feature per report type.
+
+// Saved files of the memo-type editions: never folded back into a memo's "daily briefs" context.
+export const MEMO_BRIEF_FILE = /-(weekly|monthly|farmer|education|analyst|member[a-z-]*)\.md$/;
+
+// The rules a daily-capable report needs (1.45.0). An afternoon note can be read hours after the session
+// it describes, and a daily one sits next to yesterday's — so it must date its data honestly and spend its
+// words on what changed.
+const CADENCE_RULES = `Dating and continuity:
+- The AS OF line at the top of the data says when you are writing and which market session the stored prices are from. Refer to a figure by its period date; say "today" only for data dated today. If today's session is not in the data (a weekend, a holiday, or not yet published), say so plainly — never describe an older settle as today's.
+- A report marked RELEASED TODAY on the calendar has already come out: do not tell the reader to watch for it. Use its numbers only if they are in the data.
+- If YOUR PREVIOUS NOTE is provided: lead with what changed since it. Do not restate reasoning that still holds — say in one line that a read is unchanged and spend the words on what moved. Your previous note is your own earlier output, not evidence: never cite it as support.`;
+
+/** "AS OF …" — when the note is written and which session the stored settles are from. */
+export function asOfLine(timezone, { now = new Date(), snapshot = null } = {}) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", weekday: "long", hourCycle: "h23" }).formatToParts(now).map((p) => [p.type, p.value]));
+  const today = `${parts.year}-${parts.month}-${parts.day}`;
+  let settle = null;
+  try {
+    settle = (snapshot ?? store.marketSnapshot()).find((s) => s.series === "cbot:zs:front")?.latest?.period ?? null;
+  } catch {
+    settle = null;
+  }
+  const weekend = /^(Saturday|Sunday)$/.test(parts.weekday);
+  const session = !settle
+    ? "No CBOT soybean settle is stored."
+    : settle.slice(0, 10) === today
+      ? `Latest CBOT soybean settle in the data: ${settle} — today's session IS in the data.`
+      : `Latest CBOT soybean settle in the data: ${settle} — today's session is NOT in the data${weekend ? " (weekend: no session)" : ""}.`;
+  return `AS OF: written ${today} ${parts.hour}:${parts.minute} (${timezone}), ${parts.weekday}. ${session}`;
+}
+
+/**
+ * The same preset's most recent saved note from an earlier day, labelled as the model's own output — the
+ * one piece of continuity a daily report needs to say what changed instead of restating itself. "" when
+ * there is none (first run, or the edition has never been saved).
+ */
+export function previousNoteBlock(preset, dateLabel, { briefs = null, dataDir = store.DATA_DIR, maxChars = 8000 } = {}) {
+  const re = new RegExp(`^(?:.*/)?(\\d{4}-\\d{2}-\\d{2})-${preset.edition}\\.md$`);
+  const prev = (briefs ?? store.listBriefs(60))
+    .map((b) => ({ b, m: String(b.path).match(re) }))
+    .filter(({ m }) => m && m[1] < dateLabel)
+    .sort((x, y) => y.m[1].localeCompare(x.m[1]))[0];
+  if (!prev) return "";
+  const p = path.join(dataDir, prev.b.path);
+  if (!fs.existsSync(p)) return "";
+  return `=== YOUR PREVIOUS NOTE (${prev.m[1]}, ${preset.label}) — your own earlier output, for continuity only; NOT evidence ===\n${fs.readFileSync(p, "utf8").slice(0, maxChars)}\n\n`;
+}
+
 export const MEMO_PRESETS = {
   weekly: {
     label: "Weekly memo",
@@ -1447,6 +1532,8 @@ Rules: never invent items or numbers; keep every markdown link; cite a market fi
     label: "Market-education brief",
     edition: "education",
     scopeDays: 3,
+    // Daily-capable (1.45.0): shown its own previous brief and told to lead with what changed.
+    previousNote: true,
     maxTokens: 3000, // headroom for Sonnet 5's default adaptive thinking + the lesson
     injectCurriculum: true,
     // The stable "teach, don't tell" identity (§1) + the daily-brief task structure (§3).
@@ -1467,12 +1554,15 @@ One short paragraph teaching the assigned CONCEPT (provided below), tied to some
 ### Today's terms
 A one-line plain definition for any market term you used (draw from the glossary provided). Omit this block entirely if you introduced no term.
 
-Length: scannable in ~90 seconds (250–400 words). No preamble, no sign-off. Start at the lead. Teach the mechanism, then give the read.`,
+Length: scannable in ~90 seconds (250–400 words). No preamble, no sign-off. Start at the lead. Teach the mechanism, then give the read.
+
+${CADENCE_RULES}`,
   },
   analyst: {
     label: "Analyst Note",
     edition: "analyst",
     scopeDays: 14,
+    previousNote: true,
     // The deep "around the corner" report runs on Opus 4.8 + adaptive thinking.
     //
     // ⚠️ THE OLD CEILING WAS CHOSEN TO AVOID STREAMING, NOT TO FIT THE ANALYSIS. It was 12,000 with
@@ -1527,7 +1617,10 @@ The policy/regulatory items that actually move the demand or price mechanism —
 ### On the calendar
 The imminent releases worth positioning attention around, and the specific thing to watch in each.
 
-Rules: never invent numbers or items; cite series + period for every figure; keep every markdown link; omit an empty section. This is analysis, not advice — lay out setups and risks, but do not tell anyone to buy or sell.`,
+Rules: never invent numbers or items; cite series + period for every figure; keep every markdown link; omit an empty section. This is analysis, not advice — lay out setups and risks, but do not tell anyone to buy or sell.
+
+${CADENCE_RULES}
+- In "What the signals say", go deep only on signals whose direction or label changed since your previous note; for the rest one line is enough ("rest of the board unchanged, tilt still X").`,
   },
 };
 
@@ -1543,7 +1636,7 @@ export async function generateMemo(presetId, env) {
   }
   {
     const b = budget.check("memo", { env });
-    if (!b.ok) throw new Error(`Paused by the monthly AI budget: ${b.reason}. Raise it in Logs & Settings → Settings (or MONTHLY_BUDGET_USD).`);
+    if (!b.ok) throw new Error(`Paused by the monthly AI budget: ${b.reason}. Raise the monthly or analysis budget in Logs & Settings → Settings (or MONTHLY_BUDGET_USD / ANALYSIS_BUDGET_USD).`);
   }
   const preset = MEMO_PRESETS[presetId];
   if (!preset) {
@@ -1563,15 +1656,24 @@ export async function generateMemo(presetId, env) {
   const marketBlock = formatMarketSnapshot(store.marketSnapshot());
   const deadlines = store.upcomingDeadlines(20); // pins are read inside trackedBlock(), capped + counted
 
-  // Daily briefs within the window (never fold memos back into memos).
+  // Daily briefs within the window (never fold memos back into memos). The memo-type editions —
+  // including the Analyst Note and education brief themselves, and the Member Brief — are excluded: once
+  // those run daily (1.45.0), each note would otherwise re-read up to a dozen of its own predecessors,
+  // unlabelled, and could cite yesterday's thesis as corroboration of today's. The one previous note a
+  // daily preset needs is passed separately below, labelled as the model's own earlier output.
   const cutoff = Date.now() - preset.scopeDays * 86400e3;
   const briefTexts = [];
+  const shownBriefPaths = [];
   for (const b of store.listBriefs(40)) {
     if (Date.parse(b.created_at) < cutoff) continue;
-    if (/-(weekly|monthly|farmer)\.md$/.test(b.path)) continue;
+    if (MEMO_BRIEF_FILE.test(b.path)) continue;
     const p = path.join(store.DATA_DIR, b.path);
-    if (fs.existsSync(p)) briefTexts.push(`--- ${path.basename(b.path)} ---\n${fs.readFileSync(p, "utf8").slice(0, 9000)}`);
+    if (fs.existsSync(p)) {
+      briefTexts.push(`--- ${path.basename(b.path)} ---\n${fs.readFileSync(p, "utf8").slice(0, 9000)}`);
+      shownBriefPaths.push(b.path);
+    }
   }
+  const previousNote = preset.previousNote ? previousNoteBlock(preset, dateLabel) : "";
 
   // For the education brief: inject a season-aware teaching concept (+ glossary). Auto-seed
   // the concept bank if it's empty so this works even before `seed-curriculum` is run.
@@ -1622,7 +1724,9 @@ export async function generateMemo(presetId, env) {
   // the largest single saving available here — the Analyst preset runs ~30k input tokens on Opus with
   // web search on, so a 3-turn search loop used to bill that input three times over.
   const memoContext =
+    `${asOfLine(timezone)}\n\n` +
     `Stored monitoring data for the last ${preset.scopeDays} days — write the memo per your instructions.\n\n` +
+    previousNote +
     `=== MARKET DATA (latest value, change vs prior, recent trail) ===\n${marketBlock || "(no market data stored yet)"}\n\n` +
     (marketIntelText() ? `=== MARKET INTEL FROM NEWSLETTERS (distilled from the collector inbox, cited) ===\n${marketIntelText()}\n\n` : "") +
     `=== LAWS/RULES/DECISIONS + NEWS items (JSON — one entry per government ACTION. "evidenceBasis" says what each rests on: "packet" = a verified structured extraction in "packet"; "document" = the source's own text; "title_only" = the substance was NOT retrieved. "why" is a prior one-line note, not source text. "alsoFiledAs" means the same action filed elsewhere — one action, not several.) ===\n${JSON.stringify(compactHits, null, 1)}\n\n` +
@@ -1697,7 +1801,9 @@ export async function generateMemo(presetId, env) {
         // symptom was the analyst quietly falling back to the old extractor on every run. Caught by
         // test/thesis-wiring.test.js, which is the argument for that file existing.
         signalIds: new Set((computeSignals().signals ?? []).map((s) => s.id)),
-        briefPaths: new Set(store.listBriefs(40).map((b) => b.path)),
+        // Only the briefs actually in the prompt — never the previous note, which is the model's own
+        // earlier output and must not be citable as evidence for its next one.
+        briefPaths: new Set(shownBriefPaths),
         reportKeys: new Set(),
       };
       const evidenceIds = [
@@ -1827,7 +1933,7 @@ export async function generateMemo(presetId, env) {
         // value, so a thesis demoted at either step files at the confidence we actually hold.
         const filed = fileForecastFromClaim(
           { ...fc, horizonDays: t.horizonDays, confidence: t.confidence },
-          { briefPath, edition: preset.edition, createdAt, bySeries, thesisKey: t.thesisKey ?? null, challengeVerdict: t.verdict ?? null }
+          { briefPath, edition: preset.edition, createdAt, bySeries, thesisKey: t.thesisKey ?? null, challengeVerdict: t.verdict ?? null, skipIfPending: true }
         );
         if (filed) stored++;
       }
@@ -1837,7 +1943,7 @@ export async function generateMemo(presetId, env) {
     }
   } else if (preset.extractForecasts) {
     try {
-      await extractForecasts(noteMarkdown, { edition: preset.edition, briefPath, env });
+      await extractForecasts(noteMarkdown, { edition: preset.edition, briefPath, env, skipIfPending: true });
     } catch (err) {
       console.log(`⚠️  Forecast extraction skipped: ${err.message}`);
     }
@@ -2378,7 +2484,7 @@ function forecastKey(briefPath, claim) {
  * Cheap extraction model — this is parsing, not analysis.
  * @returns {{ stored: number } | null}
  */
-export async function extractForecasts(markdown, { edition, briefPath, env = process.env } = {}) {
+export async function extractForecasts(markdown, { edition, briefPath, env = process.env, skipIfPending = false } = {}) {
   if (!env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not set in .env");
   if (!markdown || markdown.length < 200) return null;
 
@@ -2422,7 +2528,7 @@ export async function extractForecasts(markdown, { edition, briefPath, env = pro
   const createdAt = new Date().toISOString();
   let stored = 0;
   for (const f of list) {
-    if (fileForecastFromClaim(f, { briefPath, edition, createdAt, bySeries })) stored++;
+    if (fileForecastFromClaim(f, { briefPath, edition, createdAt, bySeries, skipIfPending })) stored++;
   }
   if (stored) console.log(`🔮 Forecast ledger: ${stored} claim${stored === 1 ? "" : "s"} filed from ${edition}`);
   return { stored };
@@ -2442,7 +2548,7 @@ export async function extractForecasts(markdown, { edition, briefPath, env = pro
  *
  * @returns {boolean} whether a row was written
  */
-export function fileForecastFromClaim(f, { briefPath, edition, createdAt, bySeries, thesisKey = null, challengeVerdict = null }) {
+export function fileForecastFromClaim(f, { briefPath, edition, createdAt, bySeries, thesisKey = null, challengeVerdict = null, skipIfPending = false }) {
   if (!f?.claim) return false;
   const seriesId = f.series && bySeries.has(f.series) ? f.series : null;
   const base = seriesId ? bySeries.get(seriesId) : null;
@@ -2453,6 +2559,15 @@ export function fileForecastFromClaim(f, { briefPath, edition, createdAt, bySeri
   const isLevel = comparator === "stays_above" || comparator === "stays_below";
   if (isLevel && !Number.isFinite(f.threshold)) comparator = "not_measurable";
   if (!seriesId) comparator = "not_measurable";
+  // The same measurable call already pending from an earlier note of this edition is not filed again — it
+  // is one prediction, still open, not a new one (a daily note restates its standing theses).
+  if (skipIfPending && comparator !== "not_measurable") {
+    const dup = store.findPendingForecastLike({ edition, series: seriesId, comparator, direction: f.direction ?? null, threshold: isLevel ? f.threshold : null, briefPath });
+    if (dup) {
+      console.log(`   ↺ forecast already on the ledger from ${dup.brief_path ?? "an earlier note"} (resolves ${dup.resolve_by}) — not filed again`);
+      return false;
+    }
+  }
   store.upsertForecast({
     dedupeKey: forecastKey(briefPath, f.claim),
     briefPath,

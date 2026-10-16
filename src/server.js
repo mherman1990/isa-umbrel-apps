@@ -26,9 +26,9 @@ import * as budgetMod from "./budget.js";
 import { auditFreshness, envPresence, fmtAge } from "./health.js";
 import { setupReport, availablePacks, claimDataDir } from "./setup.js";
 import Database from "better-sqlite3";
-import { seedRan, dueEditions, localClock, needsRefreshFirst, parseDaySpec } from "./schedule.js";
+import { seedRan, dueEditions, localClock, needsRefreshFirst, parseDaySpec, dayWord, describeDaySpec, canonicalDaySpec } from "./schedule.js";
 import { runMemberBrief, DEFAULT_MEMBER_SPEC, memberRecipients } from "./memberbrief.js";
-import { migrateWatchlistSources, runPipeline, runMemo, answerQuery, loadWatchlist, saveWatchlist, generateNewsDigest, getCachedNewsDigest, extractMarketIntel, getCachedMarketIntel, generateMarketCards, getCachedMarketCards, generateStorylines, getStorylinesMeta, cachedAgeDays, STALE_PANEL_DAYS } from "./pipeline.js";
+import { migrateWatchlistSources, runPipeline, runMemo, refreshMarketsBeforeReport, answerQuery, loadWatchlist, saveWatchlist, generateNewsDigest, getCachedNewsDigest, extractMarketIntel, getCachedMarketIntel, generateMarketCards, getCachedMarketCards, generateStorylines, getStorylinesMeta, cachedAgeDays, STALE_PANEL_DAYS } from "./pipeline.js";
 import { computeSignals, SIGNAL_CHART } from "./signals.js";
 import { productShareSeries } from "./crush.js";
 import { groupByEvent, pickLead } from "./eventkey.js";
@@ -618,6 +618,9 @@ async function triggerRun(edition, { trigger = "manual" } = {}) {
       // Reports run on the day's refreshed data, never yesterday's: if no AM/PM pipeline run has completed
       // OK today, run the refresh first (collect → series → panels → triage), then the report.
       if (isMemo || isMember) await ensureTodaysRefresh();
+      // Memos read market series; pull them again unless they were refreshed in the last half hour, so an
+      // afternoon note is written on today's settles, not the morning's (refreshMarketsBeforeReport).
+      if (isMemo) await refreshMarketsBeforeReport({ env: process.env });
       if (isMemo) await runMemo(edition, process.env);
       else if (isMember) {
         if (runId) {
@@ -1019,9 +1022,10 @@ ${areas || '<p class="muted">No focus areas yet.</p>'}
 </details>`;
 }
 
-// The memo presets that can be scheduled on a weekday + time, and their default time. Education is
+// The memo presets that can be scheduled (one day, weekdays or daily, at a time), and their default time. Education is
 // here because it needs its own cadence AND its own Teams channel; Analyst because a scheduled
 // Analyst Note is what keeps the forecast ledger fed (it's the only preset that files claims).
+const DAYS_OF_WEEK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const DAY_SCHEDULED = [
   ["weekly", "Weekly memo", "17:00"],
   ["monthly", "Monthly review", "08:00"],
@@ -1052,18 +1056,27 @@ function settingsSection(watchlist, openId) {
       <label class="muted">AM <input type="time" name="am" value="${esc(ed.am ?? "06:30")}"></label>
       <label class="muted">PM <input type="time" name="pm" value="${esc(ed.pm ?? "16:30")}"></label>
     </div>
-    <div class="kicker">Scheduled reports <span class="muted" style="font-weight:400">— set a day to schedule; "off" leaves it on-demand</span></div>
+    <div class="kicker">Scheduled reports <span class="muted" style="font-weight:400">— Daily, Weekdays or one day; "off" leaves it on-demand. A manual run counts as that day's run.</span></div>
     <div class="sched-grid">
       ${DAY_SCHEDULED
         .map(([edition, label, dflt]) => {
-          const cur = typeof ed[edition] === "string" ? ed[edition] : "";
-          const curDay = cur ? cur.split(" ")[0] : "off";
-          const curTime = (cur ? cur.split(" ")[1] : "") || dflt;
+          const cur = typeof ed[edition] === "string" ? ed[edition].trim() : "";
+          const spec = parseDaySpec(cur);
+          // The dropdown is chosen from the PARSED spec, never by splitting the string: a multi-day spec
+          // ("Mon,Wed,Fri 15:30", hand-edited) used to match no option, so the browser showed "off" and
+          // the next Save — of anything on this form — deleted the schedule. Anything the dropdown can't
+          // express is offered as a selected "keep" option, which the handler leaves untouched.
+          const word = spec ? dayWord(spec.days) : "";
+          const simple = ["Daily", "Weekdays", ...DAYS_OF_WEEK];
+          const curDay = !cur ? "off" : spec && simple.includes(word) ? word : "keep";
+          const curTime = spec?.time ?? dflt;
+          const keepLabel = spec ? `custom: ${word}` : `⚠️ not understood: ${cur}`;
           return `<label class="muted">${esc(label)}
             <select name="${edition}Day">
-              ${["off", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+              ${["off", "Daily", "Weekdays", ...DAYS_OF_WEEK]
                 .map((d) => `<option value="${d}"${d === curDay ? " selected" : ""}>${d}</option>`)
                 .join("")}
+              ${curDay === "keep" ? `<option value="keep" selected>${esc(keepLabel)}</option>` : ""}
             </select>
             <input type="time" name="${edition}Time" value="${esc(curTime)}">
           </label>`;
@@ -1111,6 +1124,7 @@ function settingsSection(watchlist, openId) {
       <label class="muted">min local score <input type="number" name="minLocalScoreForTriage" value="${esc(out.minLocalScoreForTriage ?? 5)}" min="0" max="50" style="width:64px"></label>
       <label class="muted">max items to triage <input type="number" name="maxItemsToTriage" value="${esc(out.maxItemsToTriage ?? 80)}" min="5" max="300" style="width:70px"></label>
       <label class="muted">monthly AI budget $ <input type="number" name="monthlyBudgetUsd" value="${esc(out.monthlyBudgetUsd ?? budgetMod.DEFAULT_MONTHLY_BUDGET_USD)}" min="1" max="10000" step="1" style="width:76px"${process.env.MONTHLY_BUDGET_USD ? ' disabled title="set in .env (MONTHLY_BUDGET_USD)"' : ""}></label>
+      <label class="muted" title="Analyst Note, weekly/monthly/education memos, theses. Blank = 20% of the monthly budget. Set in dollars to fund a daily Analyst Note (about $1.20 a run); the other groups share the rest.">analysis budget $ <input type="number" name="analysisBudgetUsd" value="${esc(out.analysisBudgetUsd ?? "")}" placeholder="20%" min="0" max="10000" step="1" style="width:70px"${process.env.ANALYSIS_BUDGET_USD ? ' disabled title="set in .env (ANALYSIS_BUDGET_USD)"' : ""}></label>
       <label class="muted">max items in brief <input type="number" name="maxItemsInBrief" value="${esc(out.maxItemsInBrief ?? 25)}" min="5" max="100" style="width:64px"></label>
     </div>
     <div class="toolbar"><button>Save settings</button></div>
@@ -1127,8 +1141,15 @@ function settingsSection(watchlist, openId) {
     ${MEMO_EDITIONS.map(([edition, label]) => {
       const to = recipientFor(edition, process.env, watchlist);
       const sched = DAY_SCHEDULED.find(([e]) => e === edition);
-      const when = edition === "am" ? `${esc(ed.am ?? "06:30")} / ${esc(ed.pm ?? "16:30")} daily` : (typeof ed[edition] === "string" && ed[edition] ? esc(ed[edition]) : '<span class="muted">on demand</span>');
-      void sched;
+      const raw = typeof ed[edition] === "string" ? ed[edition].trim() : "";
+      const when =
+        edition === "am"
+          ? `${esc(ed.am ?? "06:30")} / ${esc(ed.pm ?? "16:30")} daily`
+          : !raw || !sched
+            ? '<span class="muted">on demand</span>'
+            : describeDaySpec(raw)
+              ? esc(describeDaySpec(raw))
+              : `⚠️ "${esc(raw)}" isn't a schedule the app understands — it will not run`;
       return `<tr><td>${esc(label)}</td><td>${to ? esc(to) : '<span class="muted">nowhere — not configured</span>'}</td><td>${when}</td></tr>`;
     }).join("")}
   </table>
@@ -3952,13 +3973,14 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
           // old weekly-only handler, now driven by the DAY_SCHEDULED table so the two can't drift.
           for (const [edition, label] of DAY_SCHEDULED) {
             const day = form.get(`${edition}Day`);
-            if (day == null) continue; // field absent from this submission — leave the setting alone
+            if (day == null || day === "keep") continue; // absent, or a custom spec the dropdown can't show
             if (day === "off") { delete watchlist.briefEditions[edition]; continue; }
             const time = form.get(`${edition}Time`) ?? "";
-            if (["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].includes(day) && hhmm.test(time)) {
-              checkTime(label, time);
-              watchlist.briefEditions[edition] = `${day} ${time}`;
-            }
+            if (!["Daily", "Weekdays", ...DAYS_OF_WEEK].includes(day)) throw new Error(`${label}: "${day}" isn't a schedule option.`);
+            if (!hhmm.test(time)) throw new Error(`${label}: pick a time for the ${day.toLowerCase()} schedule.`);
+            checkTime(label, time);
+            // Stored in the canonical form ("Mon-Sun 15:30" for Daily) — see schedule.canonicalDaySpec.
+            watchlist.briefEditions[edition] = canonicalDaySpec(`${day} ${time}`);
           }
           // Member Brief schedule ("Mon,Wed,Fri 06:45", "off") and recipients.
           const memberSchedule = form.get("memberSchedule");
@@ -3996,6 +4018,20 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
             watchlist.output.editionEmail[edition] = addr;
           }
           // Monthly Anthropic budget (src/budget.js). MONTHLY_BUDGET_USD in .env still wins over this.
+          // Analysis allocation in dollars (blank = its 20% share). Checked against the monthly budget that
+          // will be in force after this save, since the other groups divide what is left of it.
+          const analysisRaw = form.get("analysisBudgetUsd");
+          if (analysisRaw != null && !process.env.ANALYSIS_BUDGET_USD) {
+            const s = String(analysisRaw).trim();
+            if (s === "") delete watchlist.output.analysisBudgetUsd;
+            else {
+              const v = Number(s);
+              const mb = Number(form.get("monthlyBudgetUsd")) || budgetMod.monthlyBudget(process.env, watchlist);
+              if (!Number.isFinite(v) || v < 0) throw new Error(`Analysis budget "${s}" must be a dollar amount (or blank for 20% of the monthly budget).`);
+              if (v >= mb) throw new Error(`Analysis budget $${v} must be less than the monthly budget ($${mb}) — the other groups share what is left.`);
+              watchlist.output.analysisBudgetUsd = v;
+            }
+          }
           if (form.get("monthlyBudgetUsd") != null && form.get("monthlyBudgetUsd") !== "") {
             const v = Number(form.get("monthlyBudgetUsd"));
             if (Number.isFinite(v) && v > 0 && v <= 10000) watchlist.output.monthlyBudgetUsd = v;
@@ -4159,6 +4195,7 @@ function buildFreshnessReport() {
     envPresent: envPresence([], process.env), // presence only — values never leave process.env
     dataDir: store.DATA_DIR,
     budgetUsd: budgetMod.monthlyBudget(process.env, watchlist),
+    analysisBudgetUsd: budgetMod.analysisBudget(process.env, watchlist),
     logText: logBuffer.join("\n"),
   });
 }
@@ -4257,6 +4294,15 @@ function startScheduler() {
       const withMember = { member: DEFAULT_MEMBER_SPEC, ...editions };
       const dayIds = [...DAY_SCHEDULED.map(([e]) => e), ...(withMember.member === "off" ? [] : ["member"])];
       const { date, due } = dueEditions(withMember, now, ran, dayIds);
+      // A hand-edited spec the parser can't read is never scheduled. Say so in the log once a day rather
+      // than skipping it in silence — the Settings table flags it too.
+      for (const id of dayIds) {
+        const raw = withMember[id];
+        if (typeof raw === "string" && raw.trim() && raw.trim().toLowerCase() !== "off" && !parseDaySpec(raw) && !attempted.has(`${date}-badspec-${id}`)) {
+          attempted.add(`${date}-badspec-${id}`);
+          console.log(`⚠️  Schedule for "${id}" ("${raw}") isn't understood, so it will not run — use e.g. "Daily 15:30", "Weekdays 07:00" or "Fri 17:00".`);
+        }
+      }
       for (const edition of due) {
         console.log(`\n⏰ Scheduled ${edition} (${withMember[edition]} ${timezone})`);
         const problem = await triggerRun(edition, { trigger: "schedule" });

@@ -2,6 +2,8 @@
 
 Set 2026-10-04. Enforced in code by `src/budget.js`. Visible live on **Logs & Settings → 🩺 Data freshness & spend** (`/freshness`), and editable in **Settings → monthly AI budget**. `MONTHLY_BUDGET_USD` in `.env` overrides the Settings value.
 
+**Since 1.45.0 the analysis group can be set in dollars** — Settings → *analysis budget $* (or `ANALYSIS_BUDGET_USD` in `.env`). Blank keeps its 20% share. When it is set, the analysis group gets exactly that amount and the other groups divide the rest of the monthly budget in proportion to their shares, so the monthly budget stays the one ceiling. See *Daily Analyst Note + education brief* below.
+
 ## Prices used (re-verified 2026-10-04)
 
 | Model | Input $/MTok | Output $/MTok | Used for |
@@ -44,7 +46,25 @@ Raising the cap from the old ~$20–30 run-rate to $75 went into **quality where
   - The Ask box and memos return a "paused by the monthly AI budget" message.
 - **Essential groups** (daily brief, Member Brief) are never stopped by their own allocation. They stop only at the **hard ceiling of 110%** of the budget.
   - At that point the Member Brief **fails closed**: it is not sent, the draft is saved, and you get an alert.
-- Allocations are shares of the budget, so changing the $75 scales every line.
+- Allocations are shares of the budget, so changing the $75 scales every line — except an analysis budget set in dollars, which stays fixed while the other groups share the remainder.
+
+### Daily Analyst Note + education brief (1.45.0)
+
+Scheduling both reports every day (e.g. *Daily 15:30*) moves the analysis group from ~$4–8 to roughly **$38–41 a month**:
+
+| Report | Model | Per run | 30 runs |
+|---|---|---|---|
+| Analyst Note | Opus 4.8, effort xhigh, web search, + thesis + Challenger calls | ≈ $1.16–1.24 (range $0.61–2.18) | ≈ $35–37 |
+| Market-education brief | Sonnet 5, one call | ≈ $0.09–0.12 | ≈ $3 |
+
+At the default 20% share ($15 of $75) both reports would be paused from about day 12 of each month, taking the weekly and monthly memos with them. The recommended setting is **monthly budget $105, analysis budget $45**: analysis gets $45 and every other group keeps exactly the dollars it had at $75 ($60 between them). Expected total spend is about $65–75 a month; the $105 is a ceiling, not a target. Re-measure after a week of daily runs:
+
+```sql
+SELECT purpose, model, COUNT(*), SUM(input_tokens), SUM(output_tokens), SUM(cache_read_tokens), SUM(cache_write_tokens)
+  FROM token_usage WHERE purpose IN ('memo','thesis','challenge') AND ts >= date('now','-7 day') GROUP BY 1,2;
+```
+
+Prompt caching does not carry across days (the longest TTL is one hour); inside one Analyst run it still saves the web-search loop's re-reads. The Batch API would halve the Analyst's main call but cannot guarantee a 15:30 delivery, so it is not used.
 
 ### Not used yet: Batch API (50% off)
 
