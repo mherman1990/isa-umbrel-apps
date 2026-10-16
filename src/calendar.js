@@ -109,8 +109,69 @@ const AGENCY = { WASDE: "USDA", GRAIN_STOCKS: "USDA NASS", ACREAGE: "USDA NASS",
 const agencyOf = (type) => AGENCY[type] || "USDA";
 
 const DOW = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
-// CFTC COT isn't in the USDA data file; it's a weekly Friday release.
-const CFTC_RECUR = { title: "CFTC Commitments of Traders", type: "COT", impact: "low", watch_template: "Weekly managed-money fund positioning, as of the prior Tuesday.", recurrence: { freq: "WEEKLY", byday: ["FR"] } };
+// CFTC COT isn't in the USDA data file; it's a weekly Friday release at 3:30 p.m. ET.
+const CFTC_RECUR = { title: "CFTC Commitments of Traders", type: "COT", impact: "low", watch_template: "Weekly managed-money fund positioning, as of the prior Tuesday.", recurrence: { freq: "WEEKLY", byday: ["FR"], time_local: "15:30" } };
+
+// `time_local` in the calendar files is the agency's own clock — Eastern (WASDE 12:00, Crop Progress
+// 16:00, Export Sales 08:30, COT 15:30). A report with no time is treated as out by end of day ET.
+const RELEASE_TZ = "America/New_York";
+const etClock = (now) => {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: RELEASE_TZ, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(now).map((x) => [x.type, x.value]));
+  return { date: `${p.year}-${p.month}-${p.day}`, hhmm: `${p.hour}:${p.minute}` };
+};
+/**
+ * Has this release already come out as of `now`? A report dated earlier than today (ET) has; one dated
+ * today has once its release time has passed. Matters since memos run in the afternoon (1.45.0): a
+ * 15:30 CT note must not tell the reader to watch for a WASDE that landed at 11:00 CT.
+ */
+/**
+ * Dated TODAY (ET), with a real release time that has passed — the case a same-day afternoon report must
+ * not call upcoming. An event with no release time (a deadline or a window, e.g. the crop-insurance
+ * milestones, whose "00:00" is a placeholder) is never labelled released.
+ */
+export function releasedToday(r, now = new Date()) {
+  return Boolean(r?.time) && r.date === etClock(now).date && isReleased(r, now);
+}
+
+// US federal holidays (observed). The weekly USDA/CFTC releases move to the next business day when their
+// usual day is one — Crop Progress to Tuesday after Labor Day, COT to Monday after a Friday holiday,
+// Export Sales to Friday of Thanksgiving week — so a computed occurrence must move with them, or a note
+// written on the holiday says the report came out that day and that the next one is a week away.
+const HOLIDAY_CACHE = new Map();
+export function federalHolidays(year) {
+  if (HOLIDAY_CACHE.has(year)) return HOLIDAY_CACHE.get(year);
+  const iso = (m, d) => new Date(Date.UTC(year, m, d)).toISOString().slice(0, 10);
+  const nth = (m, dow, n) => {
+    const first = new Date(Date.UTC(year, m, 1)).getUTCDay();
+    return iso(m, 1 + ((dow - first + 7) % 7) + (n - 1) * 7);
+  };
+  const last = (m, dow) => {
+    const lastDay = new Date(Date.UTC(year, m + 1, 0));
+    return iso(m, lastDay.getUTCDate() - ((lastDay.getUTCDay() - dow + 7) % 7));
+  };
+  const observed = (m, d) => {
+    const dow = new Date(Date.UTC(year, m, d)).getUTCDay();
+    return dow === 6 ? iso(m, d - 1) : dow === 0 ? iso(m, d + 1) : iso(m, d);
+  };
+  const set = new Set([
+    observed(0, 1), nth(0, 1, 3), nth(1, 1, 3), last(4, 1), observed(5, 19), observed(6, 4),
+    nth(8, 1, 1), nth(9, 1, 2), observed(10, 11), nth(10, 4, 4), observed(11, 25),
+  ]);
+  HOLIDAY_CACHE.set(year, set);
+  return set;
+}
+// Next year's set too: when Jan 1 is a Saturday, New Year's is observed on Dec 31 of the year before.
+const isHoliday = (isoDate) => {
+  const y = Number(isoDate.slice(0, 4));
+  return federalHolidays(y).has(isoDate) || federalHolidays(y + 1).has(isoDate);
+};
+
+export function isReleased(r, now = new Date()) {
+  const { date, hhmm } = etClock(now);
+  if (!r?.date || r.date > date) return false;
+  if (r.date < date) return true;
+  return hhmm >= (/^\d{2}:\d{2}$/.test(r.time ?? "") ? r.time : "23:59");
+}
 
 function recurOccurrences(r, from, end) {
   const rec = r.recurrence;
@@ -119,10 +180,20 @@ function recurOccurrences(r, from, end) {
   const wStart = rec.window_start ? Date.parse(rec.window_start + "T00:00:00Z") : null;
   const wEnd = rec.window_end ? Date.parse(rec.window_end + "T23:59:59Z") : null;
   const out = [];
-  const d = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate(), 12));
+  // Start a week early: an occurrence whose usual day falls BEFORE `from` can be shifted onto or after it
+  // by a holiday (Labor Day's Crop Progress lands on the Tuesday), and must still be listed on that day.
+  const d = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate() - 7, 12));
+  // Compared by DATE, like the fixed events: an occurrence dated today stays in the list all day. It used
+  // to be dropped from noon UTC (7 a.m. CT), so a 15:30 CT report never saw that day's COT or crop-progress
+  // release at all — neither as upcoming nor as released (consumers label released ones: releasedToday).
+  const fromISO = from.toISOString().slice(0, 10);
   while (d <= end) {
-    if (days.includes(d.getUTCDay()) && d >= from && (!wStart || d.getTime() >= wStart) && (!wEnd || d.getTime() <= wEnd)) {
-      out.push(d.toISOString().slice(0, 10));
+    if (days.includes(d.getUTCDay()) && (!wStart || d.getTime() >= wStart) && (!wEnd || d.getTime() <= wEnd)) {
+      // Holiday → the next business day (see federalHolidays).
+      const s = new Date(d);
+      while (isHoliday(s.toISOString().slice(0, 10)) || s.getUTCDay() === 0 || s.getUTCDay() === 6) s.setUTCDate(s.getUTCDate() + 1);
+      const iso = s.toISOString().slice(0, 10);
+      if (iso >= fromISO && s <= end) out.push(iso);
     }
     d.setUTCDate(d.getUTCDate() + 1);
   }
@@ -142,12 +213,13 @@ export function upcomingReports(days = 21, from = new Date()) {
   const out = [];
   for (const e of cal.events ?? []) {
     if (e.date && e.date >= startISO && e.date <= endISO) {
-      out.push({ date: e.date, name: e.title, agency: agencyOf(e.type), impact: e.impact || "medium", type: e.type, note: e.watch_template || e.history_note || "" });
+      // "00:00" marks a deadline/window with no release time (the crop-insurance milestones), not a midnight release.
+      out.push({ date: e.date, time: e.time_local && e.time_local !== "00:00" ? e.time_local : null, name: e.title, agency: agencyOf(e.type), impact: e.impact || "medium", type: e.type, note: e.watch_template || e.history_note || "" });
     }
   }
   for (const r of [...(cal.recurring_events ?? []), CFTC_RECUR]) {
     for (const date of recurOccurrences(r, from, end)) {
-      out.push({ date, name: r.title, agency: agencyOf(r.type), impact: r.impact || "low", type: r.type, note: r.watch_template || "" });
+      out.push({ date, time: r.recurrence?.time_local ?? r.time_local ?? null, name: r.title, agency: agencyOf(r.type), impact: r.impact || "low", type: r.type, note: r.watch_template || "" });
     }
   }
   const seen = new Set();
@@ -164,9 +236,21 @@ export function nextImpactfulReport(minImpact = "very_high", days = 21, from = n
   return upcomingReports(days, from).find((r) => (IMPACT_RANK[r.impact] ?? 0) >= min) || null;
 }
 
-/** Compact text of the next few releases (with impact), for injecting into memo/analyst prompts. */
-export function upcomingReportsText(days = 14) {
-  const list = upcomingReports(days);
-  if (!list.length) return "";
-  return list.slice(0, 8).map((r) => `- ${r.date}: ${r.name} (${r.agency}, impact ${r.impact}) — ${r.note}`).join("\n");
+/**
+ * Compact text of the next few releases (with impact), for injecting into memo/analyst prompts. A report
+ * dated today that has already come out is labelled RELEASED TODAY, not offered as something to watch.
+ */
+export function upcomingReportsText(days = 14, now = new Date()) {
+  const all = upcomingReports(days, now);
+  if (!all.length) return "";
+  // Released-today lines come first and do not take any of the 8 slots, so an afternoon note doesn't lose
+  // the next WASDE because the morning's export sales are still dated today.
+  const list = [...all.filter((r) => releasedToday(r, now)), ...all.filter((r) => !releasedToday(r, now)).slice(0, 8)];
+  return list
+    .map((r) =>
+      releasedToday(r, now)
+        ? `- ${r.date}: ${r.name} (${r.agency}, impact ${r.impact}) — RELEASED TODAY${r.time ? ` at ${r.time} ET` : ""}; it is NOT upcoming. Check the market data block for whether its numbers are already in before describing them.`
+        : `- ${r.date}${r.time ? ` ${r.time} ET` : ""}: ${r.name} (${r.agency}, impact ${r.impact}) — ${r.note}`
+    )
+    .join("\n");
 }

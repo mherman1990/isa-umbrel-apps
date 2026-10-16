@@ -1517,6 +1517,52 @@ export function upsertForecast(f) {
   });
 }
 
+/**
+ * A still-pending forecast from an EARLIER note of the same edition that makes the same measurable call —
+ * same series and comparator (direction only for legacy rows with no comparator; the resolver ignores it
+ * otherwise), for a level claim the same threshold within 0.5%, and a resolve-by date within
+ * max(7 days, 25% of the horizon) of this one, so a 7-day call is not swallowed by a pending 1-year call.
+ * A daily Analyst Note restates a standing thesis most days; filing it each time would let one call count
+ * twenty times in the track record that later prompts calibrate against (1.45.0).
+ */
+export function findPendingForecastLike({ edition, series, comparator, direction, threshold = null, briefPath, resolveBy, horizonDays = 30 }) {
+  if (!series) return null;
+  const rows = comparator
+    ? db
+        .prepare(`SELECT * FROM forecasts WHERE outcome = 'pending' AND edition IS ? AND series = ? AND COALESCE(brief_path,'') <> ? AND comparator = ? ORDER BY created_at DESC`)
+        .all(edition ?? null, series, briefPath ?? "", comparator)
+    : db
+        .prepare(`SELECT * FROM forecasts WHERE outcome = 'pending' AND edition IS ? AND series = ? AND COALESCE(brief_path,'') <> ? AND comparator IS NULL AND COALESCE(direction,'') = ? ORDER BY created_at DESC`)
+        .all(edition ?? null, series, briefPath ?? "", direction ?? "");
+  const tolDays = Math.max(7, 0.25 * (Number(horizonDays) || 30));
+  const near = (r) => !resolveBy || !r.resolve_by || Math.abs(Date.parse(r.resolve_by) - Date.parse(resolveBy)) <= tolDays * 864e5;
+  const sameLevel = (r) => (threshold == null && r.threshold == null) || (threshold != null && r.threshold != null && Math.abs(r.threshold - threshold) <= Math.abs(threshold) * 0.005);
+  return rows.find((r) => sameLevel(r) && near(r)) ?? null;
+}
+
+const CONF_RANK = { low: 0, medium: 1, high: 2 };
+/**
+ * A restated call updates the pending row instead of filing a second one: confidence can only go DOWN
+ * (the ledger records what we hold now, and a later demotion by grounding or the Challenger must stick),
+ * and a missing thesis link / Challenger verdict is filled from the restatement — so an unreviewed or
+ * extractor-filed row never hides a reviewed one.
+ */
+export function restatePendingForecast(id, { confidence = null, challengeVerdict = null, thesisKey = null } = {}) {
+  const row = db.prepare("SELECT confidence, challenge_verdict, thesis_key FROM forecasts WHERE id = ?").get(id);
+  if (!row) return;
+  const lower = [row.confidence, confidence].filter((c) => c in CONF_RANK).sort((a, b) => CONF_RANK[a] - CONF_RANK[b])[0] ?? row.confidence;
+  // The verdict travels with the confidence it explains: it changes only when this restatement actually
+  // lowers the stored confidence; otherwise the existing verdict stays (and is filled only if missing), so
+  // a later "approve" never overwrites the demotion that set the confidence the row still carries.
+  const demoted = confidence in CONF_RANK && row.confidence in CONF_RANK && CONF_RANK[confidence] < CONF_RANK[row.confidence];
+  db.prepare("UPDATE forecasts SET confidence = ?, challenge_verdict = ?, thesis_key = ? WHERE id = ?").run(
+    lower ?? null,
+    demoted ? challengeVerdict ?? row.challenge_verdict ?? null : row.challenge_verdict ?? challengeVerdict ?? null,
+    demoted ? thesisKey ?? row.thesis_key ?? null : row.thesis_key ?? thesisKey ?? null,
+    id
+  );
+}
+
 /** Forecasts still pending whose resolve_by date has passed. */
 export function forecastsDueForResolution(nowISO = new Date().toISOString().slice(0, 10)) {
   return db
@@ -2091,6 +2137,16 @@ export function recordBrief(edition, filePath) {
     new Date().toISOString(),
     filePath
   );
+}
+
+/** Every saved brief file first seen at or after `sinceISO`, newest first (one row per file). */
+export function listBriefsSince(sinceISO) {
+  return db
+    .prepare(
+      `SELECT edition, MAX(created_at) AS created_at, path
+         FROM briefs GROUP BY path HAVING MAX(created_at) >= ? ORDER BY created_at DESC`
+    )
+    .all(sinceISO);
 }
 
 export function listBriefs(limit = 50) {

@@ -28,6 +28,15 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
+  1.45.0 — DAILY ANALYST NOTE AND MARKET-EDUCATION BRIEF. Scheduled reports can now run Daily or on
+  Weekdays (Settings → Scheduled reports), e.g. both at 15:30. Before a scheduled report the app pulls market
+  prices again, so an afternoon note is written on that day's settles and the reports released that morning;
+  a report already out today is labelled released, not "coming up". Each daily note opens with what changed
+  since the previous one instead of repeating itself, and a call it keeps restating is filed once in the
+  track record. New: an analysis budget in dollars (Settings), so the Opus Analyst Note can run daily without
+  raising every other ceiling — about $40 a month for both reports; suggested monthly budget $105 with
+  analysis $45. Also fixed: saving Settings no longer deletes a multi-day report schedule. No new keys.
+
   1.44.0 — RED-TEAM SPRINT: SECURITY, RELIABILITY, METHODOLOGY, AND COVERAGE. No new keys required.
 
   SECURITY — Login protection improved. Failed login attempts are now logged. The threshold before

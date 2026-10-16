@@ -230,8 +230,12 @@ list empty to skip it for this topic):
 `output.maxItemsToTriage`, and `output.maxItemsInBrief` control the AI stages.
 
 **Change the schedule** — `briefEditions`: `"am"`, `"pm"` (24-hour times) and
-`timezone`. The web app's scheduler follows these directly; if you use cron instead,
-also update your crontab.
+`timezone`. The scheduled reports (`weekly`, `monthly`, `education`, `analyst`, `member`) take a
+day spec: `"Fri 17:00"`, `"Mon,Wed,Fri 06:45"`, `"Mon-Fri 07:00"`, `"Daily 15:30"` or
+`"Weekdays 07:00"` — or set them in Logs & Settings → Settings → Scheduled reports. A scheduled report
+pulls market series again first (unless they refreshed in the last 30 minutes), so an afternoon
+note is written on that day's settles. The web app's scheduler follows these directly; if you use
+cron instead, also update your crontab.
 
 ## Adding a Future Source
 

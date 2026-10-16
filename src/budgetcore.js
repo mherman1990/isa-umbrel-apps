@@ -57,6 +57,37 @@ export function monthlyBudget(env = process.env, watchlist = null) {
   return DEFAULT_MONTHLY_BUDGET_USD;
 }
 
+/**
+ * An optional fixed dollar allocation for the "analysis" group (Analyst Note, memos, theses), set with
+ * ANALYSIS_BUDGET_USD in .env or `output.analysisBudgetUsd` in watchlist.json (env wins). Null when unset —
+ * then the group keeps its 20% share. Added in 1.45.0 so a daily Analyst Note (~$1.20/run on Opus) can be
+ * funded without scaling every other group's ceiling up with the total.
+ */
+export function analysisBudget(env = process.env, watchlist = null) {
+  for (const v of [env?.ANALYSIS_BUDGET_USD, watchlist?.output?.analysisBudgetUsd]) {
+    const n = Number(v);
+    if (v !== undefined && v !== null && v !== "" && Number.isFinite(n) && n >= 0) return n;
+  }
+  return null;
+}
+
+/**
+ * Dollar allocation per group. With no analysis override, every group gets its share of the budget, as
+ * before. With one, "analysis" gets exactly that many dollars (capped at the budget) and the other groups
+ * divide what is left in proportion to their own shares — so the monthly budget stays the one ceiling.
+ * Example: $105 budget with analysis $45 → the others split $60, exactly their dollars at $75 × 80%.
+ */
+export function allocations(budget, analysisUsd = null) {
+  // An override at or above the whole budget would leave the other groups $0 — Panels and Ask would pause
+  // at $0 spent. Settings refuses that; a conflicting .env pair falls back to the shares (and /freshness
+  // warns) rather than silently starving everything else.
+  if (analysisUsd == null || !(analysisUsd < budget)) return Object.fromEntries(Object.entries(GROUPS).map(([g, d]) => [g, budget * d.share]));
+  const analysis = Math.max(analysisUsd, 0);
+  const rest = budget - analysis;
+  const otherShare = 1 - GROUPS.analysis.share;
+  return Object.fromEntries(Object.entries(GROUPS).map(([g, d]) => [g, g === "analysis" ? analysis : rest * (d.share / otherShare)]));
+}
+
 /** Month-to-date spend from token_usage rows grouped by purpose + model. */
 export function spendFromRows(rows) {
   const byGroup = Object.fromEntries(Object.keys(GROUPS).map((g) => [g, 0]));
@@ -70,14 +101,16 @@ export function spendFromRows(rows) {
 }
 
 /** The allocation table with spend filled in — shared by the health page and the audit CLI. */
-export function summarizeSpend(rows, budget, now = new Date()) {
+export function summarizeSpend(rows, budget, now = new Date(), analysisUsd = null) {
   const mtd = spendFromRows(rows);
+  const alloc = allocations(budget, analysisUsd);
   const day = now.getUTCDate();
   const daysInMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate();
   return {
     budget,
     spent: mtd.total,
     projected: day ? (mtd.total / day) * daysInMonth : 0,
-    groups: Object.entries(GROUPS).map(([id, d]) => ({ id, label: d.label, essential: d.essential, allocation: budget * d.share, spent: mtd.byGroup[id] ?? 0 })),
+    analysisOverride: analysisUsd,
+    groups: Object.entries(GROUPS).map(([id, d]) => ({ id, label: d.label, essential: d.essential, allocation: alloc[id], spent: mtd.byGroup[id] ?? 0 })),
   };
 }

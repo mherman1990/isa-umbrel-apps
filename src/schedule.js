@@ -11,14 +11,31 @@
 //      Member Brief).
 //   3. THE DATA IS FRESH BEFORE ANY REPORT. A report may not run on a day whose AM refresh has not
 //      completed — the scheduler runs the AM edition first (see `needsRefreshFirst`).
+//
+// 1.45.0: "Daily 15:30", "Weekdays 07:00" and "Weekends 09:00" are accepted, and day names must be real
+// day names (abbreviated, full, or plural: "Fri", "Friday", "Fridays"). Settings stores a daily schedule as
+// "Mon-Sun HH:MM" (canonicalDaySpec), which the 1.39–1.44 scheduler also runs; note that the 1.39–1.44
+// Settings page can only show single days, so saving Settings after a rollback turns such a schedule off.
 
 import { pack } from "./pack.js";
 
 export const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+const FULL_DAY = { sun: "Sun", sunday: "Sun", mon: "Mon", monday: "Mon", tue: "Tue", tues: "Tue", tuesday: "Tue", wed: "Wed", weds: "Wed", wednesday: "Wed", thu: "Thu", thur: "Thu", thurs: "Thu", thursday: "Thu", fri: "Fri", friday: "Fri", sat: "Sat", saturday: "Sat" };
+// Whole-spec words. Matched on the day part as a whole, before it is split into days.
+const DAY_ALIASES = {
+  daily: DAYS,
+  "every day": DAYS,
+  everyday: DAYS,
+  weekdays: ["Mon", "Tue", "Wed", "Thu", "Fri"],
+  weekends: ["Sat", "Sun"],
+};
+
 /**
  * Parse a day-scheduled spec. Accepts "Fri 17:00", "Mon,Wed,Fri 06:45", "Mon, Wed, Fri 06:45",
- * "Mon-Fri 07:00". Returns null for anything malformed (a hand-edited watchlist must never throw).
+ * "Mon-Fri 07:00", "Daily 15:30" / "Every day 15:30", "Weekdays 07:00", "Weekends 09:00". Day names are
+ * the 3-letter abbreviation or the full name — "Mon Wed Fri" (no commas) or "Monthly" is rejected rather
+ * than read as Monday. Returns null for anything malformed (a hand-edited watchlist must never throw).
  * @returns {{days: string[], time: string} | null}
  */
 export function parseDaySpec(spec) {
@@ -28,10 +45,19 @@ export function parseDaySpec(spec) {
   const hh = Number(m[2]);
   const mm = Number(m[3]);
   if (hh > 23 || mm > 59) return null;
-  const norm = (d) => DAYS.find((x) => x.toLowerCase() === d.trim().slice(0, 3).toLowerCase());
+  const time = `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+  const alias = DAY_ALIASES[m[1].trim().toLowerCase().replace(/\s+/g, " ")];
+  if (alias) return { days: [...alias], time };
+  // Plural names ("Fridays", "Mondays,Wednesdays") ran before 1.45.0, when only the first three letters
+  // were compared — keep them working; "Monthly" and "Mon Wed Fri" stay rejected.
+  const norm = (d) => {
+    const t = d.trim().toLowerCase();
+    return FULL_DAY[t] ?? (t.endsWith("s") ? FULL_DAY[t.slice(0, -1)] : undefined);
+  };
   const days = [];
   for (const part of m[1].split(",").map((p) => p.trim()).filter(Boolean)) {
     const range = part.split("-").map((p) => p.trim());
+    if (range.length > 2) return null;
     if (range.length === 2) {
       const a = DAYS.indexOf(norm(range[0]) ?? "");
       const b = DAYS.indexOf(norm(range[1]) ?? "");
@@ -47,7 +73,51 @@ export function parseDaySpec(spec) {
     }
   }
   if (!days.length) return null;
-  return { days: [...new Set(days)], time: `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}` };
+  return { days: [...new Set(days)], time };
+}
+
+const WEEK_ORDER = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const sameDays = (a, b) => a.length === b.length && b.every((d) => a.includes(d));
+
+/** The days of a parsed spec as a word: "Daily", "Weekdays", "Weekends", "Fri", or "Mon, Wed, Fri". */
+export function dayWord(days) {
+  if (sameDays(days, DAYS)) return "Daily";
+  if (sameDays(days, DAY_ALIASES.weekdays)) return "Weekdays";
+  if (sameDays(days, DAY_ALIASES.weekends)) return "Weekends";
+  return WEEK_ORDER.filter((d) => days.includes(d)).join(", ");
+}
+
+/** A readable schedule ("Daily 15:30", "Mon, Wed, Fri 06:45"), or null when the spec will not run. */
+export function describeDaySpec(spec) {
+  const p = parseDaySpec(spec);
+  return p ? `${dayWord(p.days)} ${p.time}` : null;
+}
+
+/**
+ * The form Settings stores. Daily and weekdays are written as ranges ("Mon-Sun 15:30", "Mon-Fri 07:00")
+ * because the 1.39–1.44 scheduler also parses ranges, so a rolled-back app keeps RUNNING the schedule
+ * (its Settings page can't display it, though — see the header). Anything else is its days in week
+ * order. Null when the spec does not parse.
+ */
+export function canonicalDaySpec(spec) {
+  const p = parseDaySpec(spec);
+  if (!p) return null;
+  if (sameDays(p.days, DAYS)) return `Mon-Sun ${p.time}`;
+  if (sameDays(p.days, DAY_ALIASES.weekdays)) return `Mon-Fri ${p.time}`;
+  return `${WEEK_ORDER.filter((d) => p.days.includes(d)).join(",")} ${p.time}`;
+}
+
+/**
+ * The longest gap, in days, between two scheduled runs — how long a healthy schedule can go without a
+ * new edition (daily → 1, Mon/Wed/Fri → 3, Fri → 7). Null when the spec does not parse.
+ */
+export function expectedGapDays(spec) {
+  const p = parseDaySpec(spec);
+  if (!p) return null;
+  const idx = p.days.map((d) => DAYS.indexOf(d)).sort((a, b) => a - b);
+  let gap = 0;
+  for (let i = 0; i < idx.length; i++) gap = Math.max(gap, ((idx[(i + 1) % idx.length] - idx[i] + 6) % 7) + 1);
+  return gap;
 }
 
 /** Local date label (YYYY-MM-DD), HH:MM and weekday ("Fri") in `timezone`. Throws on a bad timezone. */

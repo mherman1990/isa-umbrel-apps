@@ -1,5 +1,60 @@
 # Changelog
 
+## 1.45.0 — Daily Analyst Note and market-education brief
+
+Asked for: both reports every day at 3:30 p.m. CT. Scheduling them daily was a small change. Doing it well needed six more: fresh data at 15:30, honest dating, continuity, ledger dedupe, the calendar, and money.
+
+### Scheduling
+- **Day specs**: `Daily 15:30`, `Weekdays 07:00` and `Weekends 09:00` are accepted.
+  - Day names must be real day names: `Fri`, `Friday` and `Fridays` work; `Monthly` and `Mon Wed Fri` (no commas) are rejected instead of being read as Monday.
+  - Settings stores Daily as `Mon-Sun 15:30`, which the 1.39–1.44 scheduler also runs.
+- **Settings → Scheduled reports** offers off / Daily / Weekdays / Weekends / a day.
+  - The dropdown is now chosen from the *parsed* schedule. Before, a multi-day spec matched no option, so the page showed "off", and the next Save of anything on the form deleted it.
+  - A custom spec the dropdown can't show (e.g. `Mon,Wed,Fri 15:30`) is kept, and its time can still be changed.
+  - The schedule table reads "Daily 15:30".
+  - A spec the app can't parse is flagged there, logged once a day and warned about on /freshness. It used to be skipped in silence.
+- **/freshness** expects each report at its real cadence: a daily note is STALE after 2 days, not 14.
+
+### Data at 15:30
+- **Pre-report market refresh.** Before a scheduled (or manual) memo, the market series are pulled again, unless the price feeds refreshed in the last 30 minutes. Expectations and due forecasts are then settled.
+  - Without it a 15:30 note described the 06:30 data: the prior session, without that morning's WASDE, export sales, COT or crop condition.
+  - No model calls. The alert digest is left to the 16:30 run. Fail-soft.
+  - Skipped when the memo is going to be paused by the budget anyway.
+- **Calendar.**
+  - A report dated today whose release time has passed is labelled *RELEASED TODAY — not upcoming* in the memo prompts. It is dropped from the "next release" hints, the signal cards' imminent reports and the Coming-up panel.
+  - Released-today lines don't use up the 8 calendar slots, so the next WASDE isn't pushed out.
+  - Weekly releases (Crop Progress, Export Sales, COT) move off federal holidays to the next business day, e.g. Crop Progress on Tuesday after Labor Day.
+  - Recurring releases dated today stay in the list all day. Before, they vanished at 7 a.m. CT.
+  - The crop-insurance milestones' placeholder `00:00` is no longer read as a release time.
+
+### Writing a daily note
+- **AS OF line** at the top of every memo's data: when it was written and which CBOT session the stored settles are from, with a weekend flag.
+- **Analyst Note and education brief:**
+  - Both are told to date figures by their period and to say "today" only for today's data.
+  - They get **their own previous note**, labelled as their own output and *not evidence*, and are told to lead with what changed instead of restating it.
+  - The Analyst goes deep only on signals that changed, when a previous note exists.
+- **Memo context no longer re-reads memos.** The Analyst Note, education brief and Member Brief files are kept out of every memo's "daily briefs" block.
+  - Before, a daily Analyst would have read a dozen of its own earlier notes, unlabelled.
+  - The thesis evidence set is limited to briefs actually shown, so yesterday's thesis can't be cited as corroboration.
+  - The window is chosen by date and capped at 40 *after* filtering, so daily memo files don't shorten a 14-day or 30-day window.
+- **Forecast ledger.** A pending call restated by a later note of the same edition is not filed again.
+  - A match means the same series and comparator, the level within 0.5%, and a resolve-by date within max(7 days, 25% of the horizon).
+  - The restatement instead updates the pending row: confidence can only go down, and a missing Challenger verdict or thesis link is filled in.
+  - A different horizon or level is a new call.
+
+### Budget
+- **Analysis budget in dollars**: Settings → *analysis budget $*, or `ANALYSIS_BUDGET_USD`.
+  - The Analyst Note, memos, theses and Challenger get exactly that amount. The other groups divide what is left of the monthly budget in their usual proportions.
+  - Daily Analyst (Opus, ~$1.20/run) plus education (~$0.10/run) ≈ $38–41/month. At the default 20% of $75 = $15, both would have been paused from about day 12 of each month.
+  - **Recommended: monthly budget $105, analysis $45.** Every other group keeps exactly its $75-era dollars. See docs/BUDGET.md.
+  - Settings refuses an analysis budget at or above the monthly budget, whichever of the two is edited. A conflicting `.env` pair falls back to the shares, with a /freshness warning.
+- `scripts/audit-freshness.mjs` reads `MONTHLY_BUDGET_USD` / `ANALYSIS_BUDGET_USD` from `.env`, so its allocation table matches what the app enforces.
+
+### Snapshots
+Re-recorded. Besides this release's prompt and calendar changes, the baselines pick up two earlier commits on main that changed pages without re-recording: the ENSO + IOD source rename and the Illinois Register adapter. With those included, `npm test` is green again.
+
+Update only — no new keys. To get the requested schedule: Settings → Scheduled reports → Market-education **Daily 15:30**, Analyst Note **Daily 15:30**, and set the budget (above).
+
 ## 1.43.3 — Member Brief: no new-crop futures vs. lagged cash comparisons
 
 The soy:corn section printed both the new-crop futures ratio (Nov soybeans ÷ Dec corn) and Iowa's monthly prices-received ratio, which runs about two months behind. The model began setting them against each other ("below the recent Iowa monthly average, so support has shifted toward corn"). They are different prices at different times, so that comparison is not meaningful.
