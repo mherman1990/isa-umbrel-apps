@@ -32,6 +32,9 @@ test("parseDaySpec: Daily / Every day / Weekdays / Weekends, and real day names 
   assert.deepEqual(schedule.parseDaySpec("Tues,Thurs 9:00"), { days: ["Tue", "Thu"], time: "09:00" });
   // Used to read as "Monday" (first three letters); now rejected so it can't silently run on the wrong day.
   for (const bad of ["Mon Wed Fri 06:45", "Monthly 08:00", "Mon-Wed-Fri 07:00", "Daily 24:00", "Daily"]) assert.equal(schedule.parseDaySpec(bad), null, bad);
+  // Plurals ran before 1.45.0 (only the first three letters were compared) and keep running.
+  assert.deepEqual(schedule.parseDaySpec("Fridays 17:00"), { days: ["Fri"], time: "17:00" });
+  assert.deepEqual(schedule.parseDaySpec("Mondays,Wednesdays,Fridays 06:45").days, ["Mon", "Wed", "Fri"]);
   // Everything that worked before still does.
   assert.deepEqual(schedule.parseDaySpec("Mon,Wed,Fri 06:45"), { days: ["Mon", "Wed", "Fri"], time: "06:45" });
   assert.equal(schedule.parseDaySpec("Mon-Sun 15:30").days.length, 7);
@@ -70,13 +73,31 @@ test("a report released earlier TODAY is labelled RELEASED TODAY, not offered as
   const at = (iso) => new Date(iso);
   assert.equal(calendar.releasedToday(r, at("2026-11-10T16:00:00Z")), false, "11:00 ET — not yet");
   assert.equal(calendar.releasedToday(r, at("2026-11-10T21:30:00Z")), true, "15:30 CT — out");
-  assert.equal(calendar.releasedToday({ ...r, time: null }, at("2026-11-10T21:30:00Z")), false, "no time → treated as out only at end of day");
+  assert.equal(calendar.releasedToday({ ...r, time: null }, at("2026-11-10T21:30:00Z")), false, "no release time (a deadline/window) → never 'released'");
+  // The crop-insurance milestones carry a placeholder "00:00" — a window opening, not a midnight release.
+  const ins = calendar.upcomingReports(3, at("2026-09-30T20:30:00Z")).find((x) => x.type === "INSURANCE_MILESTONE");
+  if (ins) assert.equal(ins.time, null);
+  assert.doesNotMatch(calendar.upcomingReportsText(3, at("2026-10-01T20:30:00Z")), /RELEASED TODAY at 00:00/);
   // The snapshot's "next release" for a series skips one that already came out today.
   const upcoming = [r, { date: "2026-12-09", time: "12:00", name: "December WASDE", type: "WASDE" }];
   assert.equal(pipeline.nextReleaseForSeries("wasde:soybeans:us:ending-stocks", upcoming, at("2026-11-10T21:30:00Z"))?.name ?? "December WASDE", "December WASDE");
   // The prompt text, end to end, on a real calendar day: Friday COT (15:30 ET) as seen at 15:30 CT.
   const text = calendar.upcomingReportsText(14, at("2026-10-16T20:30:00Z"));
   assert.match(text, /CFTC Commitments of Traders \(CFTC, impact low\) — RELEASED TODAY at 15:30 ET; it is NOT upcoming/);
+  // A released-today line does not take one of the 8 slots: the Oct 9 WASDE is still listed on Sept 25.
+  const sep25 = calendar.upcomingReportsText(14, at("2026-09-25T20:30:00Z"));
+  assert.match(sep25, /RELEASED TODAY/);
+  assert.match(sep25, /2026-10-09 12:00 ET: .*WASDE/);
+});
+
+test("weekly releases move off federal holidays (Labor Day, Thanksgiving, Juneteenth)", () => {
+  const dates = (type, from, days = 10) => calendar.upcomingReports(days, new Date(from)).filter((r) => r.type === type).map((r) => r.date);
+  assert.ok(dates("CROP_PROGRESS", "2026-09-03T12:00:00Z").includes("2026-09-08"), "Labor Day Monday → Tuesday");
+  assert.ok(!dates("CROP_PROGRESS", "2026-09-03T12:00:00Z").includes("2026-09-07"));
+  assert.deepEqual(dates("EXPORT_SALES", "2026-11-22T12:00:00Z", 8), ["2026-11-27"], "Thanksgiving Thursday → Friday");
+  assert.deepEqual(dates("COT", "2026-06-15T12:00:00Z", 8), ["2026-06-22"], "Juneteenth Friday → Monday");
+  // So on Labor Day the 15:30 note is NOT told Crop Progress came out that day.
+  assert.doesNotMatch(calendar.upcomingReportsText(14, new Date("2026-09-07T20:30:00Z")), /Crop Progress[^\n]*RELEASED TODAY/);
 });
 
 // ---------------------------------------------------------------- budget
@@ -89,7 +110,9 @@ test("analysis budget in dollars: the analysis group gets exactly that, the rest
   assert.ok(Math.abs(a.daily_brief - 21) < 1e-9 && Math.abs(a.member_brief - 12) < 1e-9 && Math.abs(a.panels - 15) < 1e-9, "the others keep their $75-era dollars at a $105 budget");
   const sum = Object.values(a).reduce((s, v) => s + v, 0);
   assert.ok(Math.abs(sum - 105) < 1e-9, "the monthly budget stays the single ceiling");
-  assert.equal(budgetcore.allocations(50, 80).analysis, 50, "capped at the budget");
+  // An override at or above the budget would starve every other group: it is ignored (back to shares).
+  assert.equal(budgetcore.allocations(50, 80).analysis, 10);
+  assert.equal(budgetcore.allocations(50, 50).panels, 10, "the other groups never drop to $0");
   assert.equal(budgetcore.analysisBudget({ ANALYSIS_BUDGET_USD: "45" }, { output: { analysisBudgetUsd: 10 } }), 45, "env wins");
   assert.equal(budgetcore.analysisBudget({}, { output: { analysisBudgetUsd: 10 } }), 10);
   assert.equal(budgetcore.analysisBudget({}, { output: {} }), null);
@@ -161,7 +184,9 @@ test("memo context never folds the memo editions back in; the previous note come
     assert.match(sys, /say "today" only for data dated today/);
     assert.match(sys, /lead with what changed since it/);
     assert.match(sys, /never cite it as support/);
+    assert.match(sys, /If no previous note is provided, write the full read/);
   }
+  assert.match(pipeline.MEMO_PRESETS.analyst.system("2026-10-16"), /Only if YOUR PREVIOUS NOTE is provided: in "What the signals say"/);
 });
 
 // ---------------------------------------------------------------- forecast ledger
@@ -179,6 +204,19 @@ test("a daily note restating a pending call does not file it again; a new call, 
   assert.equal(file(claim({ comparator: "stays_above", direction: "n/a", threshold: 1000, claim: "Holds above 1000." }), "briefings/2026-10-16-analyst.md"), true);
   assert.equal(file(claim({ comparator: "stays_above", direction: "n/a", threshold: 1002, claim: "Holds above 1002." }), "briefings/2026-10-17-analyst.md"), false, "same level within 0.5%");
   assert.equal(file(claim({ comparator: "stays_above", direction: "n/a", threshold: 1100, claim: "Holds above 1100." }), "briefings/2026-10-17-analyst.md"), true, "a different level is a different call");
+  // A different horizon is a different prediction (it resolves on a different date).
+  assert.equal(file(claim({ horizonDays: 365, claim: "Soybeans rise over the next year." }), "briefings/2026-10-18-analyst.md"), true);
+  // Direction text is noise once there is a comparator: "stays above 1100" with direction "up" is the same call.
+  assert.equal(file(claim({ comparator: "stays_above", direction: "up", threshold: 1100, claim: "Stays above 1100." }), "briefings/2026-10-18-analyst.md"), false);
+  // A restatement demotes the pending row's confidence and fills a missing Challenger verdict — never raises it.
+  const before = store.listForecasts({ limit: 100 }).find((r) => r.brief_path === "briefings/2026-10-15-analyst.md" && r.comparator === "rises");
+  assert.equal(before.confidence, "medium");
+  pipeline.fileForecastFromClaim(claim({ confidence: "low", claim: "Soy up, lower conviction." }), { briefPath: "briefings/2026-10-19-analyst.md", edition: "analyst", createdAt, bySeries, skipIfPending: true, challengeVerdict: "lower_confidence", thesisKey: "briefings/2026-10-19-analyst.md#0" });
+  pipeline.fileForecastFromClaim(claim({ confidence: "high", claim: "Soy up, high conviction." }), { briefPath: "briefings/2026-10-20-analyst.md", edition: "analyst", createdAt, bySeries, skipIfPending: true });
+  const after = store.listForecasts({ limit: 100 }).find((r) => r.id === before.id);
+  assert.equal(after.confidence, "low", "demoted, and a later high-confidence restatement does not raise it back");
+  assert.equal(after.challenge_verdict, "lower_confidence");
+  assert.equal(after.thesis_key, "briefings/2026-10-19-analyst.md#0");
   // Without the flag (CLI extraction, tests of the two filing paths) nothing changes.
   assert.equal(pipeline.fileForecastFromClaim(claim(), { briefPath: "briefings/x.md", edition: "analyst", createdAt, bySeries }), true);
 });
@@ -225,10 +263,29 @@ test("Settings: Daily 15:30 saves as Mon-Sun 15:30, shows as Daily, a custom spe
     assert.match(decodeURIComponent(r.location), /Settings saved/);
     assert.equal(loadWatchlist().briefEditions.education, "Mon,Wed,Fri 15:30", "an unrelated Save no longer deletes it");
 
+    // Changing the time of a custom spec keeps its days and applies the time.
+    r = await post({ educationDay: "keep", educationTime: "16:15" });
+    assert.equal(loadWatchlist().briefEditions.education, "Mon,Wed,Fri 16:15");
+    // Weekends is a dropdown choice now, not a "custom" one.
+    await post({ educationDay: "Weekends", educationTime: "09:00" });
+    assert.equal(loadWatchlist().briefEditions.education, "Sat,Sun 09:00");
+    assert.match((await req("GET", "/logs?open=settings")).body, /<option value="Weekends" selected>Weekends<\/option>/);
+    // A stored "off" reads as off — not as an unreadable schedule.
+    wl = loadWatchlist();
+    wl.briefEditions.weekly = "off";
+    saveWatchlist(wl);
+    const page3 = (await req("GET", "/logs?open=settings")).body;
+    assert.match(page3, /<select name="weeklyDay">\s*<option value="off" selected>off<\/option>/);
+    assert.doesNotMatch(page3, /not understood: off/);
+
     // The analysis budget must leave room for everything else; blank returns it to the 20% share.
     r = await post({ monthlyBudgetUsd: "105", analysisBudgetUsd: "200" });
     assert.match(decodeURIComponent(r.location), /must be less than the monthly budget/);
     assert.equal(loadWatchlist().output.analysisBudgetUsd, 45, "a rejected save changes nothing");
+    // …including when it is the MONTHLY budget that is lowered under an existing analysis budget.
+    r = await post({ monthlyBudgetUsd: "40" });
+    assert.match(decodeURIComponent(r.location), /must be less than the monthly budget \(\$40\)/);
+    assert.equal(loadWatchlist().output.monthlyBudgetUsd, 105);
     r = await post({ analysisBudgetUsd: "" });
     assert.equal(loadWatchlist().output.analysisBudgetUsd, undefined);
     // "off" still turns a report back to on-demand.
@@ -236,5 +293,28 @@ test("Settings: Daily 15:30 saves as Mon-Sun 15:30, shows as Daily, a custom spe
     assert.equal(loadWatchlist().briefEditions.analyst, undefined);
   } finally {
     await new Promise((r) => server.close(r));
+  }
+});
+
+test("the brief window is chosen by date, not by the newest 40 rows (daily memos would crowd it out)", async () => {
+  const Database = (await import("better-sqlite3")).default;
+  const raw = new Database(store.DB_PATH);
+  // 14 days of AM + PM + daily analyst/education/member files (≈5 rows a day, 70 in all): the newest 40
+  // rows would reach back only ~8 days. Selected by date, every AM/PM brief in the window survives.
+  const now = Date.now();
+  const ins = raw.prepare("INSERT INTO briefs (edition, created_at, path) VALUES (?, ?, ?)");
+  for (let d = 0; d < 14; d++) {
+    const at = new Date(now - d * 86400e3 - 3600e3).toISOString();
+    for (const ed of ["am", "pm", "analyst", "education", "member"]) ins.run(ed, at, `briefings/win-${d}-${ed}.md`);
+  }
+  try {
+    const since = store.listBriefsSince(new Date(now - 14 * 86400e3).toISOString()).filter((b) => b.path.startsWith("briefings/win-"));
+    assert.equal(since.length, 70);
+    const kept = since.filter((b) => !pipeline.MEMO_BRIEF_FILE.test(b.path));
+    assert.equal(kept.length, 28, "every AM/PM brief of the 14 days, none of the memo files");
+    const old = store.listBriefs(40).filter((b) => b.path.startsWith("briefings/win-") && !pipeline.MEMO_BRIEF_FILE.test(b.path));
+    assert.ok(old.length < 28, `the old LIMIT-40-then-filter kept only ${old.length}`);
+  } finally {
+    raw.prepare("DELETE FROM briefs WHERE path LIKE 'briefings/win-%'").run();
   }
 });

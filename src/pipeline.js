@@ -1440,6 +1440,9 @@ export async function runQuery(question, env) {
 
 // Saved files of the memo-type editions: never folded back into a memo's "daily briefs" context.
 export const MEMO_BRIEF_FILE = /-(weekly|monthly|farmer|education|analyst|member[a-z-]*)\.md$/;
+// The same 40 the window always had, now counted AFTER the memo files are dropped. Bounds the prompt
+// (each brief is clipped at 9,000 chars); an Analyst's 14 days of AM + PM is 28.
+const MAX_MEMO_BRIEFS = 40;
 
 // The rules a daily-capable report needs (1.45.0). An afternoon note can be read hours after the session
 // it describes, and a daily one sits next to yesterday's — so it must date its data honestly and spend its
@@ -1447,7 +1450,7 @@ export const MEMO_BRIEF_FILE = /-(weekly|monthly|farmer|education|analyst|member
 const CADENCE_RULES = `Dating and continuity:
 - The AS OF line at the top of the data says when you are writing and which market session the stored prices are from. Refer to a figure by its period date; say "today" only for data dated today. If today's session is not in the data (a weekend, a holiday, or not yet published), say so plainly — never describe an older settle as today's.
 - A report marked RELEASED TODAY on the calendar has already come out: do not tell the reader to watch for it. Use its numbers only if they are in the data.
-- If YOUR PREVIOUS NOTE is provided: lead with what changed since it. Do not restate reasoning that still holds — say in one line that a read is unchanged and spend the words on what moved. Your previous note is your own earlier output, not evidence: never cite it as support.`;
+- If YOUR PREVIOUS NOTE is provided: lead with what changed since it. Do not restate reasoning that still holds — say in one line that a read is unchanged and spend the words on what moved. Your previous note is your own earlier output, not evidence: never cite it as support. If no previous note is provided, write the full read — do not imply a comparison you were not given.`;
 
 /** "AS OF …" — when the note is written and which session the stored settles are from. */
 export function asOfLine(timezone, { now = new Date(), snapshot = null } = {}) {
@@ -1620,7 +1623,7 @@ The imminent releases worth positioning attention around, and the specific thing
 Rules: never invent numbers or items; cite series + period for every figure; keep every markdown link; omit an empty section. This is analysis, not advice — lay out setups and risks, but do not tell anyone to buy or sell.
 
 ${CADENCE_RULES}
-- In "What the signals say", go deep only on signals whose direction or label changed since your previous note; for the rest one line is enough ("rest of the board unchanged, tilt still X").`,
+- Only if YOUR PREVIOUS NOTE is provided: in "What the signals say", go deep on the signals whose direction or label changed since it; for the rest one line is enough ("rest of the board unchanged, tilt still X").`,
   },
 };
 
@@ -1661,12 +1664,17 @@ export async function generateMemo(presetId, env) {
   // those run daily (1.45.0), each note would otherwise re-read up to a dozen of its own predecessors,
   // unlabelled, and could cite yesterday's thesis as corroboration of today's. The one previous note a
   // daily preset needs is passed separately below, labelled as the model's own earlier output.
+  // Selected by DATE, then capped after the filter: with daily memos ~half of the newest rows are memo
+  // files, so a row LIMIT applied first would have cut a 14-day window to ~9 days (and a monthly to ~9).
   const cutoff = Date.now() - preset.scopeDays * 86400e3;
   const briefTexts = [];
   const shownBriefPaths = [];
-  for (const b of store.listBriefs(40)) {
-    if (Date.parse(b.created_at) < cutoff) continue;
+  for (const b of store.listBriefsSince(new Date(cutoff).toISOString())) {
     if (MEMO_BRIEF_FILE.test(b.path)) continue;
+    if (briefTexts.length >= MAX_MEMO_BRIEFS) {
+      console.log(`   ℹ️  ${preset.label}: brief window capped at ${MAX_MEMO_BRIEFS} daily briefs (older ones in the ${preset.scopeDays}-day window not included)`);
+      break;
+    }
     const p = path.join(store.DATA_DIR, b.path);
     if (fs.existsSync(p)) {
       briefTexts.push(`--- ${path.basename(b.path)} ---\n${fs.readFileSync(p, "utf8").slice(0, 9000)}`);
@@ -2198,7 +2206,7 @@ async function generateMarketCardsInner(env) {
   }
   const now = new Date();
   const fired = evaluateTriggers(now);
-  const cal = upcomingReports(7, now);
+  const cal = upcomingReports(7, now).filter((r) => !releasedToday(r, now)); // "imminent" = not already out
   if (!fired.length && !cal.length) {
     panels.recordAttempt("market_cards", "empty", { detail: "no active trigger and no report within 7 days" });
     return null;
@@ -2562,9 +2570,11 @@ export function fileForecastFromClaim(f, { briefPath, edition, createdAt, bySeri
   // The same measurable call already pending from an earlier note of this edition is not filed again — it
   // is one prediction, still open, not a new one (a daily note restates its standing theses).
   if (skipIfPending && comparator !== "not_measurable") {
-    const dup = store.findPendingForecastLike({ edition, series: seriesId, comparator, direction: f.direction ?? null, threshold: isLevel ? f.threshold : null, briefPath });
+    const resolveBy = new Date(Date.now() + horizon * 864e5).toISOString().slice(0, 10);
+    const dup = store.findPendingForecastLike({ edition, series: seriesId, comparator, direction: f.direction ?? null, threshold: isLevel ? f.threshold : null, briefPath, resolveBy, horizonDays: horizon });
     if (dup) {
-      console.log(`   ↺ forecast already on the ledger from ${dup.brief_path ?? "an earlier note"} (resolves ${dup.resolve_by}) — not filed again`);
+      store.restatePendingForecast(dup.id, { confidence: f.confidence ?? null, challengeVerdict, thesisKey });
+      console.log(`   ↺ forecast already on the ledger from ${dup.brief_path ?? "an earlier note"} (resolves ${dup.resolve_by}) — updated, not filed again`);
       return false;
     }
   }

@@ -13,8 +13,9 @@
 //      completed — the scheduler runs the AM edition first (see `needsRefreshFirst`).
 //
 // 1.45.0: "Daily 15:30", "Weekdays 07:00" and "Weekends 09:00" are accepted, and day names must be real
-// day names. Settings stores a daily schedule as "Mon-Sun HH:MM" (canonicalDaySpec), which every earlier
-// version also parses, so a rollback keeps the schedule.
+// day names (abbreviated, full, or plural: "Fri", "Friday", "Fridays"). Settings stores a daily schedule as
+// "Mon-Sun HH:MM" (canonicalDaySpec), which the 1.39–1.44 scheduler also runs; note that the 1.39–1.44
+// Settings page can only show single days, so saving Settings after a rollback turns such a schedule off.
 
 import { pack } from "./pack.js";
 
@@ -47,7 +48,12 @@ export function parseDaySpec(spec) {
   const time = `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
   const alias = DAY_ALIASES[m[1].trim().toLowerCase().replace(/\s+/g, " ")];
   if (alias) return { days: [...alias], time };
-  const norm = (d) => FULL_DAY[d.trim().toLowerCase()];
+  // Plural names ("Fridays", "Mondays,Wednesdays") ran before 1.45.0, when only the first three letters
+  // were compared — keep them working; "Monthly" and "Mon Wed Fri" stay rejected.
+  const norm = (d) => {
+    const t = d.trim().toLowerCase();
+    return FULL_DAY[t] ?? (t.endsWith("s") ? FULL_DAY[t.slice(0, -1)] : undefined);
+  };
   const days = [];
   for (const part of m[1].split(",").map((p) => p.trim()).filter(Boolean)) {
     const range = part.split("-").map((p) => p.trim());
@@ -89,8 +95,9 @@ export function describeDaySpec(spec) {
 
 /**
  * The form Settings stores. Daily and weekdays are written as ranges ("Mon-Sun 15:30", "Mon-Fri 07:00")
- * because every earlier version parses ranges, so rolling the app back never silently drops the
- * schedule; anything else is its days in week order. Null when the spec does not parse.
+ * because the 1.39–1.44 scheduler also parses ranges, so a rolled-back app keeps RUNNING the schedule
+ * (its Settings page can't display it, though — see the header). Anything else is its days in week
+ * order. Null when the spec does not parse.
  */
 export function canonicalDaySpec(spec) {
   const p = parseDaySpec(spec);

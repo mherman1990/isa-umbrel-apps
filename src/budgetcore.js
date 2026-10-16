@@ -78,8 +78,11 @@ export function analysisBudget(env = process.env, watchlist = null) {
  * Example: $105 budget with analysis $45 → the others split $60, exactly their dollars at $75 × 80%.
  */
 export function allocations(budget, analysisUsd = null) {
-  if (analysisUsd == null) return Object.fromEntries(Object.entries(GROUPS).map(([g, d]) => [g, budget * d.share]));
-  const analysis = Math.min(Math.max(analysisUsd, 0), budget);
+  // An override at or above the whole budget would leave the other groups $0 — Panels and Ask would pause
+  // at $0 spent. Settings refuses that; a conflicting .env pair falls back to the shares (and /freshness
+  // warns) rather than silently starving everything else.
+  if (analysisUsd == null || !(analysisUsd < budget)) return Object.fromEntries(Object.entries(GROUPS).map(([g, d]) => [g, budget * d.share]));
+  const analysis = Math.max(analysisUsd, 0);
   const rest = budget - analysis;
   const otherShare = 1 - GROUPS.analysis.share;
   return Object.fromEntries(Object.entries(GROUPS).map(([g, d]) => [g, g === "analysis" ? analysis : rest * (d.share / otherShare)]));

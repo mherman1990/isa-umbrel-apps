@@ -528,6 +528,11 @@ export function auditFreshness({ db, watchlist, defaultWatchlist = null, envPres
     const gap = expectedGapDays(spec);
     return gap ? gap * DAY : null;
   };
+  {
+    const mb = budgetUsd ?? monthlyBudget({}, watchlist);
+    const ab = analysisBudgetUsd === undefined ? analysisBudget({}, watchlist) : analysisBudgetUsd;
+    if (ab != null && ab >= mb) warnings.push(`Analysis budget $${ab} is not below the monthly budget $${mb}, so it is ignored and the analysis group falls back to its 20% share. Lower ANALYSIS_BUDGET_USD / output.analysisBudgetUsd or raise the monthly budget.`);
+  }
   for (const id of ["weekly", "monthly", "education", "analyst", "member"]) {
     const s = ed[id];
     if (typeof s === "string" && s.trim() && s.trim().toLowerCase() !== "off" && !describeDaySpec(s)) warnings.push(`Schedule for "${id}" ("${s}") is not understood, so it never runs — use e.g. "Daily 15:30", "Weekdays 07:00" or "Fri 17:00".`);

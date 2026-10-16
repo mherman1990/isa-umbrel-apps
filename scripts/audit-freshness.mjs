@@ -14,6 +14,27 @@ import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { PROJECT_ROOT, auditFreshness, envPresence, renderMarkdown, readJson } from "../src/health.js";
+import { monthlyBudget, analysisBudget } from "../src/budgetcore.js";
+
+/** The two budget numbers from the .env files (later files win; the process env wins over both) — only
+ *  these keys are read, so no secret value is loaded into this read-only report. */
+function budgetEnv(files) {
+  const out = {};
+  for (const f of files) {
+    let text = "";
+    try {
+      text = fs.readFileSync(f, "utf8");
+    } catch {
+      continue;
+    }
+    for (const line of text.split(/\r?\n/)) {
+      const m = line.match(/^\s*(MONTHLY_BUDGET_USD|ANALYSIS_BUDGET_USD)\s*=\s*"?([0-9.]+)"?\s*(?:#.*)?$/);
+      if (m) out[m[1]] = m[2];
+    }
+  }
+  for (const k of ["MONTHLY_BUDGET_USD", "ANALYSIS_BUDGET_USD"]) if (process.env[k]) out[k] = process.env[k];
+  return out;
+}
 
 export * from "../src/health.js";
 
@@ -73,6 +94,11 @@ export async function main(argv = process.argv.slice(2)) {
       dataDir,
       now: args.now ? new Date(args.now) : new Date(),
       logText,
+      // Same budget the app enforces: .env wins over watchlist.json (budget.check reads process.env).
+      ...(() => {
+        const env = budgetEnv([path.join(PROJECT_ROOT, ".env"), path.join(dataDir, ".env")]);
+        return { budgetUsd: monthlyBudget(env, watchlist), analysisBudgetUsd: analysisBudget(env, watchlist) };
+      })(),
     });
     process.stdout.write(args.json ? JSON.stringify(report, null, 2) + "\n" : renderMarkdown(report) + "\n");
   } finally {
