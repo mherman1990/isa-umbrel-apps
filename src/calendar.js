@@ -160,7 +160,11 @@ export function federalHolidays(year) {
   HOLIDAY_CACHE.set(year, set);
   return set;
 }
-const isHoliday = (isoDate) => federalHolidays(Number(isoDate.slice(0, 4))).has(isoDate);
+// Next year's set too: when Jan 1 is a Saturday, New Year's is observed on Dec 31 of the year before.
+const isHoliday = (isoDate) => {
+  const y = Number(isoDate.slice(0, 4));
+  return federalHolidays(y).has(isoDate) || federalHolidays(y + 1).has(isoDate);
+};
 
 export function isReleased(r, now = new Date()) {
   const { date, hhmm } = etClock(now);
@@ -176,7 +180,9 @@ function recurOccurrences(r, from, end) {
   const wStart = rec.window_start ? Date.parse(rec.window_start + "T00:00:00Z") : null;
   const wEnd = rec.window_end ? Date.parse(rec.window_end + "T23:59:59Z") : null;
   const out = [];
-  const d = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate(), 12));
+  // Start a week early: an occurrence whose usual day falls BEFORE `from` can be shifted onto or after it
+  // by a holiday (Labor Day's Crop Progress lands on the Tuesday), and must still be listed on that day.
+  const d = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate() - 7, 12));
   // Compared by DATE, like the fixed events: an occurrence dated today stays in the list all day. It used
   // to be dropped from noon UTC (7 a.m. CT), so a 15:30 CT report never saw that day's COT or crop-progress
   // release at all — neither as upcoming nor as released (consumers label released ones: releasedToday).

@@ -1551,10 +1551,14 @@ export function restatePendingForecast(id, { confidence = null, challengeVerdict
   const row = db.prepare("SELECT confidence, challenge_verdict, thesis_key FROM forecasts WHERE id = ?").get(id);
   if (!row) return;
   const lower = [row.confidence, confidence].filter((c) => c in CONF_RANK).sort((a, b) => CONF_RANK[a] - CONF_RANK[b])[0] ?? row.confidence;
+  // The verdict travels with the confidence it explains: it changes only when this restatement actually
+  // lowers the stored confidence; otherwise the existing verdict stays (and is filled only if missing), so
+  // a later "approve" never overwrites the demotion that set the confidence the row still carries.
+  const demoted = confidence in CONF_RANK && row.confidence in CONF_RANK && CONF_RANK[confidence] < CONF_RANK[row.confidence];
   db.prepare("UPDATE forecasts SET confidence = ?, challenge_verdict = ?, thesis_key = ? WHERE id = ?").run(
     lower ?? null,
-    challengeVerdict ?? row.challenge_verdict ?? null,
-    row.thesis_key ?? thesisKey ?? null,
+    demoted ? challengeVerdict ?? row.challenge_verdict ?? null : row.challenge_verdict ?? challengeVerdict ?? null,
+    demoted ? thesisKey ?? row.thesis_key ?? null : row.thesis_key ?? thesisKey ?? null,
     id
   );
 }

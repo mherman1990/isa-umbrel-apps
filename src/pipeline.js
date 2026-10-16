@@ -324,12 +324,17 @@ export async function refreshMarketSeries(env = process.env) {
  * @returns {Promise<{refreshed:boolean, reason:string, seriesCount?:number, failed?:object[]}>}
  */
 export async function refreshMarketsBeforeReport({ env = process.env, now = Date.now(), freshMs = 30 * 60e3, refresh = refreshMarketSeries, log = console.log } = {}) {
+  // Fresh only if EVERY daily price feed that has ever succeeded is fresh — the OLDEST of them decides, so a
+  // just-refreshed CME feed can't hide a stale CBOT settle (or a feed that failed on the first memo's pass).
+  // A feed with no record (e.g. CME settlements never enabled) is left out; with neither on record, the
+  // newest of any adapter is used.
   let last = 0;
   try {
     const runs = store.getMarketRuns();
-    // The daily price feeds are what goes stale between runs; fall back to any adapter if neither ran yet.
     const price = ["cbot_futures", "cme_settlements"].filter((k) => runs[k]?.lastSuccess);
-    for (const k of price.length ? price : Object.keys(runs)) last = Math.max(last, Date.parse(runs[k].lastSuccess) || 0);
+    last = price.length
+      ? Math.min(...price.map((k) => Date.parse(runs[k].lastSuccess) || 0))
+      : Math.max(0, ...Object.values(runs).map((r) => Date.parse(r.lastSuccess) || 0));
   } catch {
     /* no record → refresh */
   }

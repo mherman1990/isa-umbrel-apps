@@ -96,6 +96,12 @@ test("weekly releases move off federal holidays (Labor Day, Thanksgiving, Junete
   assert.ok(!dates("CROP_PROGRESS", "2026-09-03T12:00:00Z").includes("2026-09-07"));
   assert.deepEqual(dates("EXPORT_SALES", "2026-11-22T12:00:00Z", 8), ["2026-11-27"], "Thanksgiving Thursday → Friday");
   assert.deepEqual(dates("COT", "2026-06-15T12:00:00Z", 8), ["2026-06-22"], "Juneteenth Friday → Monday");
+  // Seen FROM the shifted day itself, the release is still listed (its usual day was before `from`).
+  assert.deepEqual(dates("CROP_PROGRESS", "2026-09-08T12:00:00Z", 3), ["2026-09-08"], "Tuesday after Labor Day lists that day's Crop Progress");
+  assert.deepEqual(dates("COT", "2026-06-22T12:00:00Z", 2), ["2026-06-22"], "Monday after Juneteenth lists that day's COT");
+  // New Year's observed on Dec 31 (Jan 1, 2022 was a Saturday): Friday's COT moves to Monday Jan 3.
+  assert.ok(!dates("COT", "2021-12-28T12:00:00Z", 8).includes("2021-12-31"));
+  assert.ok(dates("COT", "2021-12-28T12:00:00Z", 8).includes("2022-01-03"));
   // So on Labor Day the 15:30 note is NOT told Crop Progress came out that day.
   assert.doesNotMatch(calendar.upcomingReportsText(14, new Date("2026-09-07T20:30:00Z")), /Crop Progress[^\n]*RELEASED TODAY/);
 });
@@ -151,6 +157,11 @@ test("pre-report market refresh: runs when the price feeds are stale, skips when
   const r2 = await pipeline.refreshMarketsBeforeReport({ env: {}, now, refresh, log: () => {} });
   assert.equal(r2.refreshed, false, "the second report of the pair does not refresh again");
   assert.equal(calls.length, 1);
+  // A freshly-refreshed CME feed doesn't hide a stale CBOT one: the OLDEST price feed decides.
+  store.setMarketRunSuccess("cbot_futures", 4, "2026-10-16T11:35:00Z");
+  store.setMarketRunSuccess("cme_settlements", 72, "2026-10-16T20:25:00Z");
+  const r2b = await pipeline.refreshMarketsBeforeReport({ env: {}, now, refresh, log: () => {} });
+  assert.equal(r2b.refreshed, true, "CBOT is still from 06:35");
   store.setMarketRunSuccess("cbot_futures", 4, "2026-10-16T09:00:00Z");
   const r3 = await pipeline.refreshMarketsBeforeReport({ env: {}, now, refresh: async () => { throw new Error("CME down"); }, log: () => {} });
   assert.equal(r3.refreshed, false);
@@ -217,6 +228,12 @@ test("a daily note restating a pending call does not file it again; a new call, 
   assert.equal(after.confidence, "low", "demoted, and a later high-confidence restatement does not raise it back");
   assert.equal(after.challenge_verdict, "lower_confidence");
   assert.equal(after.thesis_key, "briefings/2026-10-19-analyst.md#0");
+  // A later APPROVED restatement doesn't overwrite the demotion that set the confidence the row still carries.
+  pipeline.fileForecastFromClaim(claim({ confidence: "medium", claim: "Soy up, approved." }), { briefPath: "briefings/2026-10-21-analyst.md", edition: "analyst", createdAt, bySeries, skipIfPending: true, challengeVerdict: "approve", thesisKey: "briefings/2026-10-21-analyst.md#0" });
+  const later = store.listForecasts({ limit: 100 }).find((r) => r.id === before.id);
+  assert.equal(later.confidence, "low");
+  assert.equal(later.challenge_verdict, "lower_confidence");
+  assert.equal(later.thesis_key, "briefings/2026-10-19-analyst.md#0");
   // Without the flag (CLI extraction, tests of the two filing paths) nothing changes.
   assert.equal(pipeline.fileForecastFromClaim(claim(), { briefPath: "briefings/x.md", edition: "analyst", createdAt, bySeries }), true);
 });
